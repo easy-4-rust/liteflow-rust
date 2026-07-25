@@ -1,31 +1,27 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.CatchErrorException
+//!
+//! 组件执行捕获到错误时抛出（CATCH 语义载体）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 捕获错误异常。
+/// 对应 CatchErrorException：组件执行捕获到错误时抛出（CATCH 语义载体）
 #[derive(Debug, Clone)]
 pub struct CatchErrorException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl CatchErrorException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for CatchErrorException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for CatchErrorException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for CatchErrorException {}
-
-impl LiteFlowException for CatchErrorException {
-    fn message(&self) -> &str {
-        &self.message
-    }
-}

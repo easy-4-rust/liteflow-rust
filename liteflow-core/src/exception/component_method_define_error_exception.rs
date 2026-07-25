@@ -1,47 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ComponentMethodDefineErrorException
+//!
+//! 组件方法定义错误（声明了非法的组件方法）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 组件方法定义错误异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ComponentMethodDefineErrorException：组件方法定义错误（声明了非法的组件方法）
 #[derive(Debug, Clone)]
 pub struct ComponentMethodDefineErrorException {
-    message: String,
-    component_id: Option<String>,
-    method_name: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ComponentMethodDefineErrorException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            component_id: None,
-            method_name: None,
-        }
-    }
-
-    pub fn with_detail(
-        message: impl Into<String>,
-        component_id: impl Into<String>,
-        method_name: impl Into<String>,
-    ) -> Self {
-        Self {
-            message: message.into(),
-            component_id: Some(component_id.into()),
-            method_name: Some(method_name.into()),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ComponentMethodDefineErrorException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ComponentMethodDefineErrorException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ComponentMethodDefineErrorException {}
 
-impl LiteFlowException for ComponentMethodDefineErrorException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ComponentMethodDefineErrorException> for LiteflowError {
+    fn from(e: ComponentMethodDefineErrorException) -> Self {
+        LiteflowError::CmpDefine(e.message)
     }
 }

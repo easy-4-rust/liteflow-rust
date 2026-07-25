@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ConfigErrorException
+//!
+//! 规则配置错误
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 配置错误异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ConfigErrorException：规则配置错误
 #[derive(Debug, Clone)]
 pub struct ConfigErrorException {
-    message: String,
-    config_key: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ConfigErrorException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            config_key: None,
-        }
-    }
-
-    pub fn with_key(message: impl Into<String>, config_key: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            config_key: Some(config_key.into()),
-        }
-    }
-
-    pub fn config_key(&self) -> Option<&str> {
-        self.config_key.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ConfigErrorException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ConfigErrorException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ConfigErrorException {}
 
-impl LiteFlowException for ConfigErrorException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ConfigErrorException> for LiteflowError {
+    fn from(e: ConfigErrorException) -> Self {
+        LiteflowError::Rule(e.message)
     }
 }
