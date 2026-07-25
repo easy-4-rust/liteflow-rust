@@ -128,7 +128,7 @@ async fn condition_type_aligns_with_java() {
     let iter_cond = IteratorCondition::new(s("it"), None, s("do"), None);
     assert_eq!(iter_cond.condition_type(), ConditionTypeEnum::Iterator);
 
-    let catch = CatchCondition::new(s("c"));
+    let catch = CatchCondition::new(s("c"), None);
     assert_eq!(catch.condition_type(), ConditionTypeEnum::Catch);
 
     let pre = PreCondition::new(s("p"));
