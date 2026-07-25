@@ -1,47 +1,37 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ScriptBeanMethodInvokeException
+//!
+//! 脚本 Bean 方法调用错误
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 脚本 Bean 方法调用异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ScriptBeanMethodInvokeException：脚本 Bean 方法调用错误
 #[derive(Debug, Clone)]
 pub struct ScriptBeanMethodInvokeException {
-    message: String,
-    bean_name: Option<String>,
-    method_name: Option<String>,
+    /// 节点 ID
+    pub node: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ScriptBeanMethodInvokeException {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            bean_name: None,
-            method_name: None,
-        }
-    }
-
-    pub fn with_detail(
-        message: impl Into<String>,
-        bean_name: impl Into<String>,
-        method_name: impl Into<String>,
-    ) -> Self {
-        Self {
-            message: message.into(),
-            bean_name: Some(bean_name.into()),
-            method_name: Some(method_name.into()),
-        }
+    /// 创建异常（对应 Java 的构造器）
+    pub fn new(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self { node: node.into(), message: message.into() }
     }
 }
 
-impl std::fmt::Display for ScriptBeanMethodInvokeException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+impl fmt::Display for ScriptBeanMethodInvokeException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "script bean method invoke error in node[{}]: {}", self.node, self.message)
     }
 }
 
 impl std::error::Error for ScriptBeanMethodInvokeException {}
 
-impl LiteFlowException for ScriptBeanMethodInvokeException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ScriptBeanMethodInvokeException> for LiteflowError {
+    fn from(e: ScriptBeanMethodInvokeException) -> Self {
+        LiteflowError::Script { node: e.node, msg: e.message }
     }
 }

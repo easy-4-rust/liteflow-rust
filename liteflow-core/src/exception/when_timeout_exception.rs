@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.WhenTimeoutException
+//!
+//! WHEN 并行执行超时
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// WHEN 超时异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 WhenTimeoutException：WHEN 并行执行超时
 #[derive(Debug, Clone)]
 pub struct WhenTimeoutException {
-    message: String,
-    timeout_ms: Option<u64>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl WhenTimeoutException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            timeout_ms: None,
-        }
-    }
-
-    pub fn with_timeout(message: impl Into<String>, timeout_ms: u64) -> Self {
-        Self {
-            message: message.into(),
-            timeout_ms: Some(timeout_ms),
-        }
-    }
-
-    pub fn timeout_ms(&self) -> Option<u64> {
-        self.timeout_ms
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for WhenTimeoutException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for WhenTimeoutException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for WhenTimeoutException {}
 
-impl LiteFlowException for WhenTimeoutException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<WhenTimeoutException> for LiteflowError {
+    fn from(_e: WhenTimeoutException) -> Self {
+        LiteflowError::WhenTimeout
     }
 }

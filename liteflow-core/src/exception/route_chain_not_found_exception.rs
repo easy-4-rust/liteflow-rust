@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.RouteChainNotFoundException
+//!
+//! 路由链未找到（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 路由链未找到异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 RouteChainNotFoundException：路由链未找到（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct RouteChainNotFoundException {
-    message: String,
-    route_key: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl RouteChainNotFoundException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            route_key: None,
-        }
-    }
-
-    pub fn with_route_key(message: impl Into<String>, route_key: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            route_key: Some(route_key.into()),
-        }
-    }
-
-    pub fn route_key(&self) -> Option<&str> {
-        self.route_key.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for RouteChainNotFoundException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RouteChainNotFoundException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for RouteChainNotFoundException {}
 
-impl LiteFlowException for RouteChainNotFoundException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<RouteChainNotFoundException> for LiteflowError {
+    fn from(e: RouteChainNotFoundException) -> Self {
+        LiteflowError::RouteChainNotFound(e.message)
     }
 }

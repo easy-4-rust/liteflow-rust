@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.WhenExecuteException
+//!
+//! WHEN 并行执行错误
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// WHEN 执行异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 WhenExecuteException：WHEN 并行执行错误
 #[derive(Debug, Clone)]
 pub struct WhenExecuteException {
-    message: String,
-    cause: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl WhenExecuteException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: None,
-        }
-    }
-
-    pub fn with_cause(message: impl Into<String>, cause: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: Some(cause.into()),
-        }
-    }
-
-    pub fn cause_message(&self) -> Option<&str> {
-        self.cause.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for WhenExecuteException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for WhenExecuteException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for WhenExecuteException {}
 
-impl LiteFlowException for WhenExecuteException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<WhenExecuteException> for LiteflowError {
+    fn from(e: WhenExecuteException) -> Self {
+        LiteflowError::WhenExecute(e.message)
     }
 }
