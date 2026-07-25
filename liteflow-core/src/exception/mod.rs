@@ -1,7 +1,12 @@
 //! 对应 Java 包：com.yomahub.liteflow.exception
 //!
-//! LiteFlow 异常模块。
+//! 异常体系：LiteFlowException 基类对应 lite_flow_exception.rs 中的统一枚举
+//! LiteflowError；每个具体 Java 异常对应一个同名单文件 struct（一文件一对象）。
+//! v2.10.0 基线 45 个具体异常 + v2.16.0 新增 14 个，共 59 个。
+//! 已有 LiteflowError 变体的异常提供 From 转换；暂无对应变体的（标注 S2 挂接）
+//! 将在 NodeExecutor 主干层落地时接入。
 
+pub mod lite_flow_exception;
 pub mod and_or_condition_exception;
 pub mod catch_error_exception;
 pub mod chain_duplicate_exception;
@@ -26,7 +31,6 @@ pub mod flow_system_exception;
 pub mod if_target_cannot_be_pre_or_finally_exception;
 pub mod if_type_error_exception;
 pub mod json_process_exception;
-pub mod lite_flow_exception;
 pub mod miss_maven_dependency_exception;
 pub mod monitor_file_init_error_exception;
 pub mod multiple_parsers_exception;
@@ -63,6 +67,7 @@ pub mod thread_executor_service_create_exception;
 pub mod when_execute_exception;
 pub mod when_timeout_exception;
 
+pub use lite_flow_exception::{LFResult, LiteflowError};
 pub use and_or_condition_exception::AndOrConditionException;
 pub use catch_error_exception::CatchErrorException;
 pub use chain_duplicate_exception::ChainDuplicateException;
@@ -77,7 +82,7 @@ pub use component_proxy_error_exception::ComponentProxyErrorException;
 pub use config_error_exception::ConfigErrorException;
 pub use cyclic_dependency_exception::CyclicDependencyException;
 pub use data_not_found_exception::DataNotFoundException;
-pub use el_parse_exception::ElParseException;
+pub use el_parse_exception::ELParseException;
 pub use empty_condition_value_exception::EmptyConditionValueException;
 pub use error_support_path_exception::ErrorSupportPathException;
 pub use executable_item_not_found_exception::ExecutableItemNotFoundException;
@@ -87,7 +92,6 @@ pub use flow_system_exception::FlowSystemException;
 pub use if_target_cannot_be_pre_or_finally_exception::IfTargetCannotBePreOrFinallyException;
 pub use if_type_error_exception::IfTypeErrorException;
 pub use json_process_exception::JsonProcessException;
-pub use lite_flow_exception::{LiteFlowError, LiteFlowException, LiteFlowResult};
 pub use miss_maven_dependency_exception::MissMavenDependencyException;
 pub use monitor_file_init_error_exception::MonitorFileInitErrorException;
 pub use multiple_parsers_exception::MultipleParsersException;
@@ -116,7 +120,7 @@ pub use parser_cannot_find_exception::ParserCannotFindException;
 pub use proxy_exception::ProxyException;
 pub use request_id_generator_exception::RequestIdGeneratorException;
 pub use route_chain_not_found_exception::RouteChainNotFoundException;
-pub use route_el_invalid_exception::RouteElInvalidException;
+pub use route_el_invalid_exception::RouteELInvalidException;
 pub use script_bean_method_invoke_exception::ScriptBeanMethodInvokeException;
 pub use switch_target_cannot_be_pre_or_finally_exception::SwitchTargetCannotBePreOrFinallyException;
 pub use switch_type_error_exception::SwitchTypeErrorException;

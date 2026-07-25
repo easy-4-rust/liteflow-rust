@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.NodeBuildException
+//!
+//! 节点构建期错误（节点未注册等）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 节点构建异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 NodeBuildException：节点构建期错误（节点未注册等）
 #[derive(Debug, Clone)]
 pub struct NodeBuildException {
-    message: String,
-    node_id: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl NodeBuildException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            node_id: None,
-        }
-    }
-
-    pub fn with_node_id(message: impl Into<String>, node_id: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            node_id: Some(node_id.into()),
-        }
-    }
-
-    pub fn node_id(&self) -> Option<&str> {
-        self.node_id.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for NodeBuildException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for NodeBuildException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for NodeBuildException {}
 
-impl LiteFlowException for NodeBuildException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<NodeBuildException> for LiteflowError {
+    fn from(e: NodeBuildException) -> Self {
+        LiteflowError::NodeBuild(e.message)
     }
 }
