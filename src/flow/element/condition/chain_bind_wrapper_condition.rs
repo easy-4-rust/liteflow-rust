@@ -1,7 +1,5 @@
-//! 对应 flow.element.condition.ChainBindWrapperCondition：子链包装。
-//!
-//! Java 语义：一个 Chain 被其他链引用时，用 ChainBindWrapperCondition 包裹后执行；
-//! bind 数据挂在 wrapper 上（Condition.bindData），不会污染共享的子链对象。
+//! 对应 ChainBindWrapperCondition：把子链包装成可执行元素（子流程嵌套）。
+//! EL 中直接写子链 id 即可引用（对齐 Java 的子流程语义）。
 
 use crate::exception::LFResult;
 use crate::flow::element::chain::Chain;

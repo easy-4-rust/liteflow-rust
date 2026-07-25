@@ -1,31 +1,22 @@
-//! 对应 flow.element.condition.AndOrCondition（AND / OR 二合一）。
+//! 对应 AndOrCondition：AND/OR 布尔短路。
 
+use super::expect_bool;
+use crate::enums::BooleanConditionTypeEnum;
 use crate::exception::LFResult;
-use crate::flow::element::condition::expect_bool;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-/// 对应 BooleanConditionTypeEnum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BooleanConditionTypeEnum {
-    And,
-    Or,
-}
-
 pub struct AndOrCondition {
-    pub condition_type: BooleanConditionTypeEnum,
-    pub items: Vec<Arc<dyn Executable>>,
+    condition_type: BooleanConditionTypeEnum,
+    items: Vec<Arc<dyn Executable>>,
 }
 
 impl AndOrCondition {
-    pub fn and(items: Vec<Arc<dyn Executable>>) -> Self {
-        Self { condition_type: BooleanConditionTypeEnum::And, items }
-    }
-    pub fn or(items: Vec<Arc<dyn Executable>>) -> Self {
-        Self { condition_type: BooleanConditionTypeEnum::Or, items }
+    pub fn new(condition_type: BooleanConditionTypeEnum, items: Vec<Arc<dyn Executable>>) -> Self {
+        Self { condition_type, items }
     }
 }
 
@@ -61,6 +52,7 @@ impl Executable for AndOrCondition {
             }
         }
     }
+
     fn id(&self) -> &str {
         match self.condition_type {
             BooleanConditionTypeEnum::And => "AND",

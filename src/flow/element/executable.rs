@@ -1,17 +1,20 @@
-//! 对应 flow.element.Executable：Node 与 Condition 的统一执行协议。
+//! 对应 flow.element.Executable 接口。
 
 use crate::exception::LFResult;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;
 use serde_json::Value;
 
+/// 所有可执行元素（Node / 各 Condition / Chain）的统一接口
 #[async_trait]
 pub trait Executable: Send + Sync {
-    /// 执行（对应 execute(slotIndex)）
+    /// execute(slotIndex)
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value>;
-    /// 标识（节点 id / 条件类型名）
-    fn id(&self) -> &str;
-    /// 标签（Node.tag，Condition 默认 None）
+    /// getId()（节点返回 id，条件返回类型名）
+    fn id(&self) -> &str {
+        ""
+    }
+    /// getTag()
     fn tag(&self) -> Option<&str> {
         None
     }

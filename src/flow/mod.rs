@@ -1,4 +1,4 @@
-//! 对应 liteflow-core flow 包。
+//! 对应 flow 包。
 
 pub mod flow_bus;
 pub mod liteflow_response;
