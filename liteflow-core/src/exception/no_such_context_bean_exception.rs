@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NoSuchContextBeanException：指定的上下文 Bean 不存在
 #[derive(Debug, Clone)]
 pub struct NoSuchContextBeanException {
@@ -25,3 +27,9 @@ impl fmt::Display for NoSuchContextBeanException {
 }
 
 impl std::error::Error for NoSuchContextBeanException {}
+
+impl From<NoSuchContextBeanException> for LiteflowError {
+    fn from(e: NoSuchContextBeanException) -> Self {
+        LiteflowError::NoSuchContextBean(e.message)
+    }
+}

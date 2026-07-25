@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 FlowExecutorNotInitException：FlowExecutor 未初始化
 #[derive(Debug, Clone)]
 pub struct FlowExecutorNotInitException {
@@ -25,3 +27,9 @@ impl fmt::Display for FlowExecutorNotInitException {
 }
 
 impl std::error::Error for FlowExecutorNotInitException {}
+
+impl From<FlowExecutorNotInitException> for LiteflowError {
+    fn from(e: FlowExecutorNotInitException) -> Self {
+        LiteflowError::FlowExecutorNotInit(e.message)
+    }
+}

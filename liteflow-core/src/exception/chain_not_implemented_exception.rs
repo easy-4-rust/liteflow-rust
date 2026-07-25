@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ChainNotImplementedException：抽象链未被继承实现（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ChainNotImplementedException {
@@ -25,3 +27,9 @@ impl fmt::Display for ChainNotImplementedException {
 }
 
 impl std::error::Error for ChainNotImplementedException {}
+
+impl From<ChainNotImplementedException> for LiteflowError {
+    fn from(e: ChainNotImplementedException) -> Self {
+        LiteflowError::ChainNotImplemented(e.message)
+    }
+}

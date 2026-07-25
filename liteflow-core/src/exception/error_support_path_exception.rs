@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ErrorSupportPathException：不支持的规则路径（规则源路径非法）
 #[derive(Debug, Clone)]
 pub struct ErrorSupportPathException {
@@ -25,3 +27,9 @@ impl fmt::Display for ErrorSupportPathException {
 }
 
 impl std::error::Error for ErrorSupportPathException {}
+
+impl From<ErrorSupportPathException> for LiteflowError {
+    fn from(e: ErrorSupportPathException) -> Self {
+        LiteflowError::ErrorSupportPath(e.message)
+    }
+}

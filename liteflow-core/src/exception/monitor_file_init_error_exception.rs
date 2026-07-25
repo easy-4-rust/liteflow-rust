@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 MonitorFileInitErrorException：监控文件初始化错误
 #[derive(Debug, Clone)]
 pub struct MonitorFileInitErrorException {
@@ -25,3 +27,9 @@ impl fmt::Display for MonitorFileInitErrorException {
 }
 
 impl std::error::Error for MonitorFileInitErrorException {}
+
+impl From<MonitorFileInitErrorException> for LiteflowError {
+    fn from(e: MonitorFileInitErrorException) -> Self {
+        LiteflowError::MonitorFileInitError(e.message)
+    }
+}

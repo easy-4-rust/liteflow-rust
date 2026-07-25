@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 MissMavenDependencyException：缺少运行所需依赖（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct MissMavenDependencyException {
@@ -25,3 +27,9 @@ impl fmt::Display for MissMavenDependencyException {
 }
 
 impl std::error::Error for MissMavenDependencyException {}
+
+impl From<MissMavenDependencyException> for LiteflowError {
+    fn from(e: MissMavenDependencyException) -> Self {
+        LiteflowError::MissMavenDependency(e.message)
+    }
+}

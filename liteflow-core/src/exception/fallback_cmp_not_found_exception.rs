@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 FallbackCmpNotFoundException：降级组件未找到（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct FallbackCmpNotFoundException {
@@ -25,3 +27,9 @@ impl fmt::Display for FallbackCmpNotFoundException {
 }
 
 impl std::error::Error for FallbackCmpNotFoundException {}
+
+impl From<FallbackCmpNotFoundException> for LiteflowError {
+    fn from(e: FallbackCmpNotFoundException) -> Self {
+        LiteflowError::FallbackCmpNotFound(e.message)
+    }
+}

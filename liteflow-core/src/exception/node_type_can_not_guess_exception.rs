@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NodeTypeCanNotGuessException：节点类型无法推断
 #[derive(Debug, Clone)]
 pub struct NodeTypeCanNotGuessException {
@@ -25,3 +27,9 @@ impl fmt::Display for NodeTypeCanNotGuessException {
 }
 
 impl std::error::Error for NodeTypeCanNotGuessException {}
+
+impl From<NodeTypeCanNotGuessException> for LiteflowError {
+    fn from(e: NodeTypeCanNotGuessException) -> Self {
+        LiteflowError::NodeTypeCanNotGuess(e.message)
+    }
+}

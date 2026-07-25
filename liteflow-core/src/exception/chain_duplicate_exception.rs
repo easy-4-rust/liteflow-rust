@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ChainDuplicateException：链重复定义（同一 chain id/name 被重复注册）
 #[derive(Debug, Clone)]
 pub struct ChainDuplicateException {
@@ -25,3 +27,9 @@ impl fmt::Display for ChainDuplicateException {
 }
 
 impl std::error::Error for ChainDuplicateException {}
+
+impl From<ChainDuplicateException> for LiteflowError {
+    fn from(e: ChainDuplicateException) -> Self {
+        LiteflowError::ChainDuplicate(e.message)
+    }
+}

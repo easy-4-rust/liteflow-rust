@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 MultipleParsersException：存在多个规则解析器（无法确定使用哪个）
 #[derive(Debug, Clone)]
 pub struct MultipleParsersException {
@@ -25,3 +27,9 @@ impl fmt::Display for MultipleParsersException {
 }
 
 impl std::error::Error for MultipleParsersException {}
+
+impl From<MultipleParsersException> for LiteflowError {
+    fn from(e: MultipleParsersException) -> Self {
+        LiteflowError::MultipleParsers(e.message)
+    }
+}

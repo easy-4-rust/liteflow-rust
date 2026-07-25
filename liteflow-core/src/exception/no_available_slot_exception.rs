@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NoAvailableSlotException：无可用 Slot（执行上下文未分配）
 #[derive(Debug, Clone)]
 pub struct NoAvailableSlotException {
@@ -25,3 +27,9 @@ impl fmt::Display for NoAvailableSlotException {
 }
 
 impl std::error::Error for NoAvailableSlotException {}
+
+impl From<NoAvailableSlotException> for LiteflowError {
+    fn from(e: NoAvailableSlotException) -> Self {
+        LiteflowError::NoAvailableSlot(e.message)
+    }
+}

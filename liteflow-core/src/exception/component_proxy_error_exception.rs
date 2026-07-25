@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ComponentProxyErrorException：组件代理创建/调用错误
 #[derive(Debug, Clone)]
 pub struct ComponentProxyErrorException {
@@ -25,3 +27,9 @@ impl fmt::Display for ComponentProxyErrorException {
 }
 
 impl std::error::Error for ComponentProxyErrorException {}
+
+impl From<ComponentProxyErrorException> for LiteflowError {
+    fn from(e: ComponentProxyErrorException) -> Self {
+        LiteflowError::ComponentProxyError(e.message)
+    }
+}
