@@ -1,31 +1,27 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ParameterFactException
+//!
+//! 参数构造错误（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 参数事实异常。
+/// 对应 ParameterFactException：参数构造错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ParameterFactException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ParameterFactException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ParameterFactException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ParameterFactException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ParameterFactException {}
-
-impl LiteFlowException for ParameterFactException {
-    fn message(&self) -> &str {
-        &self.message
-    }
-}
