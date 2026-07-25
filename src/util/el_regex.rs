@@ -109,6 +109,18 @@ fn replace_placeholder(el: &str, holder: &str, replacement: &str) -> String {
     out
 }
 
+/// 对应 ElRegexUtil.normalize（2.16，execute2RespWithEL 用）：
+/// 剔除 EL 中多余空格，将单引号变为双引号，并在末尾保留一个分号
+pub fn normalize_el(el_str: &str) -> String {
+    let s: String = el_str
+        .replace('\'', "\"")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let trimmed = s.trim_end_matches(';');
+    format!("{trimmed};")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

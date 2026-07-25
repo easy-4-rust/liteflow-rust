@@ -41,6 +41,19 @@ impl RhaiScriptExecutor {
             })
     }
 
+    /// 对应 ScriptValidator.validate(script)（只关心是否通过）
+    pub fn validate(&self, script: &str) -> bool {
+        self.engine.compile(script).is_ok()
+    }
+
+    /// 对应 ScriptValidator.validateWithEx(script)（2.16：返回带错误信息的校验结果）
+    pub fn validate_ex(&self, script: &str) -> LFResult<()> {
+        self.engine.compile(script).map(|_| ()).map_err(|e| LiteflowError::Script {
+            node: String::new(),
+            msg: format!("script validate failure: {e}"),
+        })
+    }
+
     /// 对应 ScriptExecutor.execute
     pub fn execute(&self, node_id: &str, ast: &AST, ctx: &CmpContext) -> LFResult<Value> {
         let mut scope = Scope::new();
