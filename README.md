@@ -13,16 +13,12 @@ src/
 ├── enums.rs                        # enums 包（ConditionTypeEnum / ParallelStrategyEnum ...）
 ├── core/                           # core 包
 │   ├── node_component.rs           #   NodeComponent trait（isAccess/isContinueOnError/...）
-│   ├── flow_executor.rs            #   FlowExecutor（execute2Resp 各重载）
-│   └── execute_option.rs           #   ExecuteOption（2.16：requestId/conversationId/eventListener）
+│   └── flow_executor.rs            #   FlowExecutor（execute2Resp 各重载）
 ├── builder/el/builder.rs           # builder.el 包：LiteFlowChainELBuilder
 ├── el.rs                           # EL 词法/语法解析（对应 Java 版底层 QLExpress 层）
 ├── flow/
 │   ├── flow_bus.rs                 #   FlowBus + LiteflowMetaOperator
 │   ├── liteflow_response.rs        #   LiteflowResponse
-│   ├── flow_event.rs               #   FlowEvent（2.15+ 执行事件）
-│   ├── flow_event_listener.rs      #   FlowEventListener
-│   ├── flow_event_publisher.rs     #   FlowEventPublisher
 │   ├── entity/cmp_step.rs          #   CmpStep
 │   ├── element/
 │   │   ├── executable.rs           #   Executable 接口
@@ -36,8 +32,6 @@ src/
 │   │       ├── catch_condition.rs / and_or_condition.rs / not_condition.rs
 │   │       ├── retry_condition.rs / timeout_condition.rs
 │   │       ├── ignore_error_condition.rs
-│   │       ├── chain_bind_wrapper_condition.rs  # 子链包装（持有 chain bind 数据）
-│   │       ├── bind_wrapper_condition.rs        # Condition 级 bind（2.14+）
 │   │       └── pre_condition.rs / finally_condition.rs
 │   └── parallel/strategy/          #   flow.parallel.strategy 包
 │       ├── all_of.rs               #   AllOfParallelExecutor
@@ -45,14 +39,14 @@ src/
 │       ├── percentage_of.rs        #   PercentageOfParallelExecutor
 │       └── specify_of.rs           #   SpecifyParallelExecutor
 ├── slot/                           # slot 包
-│   ├── slot.rs                     #   Slot（含 conversationId / attachments）
-│   ├── databus.rs                  #   DataBus + 请求 ID 生成 + Frame（loop/bind 栈）
+│   ├── slot.rs                     #   Slot
+│   ├── databus.rs                  #   DataBus + 请求 ID 生成
 │   └── default_context.rs          #   DefaultContext（CmpContext）
 ├── script/                         # script 包（rhai 脚本节点）
-│   ├── script_executor.rs          #   RhaiScriptExecutor（编译/求值/作用域注入/校验）
+│   ├── script_executor.rs          #   RhaiScriptExecutor（编译/求值/作用域注入）
 │   ├── script_component.rs         #   ScriptComponent（5 种脚本类型语义）
 │   └── json_convert.rs             #   serde_json ↔ rhai::Dynamic
-├── util/el_regex.rs                # util 包：链继承占位符 + EL normalize（2.16）
+├── util/el_regex.rs                # util 包：链继承占位符（{{holder}} 语义）
 ├── aop/                            # CmpAroundAspect 全局切面
 ├── lifecycle/                      # 生命周期钩子 SPI（4 种）
 ├── monitor/                        # MonitorBus 统计报表
@@ -121,6 +115,7 @@ async fn main() {
 | 忽略错误 | `.ignore_error(true)` | ✅ |
 | 节点修饰 | `a.tag("t").data("...").id("a1").bind("k","v")` | ✅ |
 | NODE 引用 | `NODE("a")` | ✅ |
+| 子流程嵌套 | `THEN(chain_sub_able)` 中以节点形式封装子链 | 见迁移对照表 |
 | rhai 脚本节点 | `boolean_script`/`switch_script`/`for_script`/`script` | ✅ |
 | XML 规则 | `<chain>/<route>/<body>/<nodes>` | ✅ |
 | route 决策表链路 | `add_route_chain` + `execute_route_chain` | ✅ |
