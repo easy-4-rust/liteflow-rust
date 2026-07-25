@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ParallelExecutorCreateException：并行执行器创建错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ParallelExecutorCreateException {
@@ -25,3 +27,9 @@ impl fmt::Display for ParallelExecutorCreateException {
 }
 
 impl std::error::Error for ParallelExecutorCreateException {}
+
+impl From<ParallelExecutorCreateException> for LiteflowError {
+    fn from(e: ParallelExecutorCreateException) -> Self {
+        LiteflowError::ParallelExecutorCreate(e.message)
+    }
+}

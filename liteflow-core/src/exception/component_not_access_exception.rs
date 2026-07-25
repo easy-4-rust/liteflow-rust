@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ComponentNotAccessException：组件不可访问（isAccess 返回 false 时抛出）
 #[derive(Debug, Clone)]
 pub struct ComponentNotAccessException {
@@ -25,3 +27,9 @@ impl fmt::Display for ComponentNotAccessException {
 }
 
 impl std::error::Error for ComponentNotAccessException {}
+
+impl From<ComponentNotAccessException> for LiteflowError {
+    fn from(e: ComponentNotAccessException) -> Self {
+        LiteflowError::ComponentNotAccess(e.message)
+    }
+}

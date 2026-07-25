@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ComponentCannotRegisterException：组件无法注册（注册流程非法）
 #[derive(Debug, Clone)]
 pub struct ComponentCannotRegisterException {
@@ -25,3 +27,9 @@ impl fmt::Display for ComponentCannotRegisterException {
 }
 
 impl std::error::Error for ComponentCannotRegisterException {}
+
+impl From<ComponentCannotRegisterException> for LiteflowError {
+    fn from(e: ComponentCannotRegisterException) -> Self {
+        LiteflowError::ComponentCannotRegister(e.message)
+    }
+}

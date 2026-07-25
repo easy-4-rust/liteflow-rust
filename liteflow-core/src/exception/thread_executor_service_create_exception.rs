@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ThreadExecutorServiceCreateException：线程池创建错误
 #[derive(Debug, Clone)]
 pub struct ThreadExecutorServiceCreateException {
@@ -25,3 +27,9 @@ impl fmt::Display for ThreadExecutorServiceCreateException {
 }
 
 impl std::error::Error for ThreadExecutorServiceCreateException {}
+
+impl From<ThreadExecutorServiceCreateException> for LiteflowError {
+    fn from(e: ThreadExecutorServiceCreateException) -> Self {
+        LiteflowError::ThreadExecutorServiceCreate(e.message)
+    }
+}
