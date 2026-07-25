@@ -1,5 +1,12 @@
-//! 对应 FinallyCondition。
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.FinallyCondition
+//!
+//! 后置 Condition。
+//!
+//! 差异说明：
+//! - Java FinallyCondition 持有 executableList 并循环执行多个可执行项；Rust 端
+//!   EL 中 FINALLY(...) 只包裹单个表达式，由 builder 保证单 item，故持单字段。
 
+use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -14,6 +21,11 @@ pub struct FinallyCondition {
 impl FinallyCondition {
     pub fn new(item: Arc<dyn Executable>) -> Self {
         Self { item }
+    }
+
+    /// 对应 Java FinallyCondition#getConditionType
+    pub fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Finally
     }
 }
 

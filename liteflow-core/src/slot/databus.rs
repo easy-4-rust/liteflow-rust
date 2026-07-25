@@ -1,21 +1,18 @@
 //! 对应 DataBus：Slot 的持有与传递句柄。
 
 use crate::flow::entity::cmp_step::CmpStep;
+use crate::flow::id::IdGeneratorHolder;
 use crate::slot::slot::Slot;
 use serde_json::Value;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-static REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
-
-/// 对应 DefaultRequestIdGenerator
+/// slot 创建未指定 request_id 时的生成入口：
+/// 经 IdGeneratorHolder 生成（对应 Java FlowExecutor 中
+/// IdGeneratorHolder.getInstance().generate() 的挂接点），
+/// 未注册自定义生成器时回退 DefaultRequestIdGenerator。
 pub fn gen_request_id() -> String {
-    let seq = REQUEST_SEQ.fetch_add(1, Ordering::Relaxed);
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    format!("{ts:x}{seq:04x}")
+    IdGeneratorHolder::generate()
 }
 
 /// 对应 Java Node 上的 loopIndexTL / loopObjectTL 栈（按执行路径传递）

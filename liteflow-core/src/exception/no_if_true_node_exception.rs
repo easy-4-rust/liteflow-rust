@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.NoIfTrueNodeException
+//!
+//! IF 条件中缺少真值节点
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 无 IF true 节点异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 NoIfTrueNodeException：IF 条件中缺少真值节点
 #[derive(Debug, Clone)]
 pub struct NoIfTrueNodeException {
-    message: String,
-    chain_id: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl NoIfTrueNodeException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            chain_id: None,
-        }
-    }
-
-    pub fn with_chain_id(message: impl Into<String>, chain_id: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            chain_id: Some(chain_id.into()),
-        }
-    }
-
-    pub fn chain_id(&self) -> Option<&str> {
-        self.chain_id.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for NoIfTrueNodeException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for NoIfTrueNodeException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for NoIfTrueNodeException {}
 
-impl LiteFlowException for NoIfTrueNodeException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<NoIfTrueNodeException> for LiteflowError {
+    fn from(e: NoIfTrueNodeException) -> Self {
+        LiteflowError::NoIfTrueNode(e.message)
     }
 }

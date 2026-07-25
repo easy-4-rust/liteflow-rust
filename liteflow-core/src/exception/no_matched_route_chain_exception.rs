@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.NoMatchedRouteChainException
+//!
+//! 无匹配的路由链（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 无匹配路由链异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 NoMatchedRouteChainException：无匹配的路由链（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct NoMatchedRouteChainException {
-    message: String,
-    route_key: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl NoMatchedRouteChainException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            route_key: None,
-        }
-    }
-
-    pub fn with_route_key(message: impl Into<String>, route_key: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            route_key: Some(route_key.into()),
-        }
-    }
-
-    pub fn route_key(&self) -> Option<&str> {
-        self.route_key.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for NoMatchedRouteChainException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for NoMatchedRouteChainException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for NoMatchedRouteChainException {}
 
-impl LiteFlowException for NoMatchedRouteChainException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<NoMatchedRouteChainException> for LiteflowError {
+    fn from(_e: NoMatchedRouteChainException) -> Self {
+        LiteflowError::NoMatchedRouteChain
     }
 }

@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ParserCannotFindException
+//!
+//! 找不到可用的规则解析器
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 解析器无法找到异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ParserCannotFindException：找不到可用的规则解析器
 #[derive(Debug, Clone)]
 pub struct ParserCannotFindException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ParserCannotFindException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ParserCannotFindException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ParserCannotFindException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ParserCannotFindException {}
 
-impl LiteFlowException for ParserCannotFindException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ParserCannotFindException> for LiteflowError {
+    fn from(e: ParserCannotFindException) -> Self {
+        LiteflowError::ParserCannotFind(e.message)
     }
 }

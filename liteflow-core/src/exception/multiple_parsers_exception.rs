@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.MultipleParsersException
+//!
+//! 存在多个规则解析器（无法确定使用哪个）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 多个解析器异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 MultipleParsersException：存在多个规则解析器（无法确定使用哪个）
 #[derive(Debug, Clone)]
 pub struct MultipleParsersException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl MultipleParsersException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for MultipleParsersException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MultipleParsersException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for MultipleParsersException {}
 
-impl LiteFlowException for MultipleParsersException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<MultipleParsersException> for LiteflowError {
+    fn from(e: MultipleParsersException) -> Self {
+        LiteflowError::MultipleParsers(e.message)
     }
 }

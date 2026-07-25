@@ -1,5 +1,13 @@
-//! 对应 LoopCondition：FOR/WHILE/ITERATOR 的公共逻辑
-//! （并行提交的 BREAK 检查与 future 结算，对齐 Java handleFutureList）。
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.LoopCondition
+//!
+//! FOR/WHILE/ITERATOR 的公共逻辑（并行提交的 BREAK 检查与 future 结算，
+//! 对齐 Java handleFutureList）。
+//!
+//! 架构映射说明：
+//! - Java LoopCondition#getBreakNode / #getDoExecutor（按 ConditionKey 取元素）
+//!   → Rust 各子类结构体的 break_item / do_executor 字段。
+//! - Java #setLoopIndex / #setCurrLoopObject（递归下传 Chain/Condition/Node）
+//!   → Rust Frame::push(index, object)，随执行路径 clone 下传，语义等价。
 
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;

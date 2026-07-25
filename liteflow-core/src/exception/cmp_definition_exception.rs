@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.CmpDefinitionException
+//!
+//! 组件定义错误（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 组件定义异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 CmpDefinitionException：组件定义错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct CmpDefinitionException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl CmpDefinitionException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for CmpDefinitionException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for CmpDefinitionException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for CmpDefinitionException {}
 
-impl LiteFlowException for CmpDefinitionException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<CmpDefinitionException> for LiteflowError {
+    fn from(e: CmpDefinitionException) -> Self {
+        LiteflowError::CmpDefinition(e.message)
     }
 }

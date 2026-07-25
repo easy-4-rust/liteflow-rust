@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.EmptyConditionValueException
+//!
+//! 条件值为空
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 条件值为空异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 EmptyConditionValueException：条件值为空
 #[derive(Debug, Clone)]
 pub struct EmptyConditionValueException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl EmptyConditionValueException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for EmptyConditionValueException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for EmptyConditionValueException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for EmptyConditionValueException {}
 
-impl LiteFlowException for EmptyConditionValueException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<EmptyConditionValueException> for LiteflowError {
+    fn from(e: EmptyConditionValueException) -> Self {
+        LiteflowError::EmptyConditionValue(e.message)
     }
 }

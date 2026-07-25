@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ChainNotFoundException
+//!
+//! 根据 id/name 未找到对应链
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 链未找到异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ChainNotFoundException：根据 id/name 未找到对应链
 #[derive(Debug, Clone)]
 pub struct ChainNotFoundException {
-    message: String,
-    chain_id: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ChainNotFoundException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            chain_id: None,
-        }
-    }
-
-    pub fn with_chain_id(message: impl Into<String>, chain_id: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            chain_id: Some(chain_id.into()),
-        }
-    }
-
-    pub fn chain_id(&self) -> Option<&str> {
-        self.chain_id.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ChainNotFoundException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ChainNotFoundException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ChainNotFoundException {}
 
-impl LiteFlowException for ChainNotFoundException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ChainNotFoundException> for LiteflowError {
+    fn from(e: ChainNotFoundException) -> Self {
+        LiteflowError::ChainNotFound(e.message)
     }
 }

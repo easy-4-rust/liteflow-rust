@@ -17,8 +17,12 @@ liteflow-vernal / liteflow-el-builder / liteflow-agent。
 
 ## 阶段规划
 - S0 盘点（本阶段）：当前完成度评估，对照 v2.10.0 基线与 304 类对象级清单
-- S1 P0 纯搬迁拆分：enums(17) / exception(60) / lifecycle / monitor / util → 一文件一对象，75 测试保持绿
-- S2 P1 主干补缺：flow/executor（NodeExecutor 层）/ spi 体系 / condition 补齐 / 36 个缺失异常变体
+- S1 P0 纯搬迁拆分：enums(11 文件) / exception(61 文件=基类枚举+59 具体异常) / lifecycle(5) / monitor(2) / util → 一文件一对象，75 测试保持绿 ✅（2026-07-25 完成并推送 dev：S1.0 workspace 化 → S1.1 enums → S1.2 lifecycle → S1.3 monitor/util → S1.4 exception → S1.5 推送+整库 diff 验证一致）
+- S2 P1 主干补缺 ✅（2026-07-25 完成，101 测试全绿 + all-features 编译通过）：
+  - S2-A flow/executor：NodeExecutor 重试主干 + DefaultNodeExecutor + NodeExecutorHelper + flow/parallel 三件套
+  - S2-B spi 体系 17 类（5 接口+5 holder+5 local+SpiPriority+SpiFactoryCleaner）+ flow/id RequestIdGenerator 3 类
+  - S2-C 36 个缺失异常变体挂接 LiteflowError
+  - S2-D condition 补齐：ConditionKey + 13 类方法级语义比对补缺
 - S3 P2 builder/el/operator 34 类拆分 + liteflow-el-builder（ELBus 链式 API）
 - S4 liteflow-derive（annotation/ 过程宏：@LiteflowComponent/@LiteflowMethod/@LiteflowRetry/@FallbackCmp 语义）
 - S5 liteflow-script-plugin 全量（lua/graaljs→boa/js→quickjs/python→pyo3/groovy→rhai?/qlexpress→自研）与 rule-plugin 订阅/轮询分层补齐

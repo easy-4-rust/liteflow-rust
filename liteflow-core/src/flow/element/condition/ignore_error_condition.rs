@@ -1,5 +1,5 @@
 //! 对应 Condition 基类的 ignoreError 语义（非 WHEN 场景）：
-//! 包上一层，吞掉子条件异常并记入 slot。
+//! 包裹一层，吞掉子条件异常并记入 slot。
 
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;

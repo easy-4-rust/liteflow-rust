@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ComponentNotAccessException
+//!
+//! 组件不可访问（isAccess 返回 false 时抛出）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 组件不可访问异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ComponentNotAccessException：组件不可访问（isAccess 返回 false 时抛出）
 #[derive(Debug, Clone)]
 pub struct ComponentNotAccessException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ComponentNotAccessException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ComponentNotAccessException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ComponentNotAccessException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ComponentNotAccessException {}
 
-impl LiteFlowException for ComponentNotAccessException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ComponentNotAccessException> for LiteflowError {
+    fn from(e: ComponentNotAccessException) -> Self {
+        LiteflowError::ComponentNotAccess(e.message)
     }
 }

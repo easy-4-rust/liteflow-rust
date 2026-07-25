@@ -1,31 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ProxyException
+//!
+//! 代理错误（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 代理异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ProxyException：代理错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ProxyException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ProxyException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ProxyException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ProxyException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ProxyException {}
 
-impl LiteFlowException for ProxyException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ProxyException> for LiteflowError {
+    fn from(e: ProxyException) -> Self {
+        LiteflowError::Proxy(e.message)
     }
 }
