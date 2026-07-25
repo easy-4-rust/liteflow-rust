@@ -1,11 +1,10 @@
 //! 对应 liteflow-rule-nacos：基于 Nacos 官方 Rust SDK（nacos-sdk）。
 
-use super::rule_source::{fnv_fp, RuleFormat, RuleSource};
+use super::rule_source::{RuleFormat, RuleSource, fnv_fp};
 use crate::exception::{LFResult, LiteflowError};
 use async_trait::async_trait;
 use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
 use nacos_sdk::api::props::ClientProps;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Nacos 规则源（对应 NacosParser）
@@ -18,11 +17,11 @@ pub struct NacosRuleSource {
     pub username: Option<String>,
     pub password: Option<String>,
     pub format: RuleFormat,
-    service: Mutex<Option<Arc<Mutex<dyn ConfigService + Send>>>>,
+    service: Mutex<Option<ConfigService>>,
 }
 
 impl NacosRuleSource {
-    async fn service(&self) -> LFResult<Arc<Mutex<dyn ConfigService + Send>>> {
+    async fn service(&self) -> LFResult<ConfigService> {
         let mut guard = self.service.lock().await;
         if let Some(s) = guard.as_ref() {
             return Ok(s.clone());
@@ -36,8 +35,8 @@ impl NacosRuleSource {
         }
         let service = ConfigServiceBuilder::new(props)
             .build()
+            .await
             .map_err(|e| LiteflowError::Rule(format!("nacos client build error: {e}")))?;
-        let service: Arc<Mutex<dyn ConfigService + Send>> = Arc::new(Mutex::new(service));
         *guard = Some(service.clone());
         Ok(service)
     }
@@ -47,11 +46,10 @@ impl NacosRuleSource {
 impl RuleSource for NacosRuleSource {
     async fn fetch(&self) -> LFResult<(String, String)> {
         let service = self.service().await?;
-        // nacos-sdk 0.3 的 ConfigService::get_config 为同步接口（内部阻塞 HTTP）
+        // nacos-sdk 0.8 的 ConfigService::get_config 为 async 接口
         let resp = service
-            .lock()
-            .await
             .get_config(self.data_id.clone(), self.group.clone())
+            .await
             .map_err(|e| LiteflowError::Rule(format!("nacos get config error: {e}")))?;
         let text = resp.content().clone();
         let fp = fnv_fp(&text);
