@@ -1,40 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.JsonProcessException
+//!
+//! JSON 处理错误
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// JSON 处理异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 JsonProcessException：JSON 处理错误
 #[derive(Debug, Clone)]
 pub struct JsonProcessException {
-    message: String,
-    cause: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl JsonProcessException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: None,
-        }
-    }
-
-    pub fn with_cause(message: impl Into<String>, cause: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: Some(cause.into()),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for JsonProcessException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for JsonProcessException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for JsonProcessException {}
 
-impl LiteFlowException for JsonProcessException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<JsonProcessException> for LiteflowError {
+    fn from(e: JsonProcessException) -> Self {
+        LiteflowError::Rule(e.message)
     }
 }

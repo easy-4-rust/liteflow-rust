@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.FlowSystemException
+//!
+//! 流程系统通用异常（兜底系统级错误）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 流程系统异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 FlowSystemException：流程系统通用异常（兜底系统级错误）
 #[derive(Debug, Clone)]
 pub struct FlowSystemException {
-    message: String,
-    cause: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl FlowSystemException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: None,
-        }
-    }
-
-    pub fn with_cause(message: impl Into<String>, cause: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            cause: Some(cause.into()),
-        }
-    }
-
-    pub fn cause_message(&self) -> Option<&str> {
-        self.cause.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for FlowSystemException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for FlowSystemException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for FlowSystemException {}
 
-impl LiteFlowException for FlowSystemException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<FlowSystemException> for LiteflowError {
+    fn from(e: FlowSystemException) -> Self {
+        LiteflowError::Custom(e.message)
     }
 }

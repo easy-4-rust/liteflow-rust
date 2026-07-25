@@ -1,31 +1,27 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.MissMavenDependencyException
+//!
+//! 缺少运行所需依赖（v2.16.0 新增）
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 缺少 Maven 依赖异常。
+/// 对应 MissMavenDependencyException：缺少运行所需依赖（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct MissMavenDependencyException {
-    message: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl MissMavenDependencyException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for MissMavenDependencyException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MissMavenDependencyException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for MissMavenDependencyException {}
-
-impl LiteFlowException for MissMavenDependencyException {
-    fn message(&self) -> &str {
-        &self.message
-    }
-}

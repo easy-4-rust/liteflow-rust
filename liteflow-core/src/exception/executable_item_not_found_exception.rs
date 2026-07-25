@@ -1,44 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ExecutableItemNotFoundException
+//!
+//! 可执行项（节点/条件）未找到
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// 可执行项未找到异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ExecutableItemNotFoundException：可执行项（节点/条件）未找到
 #[derive(Debug, Clone)]
 pub struct ExecutableItemNotFoundException {
-    message: String,
-    item_id: Option<String>,
+    /// 异常信息
+    pub message: String,
 }
 
 impl ExecutableItemNotFoundException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            item_id: None,
-        }
-    }
-
-    pub fn with_item_id(message: impl Into<String>, item_id: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            item_id: Some(item_id.into()),
-        }
-    }
-
-    pub fn item_id(&self) -> Option<&str> {
-        self.item_id.as_deref()
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ExecutableItemNotFoundException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ExecutableItemNotFoundException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for ExecutableItemNotFoundException {}
 
-impl LiteFlowException for ExecutableItemNotFoundException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ExecutableItemNotFoundException> for LiteflowError {
+    fn from(e: ExecutableItemNotFoundException) -> Self {
+        LiteflowError::NodeNotFound(e.message)
     }
 }

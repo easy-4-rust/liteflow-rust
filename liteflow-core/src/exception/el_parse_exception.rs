@@ -1,40 +1,35 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.ELParseException
+//!
+//! EL 表达式解析错误
 
-use crate::exception::lite_flow_exception::LiteFlowException;
+use std::fmt;
 
-/// EL 表达式解析异常。
+use super::lite_flow_exception::LiteflowError;
+
+/// 对应 ELParseException：EL 表达式解析错误
 #[derive(Debug, Clone)]
-pub struct ElParseException {
-    message: String,
-    el_expression: Option<String>,
+pub struct ELParseException {
+    /// 异常信息
+    pub message: String,
 }
 
-impl ElParseException {
+impl ELParseException {
+    /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            el_expression: None,
-        }
-    }
-
-    pub fn with_el(message: impl Into<String>, el_expression: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            el_expression: Some(el_expression.into()),
-        }
+        Self { message: message.into() }
     }
 }
 
-impl std::fmt::Display for ElParseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ELParseException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl std::error::Error for ElParseException {}
+impl std::error::Error for ELParseException {}
 
-impl LiteFlowException for ElParseException {
-    fn message(&self) -> &str {
-        &self.message
+impl From<ELParseException> for LiteflowError {
+    fn from(e: ELParseException) -> Self {
+        LiteflowError::Parse(e.message)
     }
 }
