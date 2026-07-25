@@ -23,6 +23,8 @@ use std::sync::Arc;
 pub struct FlowBus {
     pub(crate) nodes: Arc<DashMap<String, Arc<dyn NodeComponent>>>,
     pub(crate) chains: Arc<DashMap<String, Arc<Chain>>>,
+    /// elMd5 → chainId（2.16：execute2RespWithEL 的匿名链缓存索引）
+    pub(crate) el_md5_map: Arc<DashMap<String, String>>,
     /// 声明式组件（@LiteflowCmpDefine 语义）
     pub(crate) decls: Arc<DashMap<String, Arc<dyn DeclComponent>>>,
     /// 全局切面（CmpAroundAspectHolder）
@@ -55,6 +57,7 @@ impl FlowBus {
         Self {
             nodes: Arc::new(DashMap::new()),
             chains: Arc::new(DashMap::new()),
+            el_md5_map: Arc::new(DashMap::new()),
             decls: Arc::new(DashMap::new()),
             aspects: Arc::new(std::sync::RwLock::new(Vec::new())),
             monitor: Arc::new(MonitorBus::new()),
@@ -107,12 +110,21 @@ impl FlowBus {
 
     // ---------- 组件管理 ----------
 
-    /// addComponent(nodeId, cmpInstance)
+    /// addComponent(nodeId, cmpInstance)（2.16：nodeId 必须符合变量命名规则）
     pub fn register<C: NodeComponent>(&self, node_id: impl Into<String>, cmp: C) {
-        self.nodes.insert(node_id.into(), Arc::new(cmp));
+        self.try_register(node_id, cmp).expect("register component failed")
+    }
+    /// 可返回错误的注册（对应 addNode 抛 NodeIdUnIllegalException 语义）
+    pub fn try_register<C: NodeComponent>(&self, node_id: impl Into<String>, cmp: C) -> LFResult<()> {
+        let id = node_id.into();
+        check_node_id(&id)?;
+        self.nodes.insert(id, Arc::new(cmp));
+        Ok(())
     }
     pub fn register_arc(&self, node_id: impl Into<String>, cmp: Arc<dyn NodeComponent>) {
-        self.nodes.insert(node_id.into(), cmp);
+        let id = node_id.into();
+        check_node_id(&id).expect("register component failed");
+        self.nodes.insert(id, cmp);
     }
     /// removeComponent
     pub fn unregister(&self, node_id: &str) {
@@ -147,10 +159,33 @@ impl FlowBus {
     /// 由已构建的 Chain 直接装配（parser 包用）
     pub fn add_built_chain(&self, chain: Chain) {
         let id = chain.id.clone();
+        if let Some(md5) = chain.el_md5().map(|s| s.to_string()) {
+            self.el_md5_map.insert(md5, id.clone());
+        }
         self.chains.insert(id.clone(), Arc::new(chain));
         for h in &self.lifecycle.read().unwrap().chain_build {
             h.post_process_after_chain_build(&id);
         }
+    }
+
+    /// 构建匿名链路并登记 elMd5 索引（2.16：execute2RespWithEL 的缓存语义）
+    pub fn add_chain_anonymous(&self, chain_id: &str, normalized_el: &str, el_md5: String) -> LFResult<()> {
+        // normalize 末尾保留的分号是 QLExpress 语句终止符语义，本解析器剔除
+        let ast = parse_el(normalized_el.trim_end_matches(';'))?;
+        let id = chain_id.to_string();
+        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
+        chain.set_el(normalized_el.to_string(), el_md5.clone());
+        self.chains.insert(id.clone(), Arc::new(chain));
+        self.el_md5_map.insert(el_md5, id.clone());
+        for h in &self.lifecycle.read().unwrap().chain_build {
+            h.post_process_after_chain_build(&id);
+        }
+        Ok(())
+    }
+
+    /// getChainIdByElMd5（2.16）
+    pub fn get_chain_id_by_el_md5(&self, el_md5: &str) -> Option<String> {
+        self.el_md5_map.get(el_md5).map(|r| r.clone())
     }
 
     /// reloadChain：热刷新
@@ -163,7 +198,12 @@ impl FlowBus {
     }
 
     pub fn remove_chain(&self, chain_id: &str) {
-        self.chains.remove(chain_id);
+        if let Some((_, chain)) = self.chains.remove(chain_id) {
+            // 2.16：移除 chain 时同步清理 elMd5 索引
+            if let Some(md5) = chain.el_md5() {
+                self.el_md5_map.remove(md5);
+            }
+        }
     }
     pub fn contains_chain(&self, chain_id: &str) -> bool {
         self.chains.contains_key(chain_id)
@@ -232,6 +272,23 @@ impl FlowBus {
     }
 }
 
+/// nodeId 合法性校验（2.16：对应 QlExpressUtils.checkVariableName +
+/// NodeIdUnIllegalException；不能以数字开头，只能由字母/数字/下划线/$ 组成）
+fn check_node_id(node_id: &str) -> LFResult<()> {
+    let mut chars = node_id.chars();
+    let ok = match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' || c == '$' => {
+            chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        }
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(LiteflowError::NodeIdUnIllegal(node_id.to_string()))
+    }
+}
+
 // ---------- 执行便捷入口（委托给 FlowExecutor，对应 FlowExecutorHolder 的便捷用法） ----------
 use crate::core::flow_executor::FlowExecutor;
 use crate::flow::liteflow_response::LiteflowResponse;
@@ -278,5 +335,34 @@ impl FlowBus {
         timeout: Duration,
     ) -> LiteflowResponse {
         self.executor().execute_timeout(chain_id, input, timeout).await
+    }
+
+    /// execute2RespWithEL(elStr)（2.16：直接执行 EL 表达式）
+    pub async fn execute_with_el(&self, el_str: &str) -> LiteflowResponse {
+        self.executor().execute_with_el(el_str).await
+    }
+    /// execute2RespWithEL(elStr, param)
+    pub async fn execute_with_el_data(&self, el_str: &str, input: impl Serialize) -> LiteflowResponse {
+        self.executor().execute_with_el_data(el_str, input).await
+    }
+    /// execute2Resp(chainId, requestData, ExecuteOption)（2.16）
+    pub async fn execute_with_option(
+        &self,
+        chain_id: &str,
+        input: Value,
+        option: crate::core::execute_option::ExecuteOption,
+    ) -> LiteflowResponse {
+        self.executor().execute_with_option(chain_id, input, option).await
+    }
+    /// execute2RespWithRid（2.16：组件内以同一 requestId 调子链）
+    pub async fn execute_with_rid(
+        &self,
+        chain_id: &str,
+        input: Value,
+        request_id: impl Into<String>,
+    ) -> LiteflowResponse {
+        self.executor()
+            .execute_with_rid(chain_id, input, request_id, Vec::<(String, Arc<dyn StdAny + Send + Sync>)>::new())
+            .await
     }
 }
