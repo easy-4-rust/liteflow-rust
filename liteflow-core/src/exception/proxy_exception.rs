@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ProxyException：代理错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ProxyException {
@@ -25,3 +27,9 @@ impl fmt::Display for ProxyException {
 }
 
 impl std::error::Error for ProxyException {}
+
+impl From<ProxyException> for LiteflowError {
+    fn from(e: ProxyException) -> Self {
+        LiteflowError::Proxy(e.message)
+    }
+}

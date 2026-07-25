@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NullParamException：参数为空
 #[derive(Debug, Clone)]
 pub struct NullParamException {
@@ -25,3 +27,9 @@ impl fmt::Display for NullParamException {
 }
 
 impl std::error::Error for NullParamException {}
+
+impl From<NullParamException> for LiteflowError {
+    fn from(e: NullParamException) -> Self {
+        LiteflowError::NullParam(e.message)
+    }
+}

@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 DataNotFoundException：数据未找到
 #[derive(Debug, Clone)]
 pub struct DataNotFoundException {
@@ -25,3 +27,9 @@ impl fmt::Display for DataNotFoundException {
 }
 
 impl std::error::Error for DataNotFoundException {}
+
+impl From<DataNotFoundException> for LiteflowError {
+    fn from(e: DataNotFoundException) -> Self {
+        LiteflowError::DataNotFound(e.message)
+    }
+}

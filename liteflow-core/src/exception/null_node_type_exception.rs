@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NullNodeTypeException：节点类型为空
 #[derive(Debug, Clone)]
 pub struct NullNodeTypeException {
@@ -25,3 +27,9 @@ impl fmt::Display for NullNodeTypeException {
 }
 
 impl std::error::Error for NullNodeTypeException {}
+
+impl From<NullNodeTypeException> for LiteflowError {
+    fn from(e: NullNodeTypeException) -> Self {
+        LiteflowError::NullNodeType(e.message)
+    }
+}

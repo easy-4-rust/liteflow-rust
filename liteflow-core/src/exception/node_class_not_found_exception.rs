@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NodeClassNotFoundException：节点类未找到
 #[derive(Debug, Clone)]
 pub struct NodeClassNotFoundException {
@@ -25,3 +27,9 @@ impl fmt::Display for NodeClassNotFoundException {
 }
 
 impl std::error::Error for NodeClassNotFoundException {}
+
+impl From<NodeClassNotFoundException> for LiteflowError {
+    fn from(e: NodeClassNotFoundException) -> Self {
+        LiteflowError::NodeClassNotFound(e.message)
+    }
+}

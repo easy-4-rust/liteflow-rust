@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 CyclicDependencyException：检测到循环依赖
 #[derive(Debug, Clone)]
 pub struct CyclicDependencyException {
@@ -25,3 +27,9 @@ impl fmt::Display for CyclicDependencyException {
 }
 
 impl std::error::Error for CyclicDependencyException {}
+
+impl From<CyclicDependencyException> for LiteflowError {
+    fn from(e: CyclicDependencyException) -> Self {
+        LiteflowError::CyclicDependency(e.message)
+    }
+}
