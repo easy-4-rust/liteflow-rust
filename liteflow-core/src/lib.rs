@@ -45,6 +45,7 @@ pub mod instance_id;
 pub mod rule_plugin;
 pub mod script;
 pub mod slot;
+pub mod spi;
 
 // ---------- 顶层便捷导出 ----------
 pub use core::{cmp, FlowExecutor, FnComponent, NodeComponent};
@@ -53,10 +54,15 @@ pub use el::{parse_el, El, Mods, NodeRef, WhenOpts};
 pub use enums::{CmpStepTypeEnum, ConditionTypeEnum, ParallelStrategyEnum};
 pub use exception::{LFResult, LiteflowError};
 pub use flow::entity::cmp_step::CmpStep;
+pub use flow::id::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGenerator};
 pub use flow::{FlowBus, LiteflowResponse};
 pub use flow::{listener, FlowEvent, FlowEventBuilder, FlowEventListener, FlowEventPublisher};
 pub use script::script_component::{ScriptComponent, ScriptKind};
 pub use slot::{CmpContext, Ctx, Frame, Slot};
+pub use spi::{
+    CmpAroundAspectHolder, ContextAware, ContextAwareHolder, ContextCmpInit,
+    LiteflowComponentSupport, PathContentParser, SpiFactoryCleaner, SpiPriority,
+};
 
 /// 步骤类型别名（兼容旧 API）
 pub type CmpStepType = CmpStepTypeEnum;

@@ -1,6 +1,15 @@
-//! 对应 ForCondition：计数循环、DO/BREAK、PARALLEL 并行。
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.ForCondition
+//!
+//! 计数循环、DO/BREAK、PARALLEL 并行（PARALLEL 为 Rust 端扩展形态）。
+//!
+//! 差异说明：
+//! - Java 在 forNode 为空时抛 NoForNodeException；Rust 端 for_node 为
+//!   非空字段（builder 保证），不存在该运行期分支。
+//! - Java 通过 slot.getForResult(类名) 取循环次数；Rust 端 for 节点直接
+//!   返回 Value::Number。
 
 use super::loop_condition::{handle_future_list, run_sequential, submit_iteration};
+use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -25,11 +34,21 @@ impl ForCondition {
     ) -> Self {
         Self { for_node, parallel, do_executor, break_item }
     }
+
+    /// 对应 Java ForCondition#getConditionType
+    pub fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::For
+    }
 }
 
 #[async_trait]
 impl Executable for ForCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        // 对应 Java ForCondition#executeCondition：先判断 isAccess，
+        // 返回 false 则整个 FOR 表达式不执行
+        if !self.for_node.is_access(ctx, frame).await {
+            return Ok(Value::Null);
+        }
         let v = self.for_node.execute(ctx, frame).await?;
         let count = match &v {
             Value::Number(n) => n.as_u64().unwrap_or(0) as usize,

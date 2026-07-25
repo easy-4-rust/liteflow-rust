@@ -1,6 +1,16 @@
-//! 对应 SwitchCondition："id:tag" 目标匹配规则、default、NoSwitchTargetNodeException。
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.SwitchCondition
+//!
+//! "id:tag" 目标匹配规则、default、NoSwitchTargetNodeException。
+//!
+//! 差异说明：
+//! - Java 先校验 switch 节点类型为 SWITCH/SWITCH_SCRIPT（否则抛
+//!   SwitchTypeErrorException）；Rust 端节点类型由 builder 保证，结果非
+//!   string 时报 NodeTypeError（同语义）。
+//! - Java 通过 slot.getSwitchResult(类名) 取选择结果；Rust 端 switch 节点
+//!   直接返回 Value::String。
 
 use super::check_not_pre_finally;
+use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -22,11 +32,21 @@ impl SwitchCondition {
     ) -> Self {
         Self { switch_node, target_list, default_executor }
     }
+
+    /// 对应 Java SwitchCondition#getConditionType
+    pub fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Switch
+    }
 }
 
 #[async_trait]
 impl Executable for SwitchCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        // 对应 Java SwitchCondition#executeCondition：先判断 isAccess，
+        // 返回 false 则整个 SWITCH 表达式不执行
+        if !self.switch_node.is_access(ctx, frame).await {
+            return Ok(Value::Null);
+        }
         let v = self.switch_node.execute(ctx, frame).await?;
         let target_id = match &v {
             Value::String(s) => s.clone(),

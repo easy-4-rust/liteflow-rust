@@ -1,6 +1,15 @@
-//! 对应 IteratorCondition：迭代循环，loopObject 传递（含并行形态）。
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.IteratorCondition
+//!
+//! 迭代循环，loopObject 传递（含并行形态，PARALLEL 为 Rust 端扩展形态）。
+//!
+//! 差异说明：
+//! - Java 在 iteratorNode 为空时抛 NoIteratorNodeException；Rust 端
+//!   iterator_node 为非空字段（builder 保证），不存在该运行期分支。
+//! - Java 通过 slot.getIteratorResult(类名) 取 Iterator；Rust 端 iterator
+//!   节点直接返回 Value::Array。
 
 use super::loop_condition::{handle_future_list, run_sequential, submit_iteration};
+use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -25,11 +34,21 @@ impl IteratorCondition {
     ) -> Self {
         Self { iterator_node, parallel, do_executor, break_item }
     }
+
+    /// 对应 Java IteratorCondition#getConditionType
+    pub fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Iterator
+    }
 }
 
 #[async_trait]
 impl Executable for IteratorCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        // 对应 Java IteratorCondition#executeCondition：先判断 isAccess，
+        // 返回 false 则整个 ITERATOR 表达式不执行
+        if !self.iterator_node.is_access(ctx, frame).await {
+            return Ok(Value::Null);
+        }
         let v = self.iterator_node.execute(ctx, frame).await?;
         let list = match &v {
             Value::Array(a) => a.clone(),
