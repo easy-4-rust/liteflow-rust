@@ -24,7 +24,7 @@ impl RuleSource for ZkRuleSource {
         let connect = self.connect_string.clone();
         let path = self.node_path.clone();
         let text = tokio::task::spawn_blocking(move || -> LFResult<String> {
-            let (zk, _) = zookeeper::ZooKeeper::connect(
+            let zk = zookeeper::ZooKeeper::connect(
                 &connect,
                 std::time::Duration::from_secs(5),
                 NopWatcher,
@@ -32,8 +32,7 @@ impl RuleSource for ZkRuleSource {
             .map_err(|e| LiteflowError::Rule(format!("zk connect error: {e}")))?;
             let (data, _stat) = zk
                 .get_data(&path, false)
-                .map_err(|e| LiteflowError::Rule(format!("zk get data error: {e}")))?
-                .ok_or_else(|| LiteflowError::Rule("zk node not found".into()))?;
+                .map_err(|e| LiteflowError::Rule(format!("zk get data error: {e}")))?;
             zk.close().ok();
             String::from_utf8(data).map_err(|e| LiteflowError::Rule(format!("zk decode error: {e}")))
         })

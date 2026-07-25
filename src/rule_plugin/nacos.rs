@@ -47,12 +47,13 @@ impl NacosRuleSource {
 impl RuleSource for NacosRuleSource {
     async fn fetch(&self) -> LFResult<(String, String)> {
         let service = self.service().await?;
-        let text = service
+        // nacos-sdk 0.3 的 ConfigService::get_config 为同步接口（内部阻塞 HTTP）
+        let resp = service
             .lock()
             .await
             .get_config(self.data_id.clone(), self.group.clone())
-            .await
             .map_err(|e| LiteflowError::Rule(format!("nacos get config error: {e}")))?;
+        let text = resp.content().clone();
         let fp = fnv_fp(&text);
         Ok((text, fp))
     }

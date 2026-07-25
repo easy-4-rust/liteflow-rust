@@ -46,6 +46,7 @@ pub struct ScriptComponent {
     executor: RhaiScriptExecutor,
     ast: AST,
     /// 非编译型语言的脚本原文（如 lua）
+    #[allow(dead_code)] // 默认特性下仅 lua 分支读取
     raw_script: Option<String>,
 }
 
