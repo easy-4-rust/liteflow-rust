@@ -1,99 +1,72 @@
-// 循环次数
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.LoopCondition
+//!
+//! FOR/WHILE/ITERATOR 的公共逻辑（并行提交的 BREAK 检查与 future 结算，
+//! 对齐 Java handleFutureList）。
+//!
+//! 架构映射说明：
+//! - Java LoopCondition#getBreakNode / #getDoExecutor（按 ConditionKey 取元素）
+//!   → Rust 各子类结构体的 break_item / do_executor 字段。
+//! - Java #setLoopIndex / #setCurrLoopObject（递归下传 Chain/Condition/Node）
+//!   → Rust Frame::push(index, object)，随执行路径 clone 下传，语义等价。
 
-use std::any::Any;
+use crate::exception::{LFResult, LiteflowError};
+use crate::flow::element::executable::Executable;
+use crate::slot::{Ctx, Frame};
+use serde_json::Value;
 use std::sync::Arc;
+use tokio::task::JoinSet;
 
-use crate::context::Context;
-use crate::flow::element::{Condition, ConditionKey, Executable};
-use crate::r#loop::LoopOperation;
-use crate::slot::DataBus;
+/// 并行循环：提交一轮迭代任务，然后（对齐 Java）在启动线程检查 BREAK。
+/// 返回 false 表示 BREAK，停止后续提交。
+pub async fn submit_iteration(
+    set: &mut JoinSet<LFResult<Value>>,
+    body: &Arc<dyn Executable>,
+    brk: Option<&Arc<dyn Executable>>,
+    ctx: &Ctx,
+    frame: &Frame,
+    index: usize,
+    object: Option<Value>,
+) -> LFResult<bool> {
+    let body = body.clone();
+    let ctx2 = ctx.clone();
+    let f = frame.push(index, object.clone());
+    set.spawn(async move { body.execute(&ctx2, &f).await });
 
-/// LOOP 条件
-///
-/// 循环次数判断组件，条件语法如下：
-///
-/// - `LOOP(5).DO(THEN(a, b));`
-/// - `LOOP(5).PARALLEL_DO(THEN(a, b));`
-///
-/// 其中，`5` 表示循环次数，从 0 到 4，
-///
-/// 以上代码均可用本类来表示
-#[derive(Clone)]
-pub struct LoopCondition {
-    /// 循环次数
-    pub r#loop: Box<dyn Executable>,
-    /// 循环体
-    pub r#do: Option<Box<dyn Executable>>,
-    /// 循环操作
-    pub loop_operation: LoopOperation,
-}
-
-impl LoopCondition {
-    /// 获取循环体
-    ///
-    /// 如果循环体未指定，则抛出异常
-    fn get_do(&self) -> &dyn Executable {
-        // 在处理循环体时，如果循环体未指定，则抛出异常
-        self.r#do
-            .as_deref()
-            .expect("LoopCondition must specify a do executable")
+    if let Some(b) = brk {
+        let f2 = frame.push(index, object);
+        let v = b.execute(ctx, &f2).await?;
+        return Ok(!super::expect_bool(b.id(), &v)?);
     }
+    Ok(true)
 }
 
-#[async_trait::async_trait]
-impl Condition for LoopCondition {
-    /// 执行循环条件
-    ///
-    /// 根据 `loop_operation` 的值，选择串行循环或并行循环
-    ///
-    /// 如果是串行循环，则重复执行循环体，直到 `loop_count` 返回 `false`
-    ///
-    /// 如果是并行循环，则根据 `loop_operation` 的值，决定并行循环的方式
-    /// 如果是 `FOR` 操作，则重复执行循环体，直到 `loop_count` 返回 `false`
-    async fn execute(&self, slot_key: usize) -> anyhow::Result<()> {
-        match self.loop_operation {
-            // 串行循环
-            LoopOperation::LOOP => {
-                while self.loop_count(slot_key).await? {
-                    self.get_do().execute(slot_key).await?;
-                }
-                Ok(())
-            }
-            // 并行循环
-            LoopOperation::FOR => {
-                // 并行循环，根据 `loop_operation` 的值，决定并行循环的方式
-                // 如果是 `FOR` 操作，则重复执行循环体，直到 `loop_count` 返回 `false`
-                while self.loop_count(slot_key).await? {
-                    self.get_do().execute(slot_key).await?;
-                }
-                Ok(())
-            }
+/// 对应 Java LoopCondition.handleFutureList：任一任务失败则抛出
+pub async fn handle_future_list(mut set: JoinSet<LFResult<Value>>) -> LFResult<Value> {
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok(Ok(_)) => {}
+            Ok(Err(LiteflowError::ChainEnd)) => return Err(LiteflowError::ChainEnd),
+            Ok(Err(e)) => return Err(LiteflowError::WhenExecute(e.to_string())),
+            Err(join_err) => return Err(LiteflowError::WhenExecute(join_err.to_string())),
         }
     }
-
-    /// 循环条件
-    ///
-    /// 循环条件只需要循环体，不需要其他子组件
-    async fn loop_count(&self, slot_key: usize) -> anyhow::Result<bool> {
-        let slot = DataBus::get_slot(slot_key).expect("slot not found");
-        let context_idx = self.get_context_bean_idx(slot_key);
-        let context: Arc<dyn Context> = slot.get_context(context_idx)?;
-
-        self.r#loop
-            .execute_process(slot_key, |cmp| cmp.process_loop_count(context))
-            .await
-    }
+    Ok(Value::Null)
 }
 
-impl std::fmt::Debug for LoopCondition {
-    /// 打印循环条件
-    ///
-    /// 打印循环次数、循环体和循环操作
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LoopCondition")
-            .field("loop", &self.r#loop.id())
-            .field("do", &self.get_do().id())
-            .field("loop_operation", &self.loop_operation)
-            .finish()
+/// 顺序循环体执行 + BREAK 检查
+pub async fn run_sequential(
+    body: &Arc<dyn Executable>,
+    brk: Option<&Arc<dyn Executable>>,
+    ctx: &Ctx,
+    frame: &Frame,
+    index: usize,
+    object: Option<Value>,
+) -> LFResult<bool> {
+    let f = frame.push(index, object);
+    body.execute(ctx, &f).await?;
+    if let Some(b) = brk {
+        let v = b.execute(ctx, &f).await?;
+        return Ok(!super::expect_bool(b.id(), &v)?);
     }
+    Ok(true)
 }

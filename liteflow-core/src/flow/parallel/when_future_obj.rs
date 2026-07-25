@@ -1,130 +1,71 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+//! 对应 Java 类：com.yomahub.liteflow.flow.parallel.WhenFutureObj
+//!
+//! 并行异步任务（Java 中为 CompletableFuture）里的值对象：
+//! success / timeout / executorName / ex 四字段与 Java 对齐。
+//! Java 的 ex 为 java.lang.Exception，Rust 端对应为 LiteflowError。
 
-use anyhow::Context;
-use futures::future::BoxFuture;
-use futures::{Future, FutureExt};
+use crate::exception::when_timeout_exception::WhenTimeoutException;
+use crate::exception::LiteflowError;
 
-use crate::exception::data_not_found_exception::DataNotFoundException;
-use crate::flow::error::FlowResult;
-use crate::flow::parallel::default_context_bean::DefaultContextBean;
-use crate::flow::parallel::parallel_supplier::ParallelSupplier;
-use crate::slot::{DataBus, Slot};
-
+/// 并行任务结果载体（对应 WhenFutureObj）
+#[derive(Debug, Clone)]
 pub struct WhenFutureObj {
-    pub slot_key: usize,
-    pub name: String,
-    pub(crate) inner: Arc<Mutex<Inner>>,
+    /// 是否执行成功
+    pub success: bool,
+    /// 是否超时（对应 WhenCondition 的 when-max-timeout 语义）
+    pub timeout: bool,
+    /// 执行项标识（Java 取 executableItem.getExecuteId()）
+    pub executor_name: String,
+    /// 失败/超时时的异常（对应 ex 字段）
+    pub ex: Option<LiteflowError>,
 }
 
 impl WhenFutureObj {
-    pub fn new(supplier: ParallelSupplier) -> Self {
-        let inner = supplier.inner;
+    /// 对应 success(executorName)
+    pub fn success(executor_name: impl Into<String>) -> Self {
         Self {
-            slot_key: supplier.slot_key,
-            name: supplier.name,
-            inner,
+            success: true,
+            timeout: false,
+            executor_name: executor_name.into(),
+            ex: None,
         }
     }
-}
 
-impl Clone for WhenFutureObj {
-    fn clone(&self) -> Self {
+    /// 对应 fail(executorName, ex)
+    pub fn fail(executor_name: impl Into<String>, ex: LiteflowError) -> Self {
         Self {
-            slot_key: self.slot_key,
-            name: self.name.clone(),
-            inner: self.inner.clone(),
+            success: false,
+            timeout: false,
+            executor_name: executor_name.into(),
+            ex: Some(ex),
         }
     }
-}
 
-impl Future for WhenFutureObj {
-    type Output = FlowResult<WhenFutureObj>;
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let mut guard = self.lock();
-
-        // 先检查 future 是否已经完成，以及是否已经获取过结果
-        if guard.future.is_none() {
-            return std::task::Poll::Ready(Err(DataNotFoundException::with_err_message(
-                format!("Future '{}' was already consumed.", self.name),
-            )
-            .into()));
-        }
-
-        if guard.result.is_some() {
-            let result = guard
-                .result
-                .take()
-                .expect("[ERROR] Result should be Some, but found None");
-            return std::task::Poll::Ready(Ok(Self {
-                slot_key: self.slot_key,
-                name: self.name.clone(),
-                inner: Arc::new(Mutex::new(Inner {
-                    future: None,
-                    result: Some(result),
-                })),
-            }));
-        }
-
-        // poll 内部的 future
-        let inner_future = guard
-            .future
-            .as_mut()
-            .expect("[ERROR] Future should be Some, but found None");
-
-        match inner_future.poll_unpin(cx) {
-            std::task::Poll::Ready(result) => {
-                guard.result = Some(result);
-                guard.future = None;
-
-                std::task::Poll::Ready(Ok(self.clone()))
-            }
-            std::task::Poll::Pending => {
-                // future 还没完成
-                std::task::Poll::Pending
-            }
+    /// 对应 timeOut(executorName)：超时结果，ex 为 WhenTimeoutException。
+    /// （Java 的 message 中会拼接 LiteflowConfigGetter 的 when-max-timeout-seconds
+    /// 配置值；Rust 端超时配置由调用处显式传入，此处仅保留组件标识。）
+    pub fn time_out(executor_name: impl Into<String>) -> Self {
+        let name = executor_name.into();
+        Self {
+            success: false,
+            timeout: true,
+            executor_name: name.clone(),
+            ex: Some(
+                WhenTimeoutException::new(format!(
+                    "Timed out when executing the component[{name}]"
+                ))
+                .into(),
+            ),
         }
     }
-}
 
-pub struct Inner {
-    pub future: Option<BoxFuture<'static, FlowResult<()>>>,
-    pub result: Option<FlowResult<()>>,
-}
-
-impl WhenFutureObj {
-    /// 加锁获取内部状态
-    fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().expect("Failed to lock inner state")
+    /// 对应 isSuccess()
+    pub fn is_success(&self) -> bool {
+        self.success
     }
 
-    /// 检查 future 是否已经完成
-    pub fn is_completed(&self) -> bool {
-        self.lock().future.is_none()
-    }
-
-    /// 获取结果（会清除内部状态，防止多次调用）
-    pub fn get_result(&self) -> anyhow::Result<Option<FlowResult<()>>> {
-        self.lock()
-            .result
-            .take()
-            .context("No result available for future")
-    }
-
-    /// 获取结果（使用自定义错误消息）
-    pub fn get_result_timed(&self, error_message: &str) -> anyhow::Result<Option<FlowResult<()>>> {
-        self.lock().result.take().context(error_message.to_string())
-    }
-
-    /// 初始化上下文
-    pub fn init_context(&self) -> anyhow::Result<()> {
-        let mut slot = DataBus::get_slot(self.slot_key).context("Failed to get slot")?;
-        let default_context_bean = Arc::new(DefaultContextBean::new(self.clone()));
-
-        slot.set_default_context_bean(self.name.clone(), default_context_bean);
-        Ok(())
+    /// 对应 isTimeout()
+    pub fn is_timeout(&self) -> bool {
+        self.timeout
     }
 }

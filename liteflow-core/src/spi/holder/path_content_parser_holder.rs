@@ -1,30 +1,41 @@
-use std::sync::Arc;
+//! 对应 Java 类：com.yomahub.liteflow.spi.holder.PathContentParserHolder
+//!
+//! 路径内容解析 SPI 工厂类。Holder 模式说明见 context_aware_holder.rs。
 
-use crate::spi::{SpiFactory, path_content_parser::PathContentParser};
+use std::sync::{Arc, OnceLock, RwLock};
 
-/// 路径内容解析器持有者
-///
-/// 用于获取路径内容解析器实例
-pub struct PathContentParserHolder {
-    /// 路径内容解析器实例
-    path_content_parser: Arc<dyn PathContentParser>,
+use crate::spi::local::LocalPathContentParser;
+use crate::spi::path_content_parser::PathContentParser;
+
+static HOLDER: OnceLock<RwLock<Option<Arc<dyn PathContentParser>>>> = OnceLock::new();
+
+fn cell() -> &'static RwLock<Option<Arc<dyn PathContentParser>>> {
+    HOLDER.get_or_init(|| RwLock::new(None))
 }
 
+/// 对应 PathContentParserHolder
+pub struct PathContentParserHolder;
+
 impl PathContentParserHolder {
-    /// 创建路径内容解析器持有者
-    ///
-    /// 通过 SPI 工厂获取路径内容解析器实例
-    pub fn new() -> Self {
-        let path_content_parser = SpiFactory::path_content_parser();
-        Self {
-            path_content_parser,
+    /// 对应 loadContextAware()（Java 原方法名如此，实为加载 PathContentParser）：
+    /// 未注册时回退 LocalPathContentParser
+    pub fn load_path_content_parser() -> Arc<dyn PathContentParser> {
+        if let Some(x) = cell().read().unwrap().as_ref() {
+            return x.clone();
         }
+        let mut guard = cell().write().unwrap();
+        guard
+            .get_or_insert_with(|| Arc::new(LocalPathContentParser::new()))
+            .clone()
     }
 
-    /// 获取路径内容解析器实例
-    ///
-    /// 返回路径内容解析器实例
-    pub fn path_content_parser(&self) -> Arc<dyn PathContentParser> {
-        self.path_content_parser.clone()
+    /// 显式注册覆盖实现
+    pub fn register(path_content_parser: Arc<dyn PathContentParser>) {
+        *cell().write().unwrap() = Some(path_content_parser);
+    }
+
+    /// 对应 clean()
+    pub fn clean() {
+        *cell().write().unwrap() = None;
     }
 }

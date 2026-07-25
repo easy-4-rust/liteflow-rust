@@ -1,112 +1,30 @@
-use std::sync::{Arc, Mutex};
+//! 对应 Java 类：com.yomahub.liteflow.flow.parallel.CompletableFutureTimeout
+//!
+//! 带超时的 future 包装。
+//!
+//! 与 Java 实现的差异说明：
+//! - Java（timeoutAfter / completeOnTimeout）基于 ScheduledThreadPoolExecutor 守护线程，
+//!   超时后让 CompletableFuture 以 TimeoutException 异步完成，**原任务仍在后台线程
+//!   继续执行**，只是其结果无人接收；
+//! - Rust 端基于 tokio::time::timeout：超时即 drop 原 future（协作式取消，
+//!   原任务在下一个 await 点被终止），超时分支直接返回默认值。
+//!   语义对齐 Java completeOnTimeout（超时兜底为默认值），
+//!   而 orTimeout 的「异常完成但任务继续」语义在 tokio 中应直接用
+//!   tokio::spawn + tokio::time::timeout 表达，本模块不再单独提供。
+
+use std::future::Future;
 use std::time::Duration;
 
-use futures::Future;
-use futures::future::BoxFuture;
-use tokio::time::timeout;
-
-use crate::flow::error::FlowResult;
-
-/// 带超时控制的 Future 包装器
-///
-/// 为指定的 Future 添加超时机制，防止无限期阻塞
-pub struct CompletableFutureTimeout {
-    /// 内部的 Future，包含实际的业务逻辑
-    inner: Arc<Mutex<Option<BoxFuture<'static, FlowResult<()>>>>>,
-    /// 超时时间（秒）
-    timeout_seconds: u64,
-    /// 节点 ID
-    node_id: String,
-}
-
-impl CompletableFutureTimeout {
-    /// 创建新的带超时控制的 Future
-    pub fn new(
-        future: BoxFuture<'static, FlowResult<()>>,
-        timeout_seconds: u64,
-        node_id: String,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Some(future))),
-            timeout_seconds,
-            node_id,
-        }
-    }
-
-    /// 执行 Future，如果超时则返回超时错误
-    pub async fn execute(&self) -> FlowResult<()> {
-        let future = {
-            let mut guard = self.inner.lock().unwrap();
-            guard
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("Future already consumed"))?
-        };
-
-        match timeout(Duration::from_secs(self.timeout_seconds), future).await {
-            Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!(
-                "Node '{}' execution timeout after {} seconds",
-                self.node_id,
-                self.timeout_seconds
-            )
-            .into()),
-        }
-    }
-
-    /// 检查 Future 是否已经被消费
-    pub fn is_completed(&self) -> bool {
-        self.inner.lock().unwrap().is_none()
-    }
-}
-
-impl Future for CompletableFutureTimeout {
-    type Output = FlowResult<()>;
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let future = {
-            let mut guard = self.inner.lock().unwrap();
-            guard.take()
-        };
-
-        match future {
-            Some(f) => {
-                let mut pinned = Box::pin(f);
-                match pinned.as_mut().poll(cx) {
-                    std::task::Poll::Ready(result) => std::task::Poll::Ready(result),
-                    std::task::Poll::Pending => {
-                        // 将 future 放回，以便下次继续 poll
-                        let mut guard = self.inner.lock().unwrap();
-                        *guard = Some(pinned);
-                        std::task::Poll::Pending
-                    }
-                }
-            }
-            None => std::task::Poll::Ready(Err(anyhow::anyhow!("Future already consumed").into())),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::future::ready;
-
-    #[tokio::test]
-    async fn test_completable_future_timeout_success() {
-        let future = Box::pin(ready(Ok(())));
-        let timeout_future = CompletableFutureTimeout::new(future, 5, "test_node".to_string());
-        let result = timeout_future.execute().await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_completable_future_timeout_error() {
-        let future = Box::pin(ready(Err(anyhow::anyhow!("Test error").into())));
-        let timeout_future = CompletableFutureTimeout::new(future, 5, "test_node".to_string());
-        let result = timeout_future.execute().await;
-        assert!(result.is_err());
+/// 对应 completeOnTimeout(T t, CompletableFuture<T> future, long timeout, TimeUnit unit)：
+/// future 在 timeout 内完成则返回其结果；超时则返回默认值 `default`
+/// （Java 中是 applyToEither 先拿到 timeoutFuture 的 TimeoutException，
+/// 再 exceptionally 兜底为 t；Rust 端由 tokio::time::timeout 的 Err 分支直接给出默认值）。
+pub async fn complete_on_timeout<T, F>(default: T, future: F, timeout: Duration) -> T
+where
+    F: Future<Output = T>,
+{
+    match tokio::time::timeout(timeout, future).await {
+        Ok(v) => v,
+        Err(_) => default,
     }
 }

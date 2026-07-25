@@ -1,67 +1,65 @@
+//! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.CatchCondition
+//!
+//! 捕获执行 DO；无 DO 则异常继续抛出。
+//!
+//! 差异说明：
+//! - Java 在 catch item 为空时抛 CatchErrorException；Rust 端 catch_item 为
+//!   非空字段（builder 保证），不存在该运行期分支。
+//! - Java 通过 DataBus.getSlot(slotIndex).removeException() 清除 slot 异常；
+//!   Rust 端直接复位 Slot.exception（pub 字段），语义一致。
+
+use crate::enums::ConditionTypeEnum;
+use crate::exception::{LFResult, LiteflowError};
+use crate::flow::element::executable::Executable;
+use crate::slot::{Ctx, Frame};
+use async_trait::async_trait;
+use serde_json::Value;
 use std::sync::Arc;
 
-use crate::{
-    context::Context,
-    flow::element::{Condition, Executable},
-    slot::DataBus,
-};
-
-/// CATCH 条件
-///
-/// 捕获异常
-///
-/// 捕获异常的执行流程，相当于 try-catch 语句中的 catch 部分
-///
-/// 本类是 CATCH 条件的具体实现
-#[derive(Clone)]
 pub struct CatchCondition {
-    /// 捕获异常的执行流程
-    pub r#catch: Box<dyn Executable>,
-    /// 错误处理流程
-    pub r#do: Option<Box<dyn Executable>>,
+    catch_item: Arc<dyn Executable>,
+    do_item: Option<Arc<dyn Executable>>,
 }
 
-#[async_trait::async_trait]
-impl Condition for CatchCondition {
-    /// 执行捕获异常
-    ///
-    /// 如果捕获异常发生，则执行错误处理流程
-    async fn execute(&self, slot_key: usize) -> anyhow::Result<()> {
-        match self.r#catch.execute(slot_key).await {
-            Ok(_) => Ok(()),
+impl CatchCondition {
+    pub fn new(catch_item: Arc<dyn Executable>, do_item: Option<Arc<dyn Executable>>) -> Self {
+        Self { catch_item, do_item }
+    }
+
+    /// 对应 Java CatchCondition#getConditionType
+    pub fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Catch
+    }
+}
+
+#[async_trait]
+impl Executable for CatchCondition {
+    async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        match self.catch_item.execute(ctx, frame).await {
+            Ok(v) => Ok(v),
+            Err(LiteflowError::ChainEnd) => Err(LiteflowError::ChainEnd),
             Err(e) => {
-                // 捕获异常发生，将异常信息设置到插槽中
-                let slot = DataBus::get_slot(slot_key).expect("slot not found");
-                slot.set_exception(e);
-                // 执行错误处理流程
-                if let Some(r#do) = &self.r#do {
-                    r#do.execute(slot_key).await
-                } else {
-                    Ok(())
+                ctx.set_exception(&e.to_string());
+                match &self.do_item {
+                    Some(d) => {
+                        let r = d.execute(ctx, frame).await;
+                        if r.is_ok() {
+                            // 对应 Java CatchCondition#executeCondition：
+                            // catch 之后需要把 exception 清除掉——正如同 java 的 catch，
+                            // 异常自己处理了属于正常流程，整个流程状态应该是成功的
+                            if let Ok(mut ex) = ctx.inner.exception.lock() {
+                                *ex = None;
+                            }
+                        }
+                        r
+                    }
+                    None => Err(e),
                 }
             }
         }
     }
 
-    /// 获取捕获异常的执行流程的 id
-    fn id(&self) -> String {
-        self.r#catch.id()
-    }
-
-    /// 获取捕获异常的执行流程的标签
-    fn tag(&self) -> String {
-        self.r#catch.tag()
-    }
-}
-
-impl std::fmt::Debug for CatchCondition {
-    /// 打印捕获异常的执行流程
-    ///
-    /// 打印捕获异常的执行流程和错误处理流程
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CatchCondition")
-            .field("catch", &self.r#catch.id())
-            .field("do", &self.r#do.as_ref().map(|d| d.id()))
-            .finish()
+    fn id(&self) -> &str {
+        "CATCH"
     }
 }
