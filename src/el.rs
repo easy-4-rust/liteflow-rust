@@ -20,6 +20,8 @@ pub struct NodeRef {
     pub tag: Option<String>,
     pub data: Option<String>,
     pub bind: Vec<(String, String)>,
+    /// .bind(k, v, override) 的 override 参数（2.14+，默认 false）
+    pub bind_override: bool,
 }
 
 impl NodeRef {
@@ -30,6 +32,7 @@ impl NodeRef {
             tag: None,
             data: None,
             bind: Vec::new(),
+            bind_override: false,
         }
     }
     /// 展示名，对齐 Java 的 getDisplayName（优先别名）
@@ -51,11 +54,16 @@ pub struct WhenOpts {
 }
 
 /// 通用修饰（可包裹任意表达式），对应 RetryCondition / TimeoutCondition / ignoreError
+/// 以及 2.14+ 的 Condition 级 bind（`THEN(...).bind(k, v[, override])`）
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Mods {
     pub retry: Option<u32>,
     pub max_wait_ms: Option<u64>,
     pub ignore_error: bool,
+    /// Condition 级 bind 键值（对应 Condition.putBindData）
+    pub bind: Vec<(String, String)>,
+    /// bind 的 override 参数：true 时清除子 Node 上相同 key 的 bind
+    pub bind_override: bool,
 }
 
 /// EL 语法树，对应 liteflow-core flow.element.condition 包的全部 Condition 类型
@@ -760,24 +768,51 @@ impl Parser {
                 }
             }
             "BIND" => {
+                // .bind(k, v, ...) 键值对 + 可选尾部 override 布尔（2.14+）
                 let mut pairs = Vec::new();
-                let mut it = args.into_iter();
-                while let (Some(k), Some(v)) = (it.next(), it.next()) {
-                    match (k, v) {
-                        (Arg::Str(k), Arg::Str(v)) => pairs.push((k, v)),
+                let mut override_flag = false;
+                let mut args = args.into_iter().peekable();
+                while let Some(a) = args.next() {
+                    match a {
+                        Arg::Str(k) => match args.next() {
+                            Some(Arg::Str(v)) => pairs.push((k, v)),
+                            Some(Arg::Bool(b)) => {
+                                // 最后一个键缺值、给的是布尔：视为 override（k 被消费，回退语义不允许，报出更清晰）
+                                let _ = b;
+                                return Err(LiteflowError::Parse(
+                                    "BIND requires pairs of strings, override must follow a complete pair".into(),
+                                ));
+                            }
+                            _ => {
+                                return Err(LiteflowError::Parse(
+                                    "BIND requires pairs of strings".into(),
+                                ))
+                            }
+                        },
+                        Arg::Bool(b) => override_flag = b,
                         _ => {
                             return Err(LiteflowError::Parse(
-                                "BIND requires pairs of strings".into(),
+                                "BIND requires pairs of strings and optional trailing bool".into(),
                             ))
                         }
                     }
                 }
                 match e {
+                    // 场景1：对 Node bind（bind 数据存在 Node 上）
                     El::Node(mut n) => {
-                        n.bind = pairs;
+                        // map 语义：同 key 覆盖
+                        for (k, v) in pairs {
+                            n.bind.retain(|(ek, _)| *ek != k);
+                            n.bind.push((k, v));
+                        }
+                        n.bind_override = override_flag;
                         Ok(El::Node(n))
                     }
-                    _ => Err(LiteflowError::Parse("BIND must follow a node".into())),
+                    // 场景2/3：对 Condition / Chain bind（bind 数据存在 Condition 上）
+                    other => Ok(Self::add_mods(
+                        other,
+                        Mods { bind: pairs, bind_override: override_flag, ..Default::default() },
+                    )),
                 }
             }
             _ => Err(LiteflowError::Parse(format!("unknown method: {name}"))),
@@ -820,6 +855,14 @@ impl Parser {
                     old.max_wait_ms = m.max_wait_ms;
                 }
                 old.ignore_error = old.ignore_error || m.ignore_error;
+                if !m.bind.is_empty() {
+                    // map 语义：同 key 覆盖
+                    for (k, v) in m.bind {
+                        old.bind.retain(|(ek, _)| *ek != k);
+                        old.bind.push((k, v));
+                    }
+                }
+                old.bind_override = old.bind_override || m.bind_override;
                 El::Mods(inner, old)
             }
             other => El::Mods(Box::new(other), m),
