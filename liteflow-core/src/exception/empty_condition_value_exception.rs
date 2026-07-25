@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 EmptyConditionValueException：条件值为空
 #[derive(Debug, Clone)]
 pub struct EmptyConditionValueException {
@@ -25,3 +27,9 @@ impl fmt::Display for EmptyConditionValueException {
 }
 
 impl std::error::Error for EmptyConditionValueException {}
+
+impl From<EmptyConditionValueException> for LiteflowError {
+    fn from(e: EmptyConditionValueException) -> Self {
+        LiteflowError::EmptyConditionValue(e.message)
+    }
+}

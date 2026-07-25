@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 AndOrConditionException：AND/OR 条件错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct AndOrConditionException {
@@ -25,3 +27,9 @@ impl fmt::Display for AndOrConditionException {
 }
 
 impl std::error::Error for AndOrConditionException {}
+
+impl From<AndOrConditionException> for LiteflowError {
+    fn from(e: AndOrConditionException) -> Self {
+        LiteflowError::AndOrCondition(e.message)
+    }
+}

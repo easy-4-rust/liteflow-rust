@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NodeTypeNotSupportException：节点类型不支持
 #[derive(Debug, Clone)]
 pub struct NodeTypeNotSupportException {
@@ -25,3 +27,9 @@ impl fmt::Display for NodeTypeNotSupportException {
 }
 
 impl std::error::Error for NodeTypeNotSupportException {}
+
+impl From<NodeTypeNotSupportException> for LiteflowError {
+    fn from(e: NodeTypeNotSupportException) -> Self {
+        LiteflowError::NodeTypeNotSupport(e.message)
+    }
+}

@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ParameterFactException：参数构造错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ParameterFactException {
@@ -25,3 +27,9 @@ impl fmt::Display for ParameterFactException {
 }
 
 impl std::error::Error for ParameterFactException {}
+
+impl From<ParameterFactException> for LiteflowError {
+    fn from(e: ParameterFactException) -> Self {
+        LiteflowError::ParameterFact(e.message)
+    }
+}

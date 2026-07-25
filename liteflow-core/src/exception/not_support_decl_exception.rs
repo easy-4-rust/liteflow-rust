@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NotSupportDeclException：不支持的声明方式（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct NotSupportDeclException {
@@ -25,3 +27,9 @@ impl fmt::Display for NotSupportDeclException {
 }
 
 impl std::error::Error for NotSupportDeclException {}
+
+impl From<NotSupportDeclException> for LiteflowError {
+    fn from(e: NotSupportDeclException) -> Self {
+        LiteflowError::NotSupportDecl(e.message)
+    }
+}

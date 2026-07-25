@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 CatchErrorException：组件执行捕获到错误时抛出（CATCH 语义载体）
 #[derive(Debug, Clone)]
 pub struct CatchErrorException {
@@ -25,3 +27,9 @@ impl fmt::Display for CatchErrorException {
 }
 
 impl std::error::Error for CatchErrorException {}
+
+impl From<CatchErrorException> for LiteflowError {
+    fn from(e: CatchErrorException) -> Self {
+        LiteflowError::CatchError(e.message)
+    }
+}

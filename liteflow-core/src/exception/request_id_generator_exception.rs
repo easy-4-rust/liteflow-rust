@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 RequestIdGeneratorException：requestId 生成器错误
 #[derive(Debug, Clone)]
 pub struct RequestIdGeneratorException {
@@ -25,3 +27,9 @@ impl fmt::Display for RequestIdGeneratorException {
 }
 
 impl std::error::Error for RequestIdGeneratorException {}
+
+impl From<RequestIdGeneratorException> for LiteflowError {
+    fn from(e: RequestIdGeneratorException) -> Self {
+        LiteflowError::RequestIdGenerator(e.message)
+    }
+}

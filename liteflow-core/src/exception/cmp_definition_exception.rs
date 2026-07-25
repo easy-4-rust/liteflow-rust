@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 CmpDefinitionException：组件定义错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct CmpDefinitionException {
@@ -25,3 +27,9 @@ impl fmt::Display for CmpDefinitionException {
 }
 
 impl std::error::Error for CmpDefinitionException {}
+
+impl From<CmpDefinitionException> for LiteflowError {
+    fn from(e: CmpDefinitionException) -> Self {
+        LiteflowError::CmpDefinition(e.message)
+    }
+}

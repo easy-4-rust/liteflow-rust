@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 RouteELInvalidException：路由 EL 非法（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct RouteELInvalidException {
@@ -25,3 +27,9 @@ impl fmt::Display for RouteELInvalidException {
 }
 
 impl std::error::Error for RouteELInvalidException {}
+
+impl From<RouteELInvalidException> for LiteflowError {
+    fn from(e: RouteELInvalidException) -> Self {
+        LiteflowError::RouteELInvalid(e.message)
+    }
+}

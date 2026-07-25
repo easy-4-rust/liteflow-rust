@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 NotSupportConditionException：不支持的条件类型
 #[derive(Debug, Clone)]
 pub struct NotSupportConditionException {
@@ -25,3 +27,9 @@ impl fmt::Display for NotSupportConditionException {
 }
 
 impl std::error::Error for NotSupportConditionException {}
+
+impl From<NotSupportConditionException> for LiteflowError {
+    fn from(e: NotSupportConditionException) -> Self {
+        LiteflowError::NotSupportCondition(e.message)
+    }
+}

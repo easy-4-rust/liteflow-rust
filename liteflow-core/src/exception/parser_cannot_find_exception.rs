@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ParserCannotFindException：找不到可用的规则解析器
 #[derive(Debug, Clone)]
 pub struct ParserCannotFindException {
@@ -25,3 +27,9 @@ impl fmt::Display for ParserCannotFindException {
 }
 
 impl std::error::Error for ParserCannotFindException {}
+
+impl From<ParserCannotFindException> for LiteflowError {
+    fn from(e: ParserCannotFindException) -> Self {
+        LiteflowError::ParserCannotFind(e.message)
+    }
+}

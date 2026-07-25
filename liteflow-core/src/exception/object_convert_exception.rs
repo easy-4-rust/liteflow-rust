@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::lite_flow_exception::LiteflowError;
+
 /// 对应 ObjectConvertException：对象转换错误（v2.16.0 新增）
 #[derive(Debug, Clone)]
 pub struct ObjectConvertException {
@@ -25,3 +27,9 @@ impl fmt::Display for ObjectConvertException {
 }
 
 impl std::error::Error for ObjectConvertException {}
+
+impl From<ObjectConvertException> for LiteflowError {
+    fn from(e: ObjectConvertException) -> Self {
+        LiteflowError::ObjectConvert(e.message)
+    }
+}
