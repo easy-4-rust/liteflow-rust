@@ -72,6 +72,108 @@ pub enum LiteflowError {
     /// 不能以数字开头，只能由字母/数字/下划线/$ 组成）
     #[error("invalid node id: [{0}]. node id must follow variable naming rules: cannot start with a digit, must consist of letters, digits, underscores (_), or dollar signs ($)")]
     NodeIdUnIllegal(String),
+    /// AndOrConditionException
+    #[error("{0}")]
+    AndOrCondition(String),
+    /// CatchErrorException
+    #[error("{0}")]
+    CatchError(String),
+    /// ChainDuplicateException
+    #[error("{0}")]
+    ChainDuplicate(String),
+    /// ChainNotImplementedException
+    #[error("{0}")]
+    ChainNotImplemented(String),
+    /// CmpDefinitionException
+    #[error("{0}")]
+    CmpDefinition(String),
+    /// ComponentCannotRegisterException
+    #[error("{0}")]
+    ComponentCannotRegister(String),
+    /// ComponentNotAccessException
+    #[error("{0}")]
+    ComponentNotAccess(String),
+    /// ComponentProxyErrorException
+    #[error("{0}")]
+    ComponentProxyError(String),
+    /// CyclicDependencyException
+    #[error("{0}")]
+    CyclicDependency(String),
+    /// DataNotFoundException
+    #[error("{0}")]
+    DataNotFound(String),
+    /// EmptyConditionValueException
+    #[error("{0}")]
+    EmptyConditionValue(String),
+    /// ErrorSupportPathException
+    #[error("{0}")]
+    ErrorSupportPath(String),
+    /// FallbackCmpNotFoundException
+    #[error("{0}")]
+    FallbackCmpNotFound(String),
+    /// FlowExecutorNotInitException
+    #[error("{0}")]
+    FlowExecutorNotInit(String),
+    /// MissMavenDependencyException
+    #[error("{0}")]
+    MissMavenDependency(String),
+    /// MonitorFileInitErrorException
+    #[error("{0}")]
+    MonitorFileInitError(String),
+    /// MultipleParsersException
+    #[error("{0}")]
+    MultipleParsers(String),
+    /// NoAvailableSlotException
+    #[error("{0}")]
+    NoAvailableSlot(String),
+    /// NoSuchContextBeanException
+    #[error("{0}")]
+    NoSuchContextBean(String),
+    /// NodeClassNotFoundException
+    #[error("{0}")]
+    NodeClassNotFound(String),
+    /// NodeTypeCanNotGuessException
+    #[error("{0}")]
+    NodeTypeCanNotGuess(String),
+    /// NodeTypeNotSupportException
+    #[error("{0}")]
+    NodeTypeNotSupport(String),
+    /// NotSupportConditionException
+    #[error("{0}")]
+    NotSupportCondition(String),
+    /// NotSupportDeclException
+    #[error("{0}")]
+    NotSupportDecl(String),
+    /// NullNodeTypeException
+    #[error("{0}")]
+    NullNodeType(String),
+    /// NullParamException
+    #[error("{0}")]
+    NullParam(String),
+    /// ObjectConvertException
+    #[error("{0}")]
+    ObjectConvert(String),
+    /// ParallelExecutorCreateException
+    #[error("{0}")]
+    ParallelExecutorCreate(String),
+    /// ParameterFactException
+    #[error("{0}")]
+    ParameterFact(String),
+    /// ParserCannotFindException
+    #[error("{0}")]
+    ParserCannotFind(String),
+    /// ProxyException
+    #[error("{0}")]
+    Proxy(String),
+    /// RequestIdGeneratorException
+    #[error("{0}")]
+    RequestIdGenerator(String),
+    /// RouteELInvalidException
+    #[error("{0}")]
+    RouteELInvalid(String),
+    /// ThreadExecutorServiceCreateException
+    #[error("{0}")]
+    ThreadExecutorServiceCreate(String),
     /// FlowSystemException
     #[error("{0}")]
     Custom(String),

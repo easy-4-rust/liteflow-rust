@@ -1,7 +1,10 @@
 //! 对应 flow.element.Node：包装组件实例的可执行节点。
-//! execute() 对齐 Java Node.execute → processFlow 语义：
+//! execute_once() 对齐 Java Node.execute → processFlow 单次执行语义：
 //! isAccess → beforeProcess → process → afterProcess，
 //! 异常时 onError → isContinueOnError 决定是否吞掉，全部记入 CmpStep。
+//! Executable::execute 则对齐 Java Node.execute(slotIndex) 的完整入口：
+//! 经 NodeExecutorHelper 取得节点执行器（对应 NodeExecutor.execute(instance)），
+//! 由执行器的重试主干循环调用 execute_once。
 
 use crate::aop::CmpAroundAspect;
 use crate::core::node_component::NodeComponent;
@@ -67,11 +70,12 @@ impl Node {
     pub fn display_name(&self) -> &str {
         self.node_ref.display()
     }
-}
 
-#[async_trait]
-impl Executable for Node {
-    async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+    /// 单次执行逻辑（对应 Java NodeComponent.execute() 被 NodeExecutor 重试循环
+    /// 反复调用的那一次执行）：isAccess → beforeProcess → process → afterProcess，
+    /// 异常时 onError → isContinueOnError 决定是否吞掉，全部记入 CmpStep。
+    /// 重试语义由 flow.executor.NodeExecutor 承担，本方法不含重试。
+    pub async fn execute_once(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         if ctx.is_ended() {
             return Err(LiteflowError::ChainEnd);
         }
@@ -157,6 +161,18 @@ impl Executable for Node {
                 })
             }
         }
+    }
+}
+
+#[async_trait]
+impl Executable for Node {
+    /// 对应 Java Node.execute(slotIndex)：经 NodeExecutorHelper.buildNodeExecutor
+    /// 取得节点执行器（组件未指定时为缓存的 DefaultNodeExecutor），
+    /// 委托执行器的重试主干执行（NodeExecutor.execute → 循环调用 execute_once）。
+    async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        let executor = crate::flow::executor::NodeExecutorHelper::load_instance()
+            .build_node_executor(self.instance.node_executor());
+        executor.execute(self, ctx, frame).await
     }
 
     fn id(&self) -> &str {
