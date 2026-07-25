@@ -20,6 +20,7 @@ use crate::flow::element::condition::{
 };
 use crate::core::decl_component::DeclMethodComponent;
 use crate::flow::element::condition::chain_bind_wrapper_condition::ChainBindWrapperCondition;
+use crate::flow::element::condition::bind_wrapper_condition::BindWrapperCondition;
 use crate::flow::element::node::{Node, NodeHooks};
 use crate::flow::element::Executable;
 use crate::flow::flow_bus::FlowBus;
@@ -162,7 +163,15 @@ impl LiteFlowChainELBuilder {
             El::Pre(inner) => Ok(Arc::new(PreCondition::new(self.build_executable(*inner)?))),
             El::Fin(inner) => Ok(Arc::new(FinallyCondition::new(self.build_executable(*inner)?))),
             El::Mods(inner, mods) => {
-                let mut target = self.build_executable(*inner)?;
+                // 场景2：对 Condition bind（2.14+），override=true 时
+                // 清除该 Condition 下所有 Node 上相同 key 的 bind（对齐 BindOperator）
+                let mut inner_el = *inner;
+                if mods.bind_override && !mods.bind.is_empty() {
+                    for (k, _) in &mods.bind {
+                        clear_node_bind(&mut inner_el, k);
+                    }
+                }
+                let mut target = self.build_executable(inner_el)?;
                 if let Some(r) = mods.retry {
                     target = Arc::new(RetryCondition::new(target, r));
                 }
@@ -171,6 +180,9 @@ impl LiteFlowChainELBuilder {
                 }
                 if mods.ignore_error {
                     target = Arc::new(IgnoreErrorCondition::new(target));
+                }
+                if !mods.bind.is_empty() {
+                    target = Arc::new(BindWrapperCondition::new(target, mods.bind));
                 }
                 Ok(target)
             }
@@ -239,11 +251,62 @@ impl LiteFlowChainELBuilder {
             return Ok(Arc::new(self.build_node(node_ref)?));
         }
         if let Some(chain) = self.bus.get_chain(&node_ref.id) {
-            return Ok(Arc::new(ChainBindWrapperCondition::new(chain)));
+            // 场景3：对 Chain bind（2.16）：包装成 ChainBindWrapperCondition 持有 bind 数据
+            let mut wrapper = ChainBindWrapperCondition::new(chain);
+            for (k, v) in node_ref.bind {
+                wrapper.put_bind_data(k, v);
+            }
+            return Ok(Arc::new(wrapper));
         }
         Err(LiteflowError::NodeBuild(format!(
             "node[{}] not registered",
             node_ref.id
         )))
+    }
+}
+
+/// 递归清除语法树中所有 Node 上指定 key 的 bind（对应 BindOperator.clearNodeBindData）
+fn clear_node_bind(el: &mut El, key: &str) {
+    match el {
+        El::Node(n) => n.bind.retain(|(k, _)| k != key),
+        El::Then(items) | El::And(items) | El::Or(items) => {
+            items.iter_mut().for_each(|i| clear_node_bind(i, key))
+        }
+        El::When { items, .. } => items.iter_mut().for_each(|i| clear_node_bind(i, key)),
+        El::If { cond, then, elifs, els } => {
+            clear_node_bind(cond, key);
+            clear_node_bind(then, key);
+            elifs.iter_mut().for_each(|(c, t)| {
+                clear_node_bind(c, key);
+                clear_node_bind(t, key);
+            });
+            if let Some(e) = els {
+                clear_node_bind(e, key);
+            }
+        }
+        El::Switch { node, targets, default } => {
+            clear_node_bind(node, key);
+            targets.iter_mut().for_each(|t| clear_node_bind(t, key));
+            if let Some(d) = default {
+                clear_node_bind(d, key);
+            }
+        }
+        El::For { node, body, brk, .. }
+        | El::While { node, body, brk, .. }
+        | El::Iter { node, body, brk, .. } => {
+            clear_node_bind(node, key);
+            clear_node_bind(body, key);
+            if let Some(b) = brk {
+                clear_node_bind(b, key);
+            }
+        }
+        El::Catch { body, do_ } => {
+            clear_node_bind(body, key);
+            if let Some(d) = do_ {
+                clear_node_bind(d, key);
+            }
+        }
+        El::Not(inner) | El::Pre(inner) | El::Fin(inner) => clear_node_bind(inner, key),
+        El::Mods(inner, _) => clear_node_bind(inner, key),
     }
 }
