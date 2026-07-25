@@ -1,5 +1,5 @@
 //! 对应 parser.el.LocalYmlFlowELParser / YmlFlowELParser。
-//! YML 与 JSON 共用 schema（serde_yaml → serde_json::Value → load_value）。
+//! YML 与 JSON 共用 schema（serde_yaml_ng → serde_json::Value → load_value）。
 
 use super::local_json_flow_el_parser::load_value;
 use crate::exception::{LFResult, LiteflowError};
@@ -8,7 +8,7 @@ use std::path::Path;
 
 /// parse 一个 YML 文本
 pub fn load_yml_str(bus: &FlowBus, yml: &str) -> LFResult<Vec<String>> {
-    let v: serde_yaml::Value = serde_yaml::from_str(yml)
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yml)
         .map_err(|e| LiteflowError::Rule(format!("invalid yml: {e}")))?;
     let j: serde_json::Value = serde_json::to_value(v)
         .map_err(|e| LiteflowError::Rule(format!("yml convert error: {e}")))?;

@@ -27,7 +27,8 @@ impl RuleSource for ApolloRuleSource {
             let resp: serde_json::Value = ureq::get(&url)
                 .call()
                 .map_err(|e| LiteflowError::Rule(format!("apollo fetch error: {e}")))?
-                .into_json()
+                .body_mut()
+                .read_json()
                 .map_err(|e| LiteflowError::Rule(format!("apollo parse error: {e}")))?;
             resp.get("configurations")
                 .and_then(|c| c.get(&key))

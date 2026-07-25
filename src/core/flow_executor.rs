@@ -3,7 +3,8 @@
 use crate::exception::LiteflowError;
 use crate::flow::flow_bus::FlowBus;
 use crate::flow::liteflow_response::LiteflowResponse;
-use crate::slot::{databus::gen_request_id, Ctx, Slot};
+use crate::slot::{Ctx, Slot, databus::gen_request_id};
+use md5::Digest as _;
 use serde::Serialize;
 use serde_json::Value;
 use std::any::Any;
@@ -147,13 +148,13 @@ impl FlowExecutor {
     ) -> LiteflowResponse {
         // 规范化 EL（对应 ElRegexUtil.normalize：单引号→双引号、去空白、末尾保留一个分号）
         let normalized = crate::util::el_regex::normalize_el(el_str);
-        let el_md5 = format!("{:x}", md5::compute(normalized.as_bytes()));
+        let el_md5 = format!("{:x}", md5::Md5::digest(normalized.as_bytes()));
 
         let chain_id = match self.bus.get_chain_id_by_el_md5(&el_md5) {
             Some(id) => id,
             None => {
                 // 匿名链路：UUID 语义的唯一 chainId
-                let id = format!("anon_{:x}", md5::compute(
+                let id = format!("anon_{:x}", md5::Md5::digest(
                     format!("{}-{}", normalized, gen_request_id()).as_bytes()
                 ));
                 if let Err(e) = self.bus.add_chain_anonymous(&id, &normalized, el_md5.clone()) {

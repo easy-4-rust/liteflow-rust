@@ -3,9 +3,10 @@
 //! Condition 级 bind / NodeId 校验 / AND-OR isAccess 过滤 / execute2RespWithRid
 
 use liteflow_rust::{
-    cmp, listener, ExecuteOption, FlowBus, FlowEvent, LiteflowError, NodeComponent,
+    ExecuteOption, FlowBus, FlowEvent, LiteflowError, NodeComponent, cmp, listener,
 };
-use serde_json::{json, Value};
+use md5::Digest as _;
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
 // ---------- execute2RespWithEL（2.16） ----------
@@ -264,7 +265,7 @@ async fn el_md5_index_cleanup() {
     let bus = FlowBus::new();
     bus.register("a", cmp(|_| async move { Ok(Value::Null) }));
     bus.execute_with_el("THEN(a)").await;
-    let md5 = format!("{:x}", md5::compute(
+    let md5 = format!("{:x}", md5::Md5::digest(
         liteflow_rust::util::el_regex::normalize_el("THEN(a)").as_bytes()
     ));
     let chain_id = bus.get_chain_id_by_el_md5(&md5).unwrap();
