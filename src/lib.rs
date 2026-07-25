@@ -48,11 +48,13 @@ pub mod slot;
 
 // ---------- 顶层便捷导出 ----------
 pub use core::{cmp, FlowExecutor, FnComponent, NodeComponent};
+pub use core::execute_option::{gen_conversation_id, ExecuteOption};
 pub use el::{parse_el, El, Mods, NodeRef, WhenOpts};
 pub use enums::{CmpStepTypeEnum, ConditionTypeEnum, ParallelStrategyEnum};
 pub use exception::{LFResult, LiteflowError};
 pub use flow::entity::cmp_step::CmpStep;
 pub use flow::{FlowBus, LiteflowResponse};
+pub use flow::{listener, FlowEvent, FlowEventBuilder, FlowEventListener, FlowEventPublisher};
 pub use script::script_component::{ScriptComponent, ScriptKind};
 pub use slot::{CmpContext, Ctx, Frame, Slot};
 

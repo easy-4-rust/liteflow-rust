@@ -64,6 +64,10 @@ pub enum LiteflowError {
     /// ScriptLoadException / 脚本执行错误
     #[error("script error in node[{node}]: {msg}")]
     Script { node: String, msg: String },
+    /// NodeIdUnIllegalException（2.16：node id 必须符合变量命名规则，
+    /// 不能以数字开头，只能由字母/数字/下划线/$ 组成）
+    #[error("invalid node id: [{0}]. node id must follow variable naming rules: cannot start with a digit, must consist of letters, digits, underscores (_), or dollar signs ($)")]
+    NodeIdUnIllegal(String),
     /// FlowSystemException
     #[error("{0}")]
     Custom(String),
