@@ -17,7 +17,7 @@ liteflow-vernal / liteflow-el-builder / liteflow-agent。
 
 ## 阶段规划
 - S0 盘点（本阶段）：当前完成度评估，对照 v2.10.0 基线与 304 类对象级清单
-- S1 P0 纯搬迁拆分：enums(17) / exception(60) / lifecycle / monitor / util → 一文件一对象，75 测试保持绿
+- S1 P0 纯搬迁拆分：enums(11 文件) / exception(61 文件=基类枚举+59 具体异常) / lifecycle(5) / monitor(2) / util → 一文件一对象，75 测试保持绿 ✅（2026-07-25 完成并推送 dev：S1.0 workspace 化 → S1.1 enums → S1.2 lifecycle → S1.3 monitor/util → S1.4 exception → S1.5 推送+整库 diff 验证一致）
 - S2 P1 主干补缺：flow/executor（NodeExecutor 层）/ spi 体系 / condition 补齐 / 36 个缺失异常变体
 - S3 P2 builder/el/operator 34 类拆分 + liteflow-el-builder（ELBus 链式 API）
 - S4 liteflow-derive（annotation/ 过程宏：@LiteflowComponent/@LiteflowMethod/@LiteflowRetry/@FallbackCmp 语义）
