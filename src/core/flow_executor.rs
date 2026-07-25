@@ -39,11 +39,53 @@ impl FlowExecutor {
         input: Value,
         beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
     ) -> LiteflowResponse {
-        let slot = Arc::new(Slot::new(gen_request_id(), chain_id, input));
-        for (name, bean) in beans {
+        self.execute_with_option(chain_id, input, crate::core::execute_option::ExecuteOption {
+            context_beans: beans,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// execute2RespWithRid(chainId, requestData, requestId, contextBeans)（2.16：
+    /// 组件内 invoke2Resp 语义——以同一 requestId 执行子链）
+    pub async fn execute_with_rid(
+        &self,
+        chain_id: &str,
+        input: Value,
+        request_id: impl Into<String>,
+        beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
+    ) -> LiteflowResponse {
+        self.execute_with_option(chain_id, input, crate::core::execute_option::ExecuteOption {
+            request_id: Some(request_id.into()),
+            context_beans: beans,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// execute2Resp(chainId, requestData, ExecuteOption)（2.16 新增入口：
+    /// requestId / conversationId / eventListener / contextBeans）
+    pub async fn execute_with_option(
+        &self,
+        chain_id: &str,
+        input: Value,
+        option: crate::core::execute_option::ExecuteOption,
+    ) -> LiteflowResponse {
+        let request_id = option
+            .request_id
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(gen_request_id);
+        let mut slot = Slot::new(request_id, chain_id, input);
+        slot.conversation_id = option.resolve_conversation_id();
+        let slot = Arc::new(slot);
+        for (name, bean) in option.context_beans {
             slot.beans.insert(name, bean);
         }
         let ctx = Ctx::new(slot.clone());
+        if let Some(l) = &option.event_listener {
+            crate::flow::flow_event_publisher::FlowEventPublisher::set_listener(&ctx, l.clone());
+        }
 
         {
             let hooks = self.bus.lifecycle.read().unwrap();
@@ -83,6 +125,50 @@ impl FlowExecutor {
             }
         }
         result
+    }
+
+    /// execute2RespWithEL(elStr)（2.16 新增：直接执行 EL 表达式）
+    pub async fn execute_with_el(&self, el_str: &str) -> LiteflowResponse {
+        self.execute_with_el_full(el_str, Value::Null, None).await
+    }
+
+    /// execute2RespWithEL(elStr, param)
+    pub async fn execute_with_el_data(&self, el_str: &str, input: impl Serialize) -> LiteflowResponse {
+        let v = serde_json::to_value(input).unwrap_or(Value::Null);
+        self.execute_with_el_full(el_str, v, None).await
+    }
+
+    /// execute2RespWithEL(elStr, param, requestId)
+    pub async fn execute_with_el_full(
+        &self,
+        el_str: &str,
+        input: Value,
+        request_id: Option<String>,
+    ) -> LiteflowResponse {
+        // 规范化 EL（对应 ElRegexUtil.normalize：单引号→双引号、去空白、末尾保留一个分号）
+        let normalized = crate::util::el_regex::normalize_el(el_str);
+        let el_md5 = format!("{:x}", md5::compute(normalized.as_bytes()));
+
+        let chain_id = match self.bus.get_chain_id_by_el_md5(&el_md5) {
+            Some(id) => id,
+            None => {
+                // 匿名链路：UUID 语义的唯一 chainId
+                let id = format!("anon_{:x}", md5::compute(
+                    format!("{}-{}", normalized, gen_request_id()).as_bytes()
+                ));
+                if let Err(e) = self.bus.add_chain_anonymous(&id, &normalized, el_md5.clone()) {
+                    let slot = Arc::new(Slot::new(gen_request_id(), &id, input));
+                    return LiteflowResponse::new(slot, false, e.to_string(), Some(e.to_string()));
+                }
+                id
+            }
+        };
+        match request_id {
+            Some(rid) => {
+                self.execute_with_rid(&chain_id, input, rid, Vec::<(String, Arc<dyn Any + Send + Sync>)>::new()).await
+            }
+            None => self.execute_with(&chain_id, input, Vec::<(String, Arc<dyn Any + Send + Sync>)>::new()).await,
+        }
     }
 
     /// executeRouteChain(namespace, param, contextBeans)：
