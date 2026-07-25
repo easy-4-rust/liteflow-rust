@@ -13,12 +13,16 @@ src/
 ├── enums.rs                        # enums 包（ConditionTypeEnum / ParallelStrategyEnum ...）
 ├── core/                           # core 包
 │   ├── node_component.rs           #   NodeComponent trait（isAccess/isContinueOnError/...）
-│   └── flow_executor.rs            #   FlowExecutor（execute2Resp 各重载）
+│   ├── flow_executor.rs            #   FlowExecutor（execute2Resp 各重载）
+│   └── execute_option.rs           #   ExecuteOption（2.16：requestId/conversationId/eventListener）
 ├── builder/el/builder.rs           # builder.el 包：LiteFlowChainELBuilder
 ├── el.rs                           # EL 词法/语法解析（对应 Java 版底层 QLExpress 层）
 ├── flow/
 │   ├── flow_bus.rs                 #   FlowBus + LiteflowMetaOperator
 │   ├── liteflow_response.rs        #   LiteflowResponse
+│   ├── flow_event.rs               #   FlowEvent（2.15+ 执行事件）
+│   ├── flow_event_listener.rs      #   FlowEventListener
+│   ├── flow_event_publisher.rs     #   FlowEventPublisher
 │   ├── entity/cmp_step.rs          #   CmpStep
 │   ├── element/
 │   │   ├── executable.rs           #   Executable 接口
@@ -32,6 +36,8 @@ src/
 │   │       ├── catch_condition.rs / and_or_condition.rs / not_condition.rs
 │   │       ├── retry_condition.rs / timeout_condition.rs
 │   │       ├── ignore_error_condition.rs
+│   │       ├── chain_bind_wrapper_condition.rs  # 子链包装（持有 chain bind 数据）
+│   │       ├── bind_wrapper_condition.rs        # Condition 级 bind（2.14+）
 │   │       └── pre_condition.rs / finally_condition.rs
 │   └── parallel/strategy/          #   flow.parallel.strategy 包
 │       ├── all_of.rs               #   AllOfParallelExecutor
@@ -39,14 +45,14 @@ src/
 │       ├── percentage_of.rs        #   PercentageOfParallelExecutor
 │       └── specify_of.rs           #   SpecifyParallelExecutor
 ├── slot/                           # slot 包
-│   ├── slot.rs                     #   Slot
-│   ├── databus.rs                  #   DataBus + 请求 ID 生成
+│   ├── slot.rs                     #   Slot（含 conversationId / attachments）
+│   ├── databus.rs                  #   DataBus + 请求 ID 生成 + Frame（loop/bind 栈）
 │   └── default_context.rs          #   DefaultContext（CmpContext）
 ├── script/                         # script 包（rhai 脚本节点）
-│   ├── script_executor.rs          #   RhaiScriptExecutor（编译/求值/作用域注入）
+│   ├── script_executor.rs          #   RhaiScriptExecutor（编译/求值/作用域注入/校验）
 │   ├── script_component.rs         #   ScriptComponent（5 种脚本类型语义）
 │   └── json_convert.rs             #   serde_json ↔ rhai::Dynamic
-├── util/el_regex.rs                # util 包：链继承占位符（{{holder}} 语义）
+├── util/el_regex.rs                # util 包：链继承占位符 + EL normalize（2.16）
 ├── aop/                            # CmpAroundAspect 全局切面
 ├── lifecycle/                      # 生命周期钩子 SPI（4 种）
 ├── monitor/                        # MonitorBus 统计报表
@@ -115,7 +121,6 @@ async fn main() {
 | 忽略错误 | `.ignore_error(true)` | ✅ |
 | 节点修饰 | `a.tag("t").data("...").id("a1").bind("k","v")` | ✅ |
 | NODE 引用 | `NODE("a")` | ✅ |
-| 子流程嵌套 | `THEN(chain_sub_able)` 中以节点形式封装子链 | 见迁移对照表 |
 | rhai 脚本节点 | `boolean_script`/`switch_script`/`for_script`/`script` | ✅ |
 | XML 规则 | `<chain>/<route>/<body>/<nodes>` | ✅ |
 | route 决策表链路 | `add_route_chain` + `execute_route_chain` | ✅ |
@@ -126,6 +131,13 @@ async fn main() {
 | 生命周期钩子 | 4 种 LifeCycle | ✅ |
 | 监控统计 | `bus.monitor().report()` | ✅ |
 | 规则源插件 | nacos/etcd/zk/apollo/redis/sql（feature 启用） | ✅ |
+| 直接执行 EL | `execute_with_el`（normalize + MD5 匿名链缓存，2.16） | ✅ |
+| ExecuteOption | requestId / conversationId / eventListener（2.16） | ✅ |
+| 执行事件 | `FlowEvent` + `publish_event` + ExecuteOption.event_listener（2.15+） | ✅ |
+| Slot attachment | `set/get/has/remove_attachment`（2.15+） | ✅ |
+| Condition 级 bind | `THEN(...).bind(k, v[, override])` / `chain.bind(...)`（2.14+） | ✅ |
+| NodeId 校验 | 变量命名规则，`NodeIdUnIllegal`（2.16） | ✅ |
+| AND/OR isAccess 过滤 | 不可访问子项排除后再 all/any（2.16） | ✅ |
 
 ## 脚本节点（rhai）
 
@@ -189,7 +201,7 @@ let _h = watcher.watch(std::time::Duration::from_secs(1));
 
 ```bash
 export CARGO_TARGET_DIR=/tmp/lf-target  # 本仓库挂载点无执行位，需外挂 target 目录
-cargo test                              # 58 个测试（解析/语义/P1/P2）
+cargo test                              # 75 个测试（解析/语义/P1/P2/v2.16）
 cargo check --features lua              # Lua 脚本引擎（mlua）
 cargo check --features nacos            # Nacos 规则源（nacos-sdk）
 cargo check --features etcd,zk,sql,redis,apollo  # 其余规则源
