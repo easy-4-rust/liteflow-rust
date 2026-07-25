@@ -1,9 +1,12 @@
 [package]
-name = "liteflow-rust"
+name = "liteflow-core"
 version = "0.1.0"
 edition = "2021"
 description = "A semantic port of LiteFlow (dromara/liteflow) component-based rule engine to Rust"
 license = "Apache-2.0"
+
+[lib]
+name = "liteflow_core"
 
 [features]
 default = []

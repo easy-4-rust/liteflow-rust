@@ -1,0 +1,62 @@
+//! 对应 com.yomahub.liteflow.enums.ConditionTypeEnum：
+//! 规则文件中 condition 的 type 枚举（then/when/switch/if/pre/finally/for/while/iterator/catch）。
+//! Java 每个枚举携带 type 与 name 两个字符串字段。
+
+/// 条件类型枚举
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionTypeEnum {
+    Then,
+    When,
+    Switch,
+    If,
+    Pre,
+    Finally,
+    For,
+    While,
+    Iterator,
+    Catch,
+    /// Rust 端扩展：布尔编排（对应 flow.element.condition 包的 AndOrCondition）
+    AndOr,
+    /// Rust 端扩展：NOT 条件
+    Not,
+    /// Rust 端扩展：重试修饰（对应 RetryCondition）
+    Retry,
+    /// Rust 端扩展：超时修饰（对应 TimeoutCondition）
+    Timeout,
+}
+
+impl ConditionTypeEnum {
+    /// getType()：对应规则文件中的 type 字符串
+    pub fn get_type(&self) -> &'static str {
+        match self {
+            Self::Then => "then",
+            Self::When => "when",
+            Self::Switch => "switch",
+            Self::If => "if",
+            Self::Pre => "pre",
+            Self::Finally => "finally",
+            Self::For => "for",
+            Self::While => "while",
+            Self::Iterator => "iterator",
+            Self::Catch => "catch",
+            Self::AndOr => "and_or",
+            Self::Not => "not",
+            Self::Retry => "retry",
+            Self::Timeout => "timeout",
+        }
+    }
+    /// getName()
+    pub fn get_name(&self) -> &'static str {
+        self.get_type()
+    }
+    /// getEnumByCode(code)：按 type 字符串反查枚举
+    pub fn get_enum_by_code(code: &str) -> Option<Self> {
+        [
+            Self::Then, Self::When, Self::Switch, Self::If, Self::Pre, Self::Finally,
+            Self::For, Self::While, Self::Iterator, Self::Catch, Self::AndOr, Self::Not,
+            Self::Retry, Self::Timeout,
+        ]
+        .into_iter()
+        .find(|e| e.get_type() == code)
+    }
+}
