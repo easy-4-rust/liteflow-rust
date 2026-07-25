@@ -38,9 +38,13 @@ impl CmpContext {
     pub fn cmp_data_as<T: DeserializeOwned>(&self) -> Option<T> {
         self.node.data.as_deref().and_then(|s| serde_json::from_str(s).ok())
     }
-    /// bindData
+    /// bindData（2.16 语义：先查 Node 级 bind，找不到再从
+    /// Condition 栈顶向下查找，正确处理 chain.bind / THEN(...).bind 场景）
     pub fn bind_data(&self, key: &str) -> Option<&str> {
-        self.node.bind.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        if let Some(v) = self.node.bind.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()) {
+            return Some(v);
+        }
+        self.frame.find_bind(key)
     }
     /// getRequestData()
     pub fn request_data<T: DeserializeOwned>(&self) -> Option<T> {
@@ -73,5 +77,26 @@ impl CmpContext {
     /// setIsEnd(true)
     pub fn end_chain(&self) {
         self.inner.ended.store(true, Ordering::Relaxed);
+    }
+    /// conversationId（2.15+）
+    pub fn conversation_id(&self) -> Option<&str> {
+        self.inner.conversation_id.as_deref()
+    }
+    /// 发布执行事件（对应 FlowEventPublisher.publish(getSlot(), event)，2.15+）
+    pub fn publish_event(&self, event: &crate::flow::flow_event::FlowEvent) {
+        crate::flow::flow_event_publisher::FlowEventPublisher::publish_ctx(&self.inner, event);
+    }
+    /// Slot attachment 访问（2.15+）
+    pub fn set_attachment<T: Any + Send + Sync>(&self, key: impl Into<String>, value: T) {
+        self.inner.set_attachment(key, value);
+    }
+    pub fn get_attachment<T: Any + Send + Sync>(&self, key: &str) -> Option<Arc<T>> {
+        self.inner.get_attachment(key)
+    }
+    pub fn has_attachment(&self, key: &str) -> bool {
+        self.inner.has_attachment(key)
+    }
+    pub fn remove_attachment(&self, key: &str) {
+        self.inner.remove_attachment(key);
     }
 }

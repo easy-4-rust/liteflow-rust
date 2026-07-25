@@ -19,32 +19,57 @@ pub fn gen_request_id() -> String {
 }
 
 /// 对应 Java Node 上的 loopIndexTL / loopObjectTL 栈（按执行路径传递）
+/// 以及 2.16 起 Slot.conditionStack 上 Condition.bindData 的查找路径：
+/// Rust 端按执行路径（Frame clone）传递 bind 键值栈，语义等价于
+/// Java 的「从 condition 栈顶向下遍历查找 bindData」。
 #[derive(Debug, Clone, Default)]
-pub struct Frame(pub Vec<(usize, Option<Value>)>);
+pub struct Frame {
+    /// (loopIndex, loopObject) 栈
+    pub loops: Vec<(usize, Option<Value>)>,
+    /// Condition 级 bind 键值栈（内层在后，查找时从后往前，即栈顶优先）
+    pub binds: Vec<(String, String)>,
+}
 
 impl Frame {
     pub fn root() -> Self {
-        Self(Vec::new())
+        Self::default()
     }
     pub fn push(&self, index: usize, object: Option<Value>) -> Self {
-        let mut v = self.0.clone();
-        v.push((index, object));
-        Self(v)
+        let mut f = self.clone();
+        f.loops.push((index, object));
+        f
+    }
+    /// 压入 Condition 级 bind 键值（对应 Condition.putBindData + conditionStack）
+    pub fn push_bind(&self, pairs: &[(String, String)]) -> Self {
+        if pairs.is_empty() {
+            return self.clone();
+        }
+        let mut f = self.clone();
+        f.binds.extend(pairs.iter().cloned());
+        f
+    }
+    /// 从栈顶向下查找 bindData（对应 NodeComponent.getBindData 的 condition 栈查找）
+    pub fn find_bind(&self, key: &str) -> Option<&str> {
+        self.binds
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
     /// getLoopIndex()
     pub fn loop_index(&self) -> Option<usize> {
-        self.0.last().map(|(i, _)| *i)
+        self.loops.last().map(|(i, _)| *i)
     }
     /// getLoopObject()
     pub fn loop_object(&self) -> Option<&Value> {
-        self.0.last().and_then(|(_, o)| o.as_ref())
+        self.loops.last().and_then(|(_, o)| o.as_ref())
     }
     /// getLoopIndex(depth)，0 为最内层
     pub fn loop_index_at(&self, depth: usize) -> Option<usize> {
-        self.0
+        self.loops
             .len()
             .checked_sub(depth + 1)
-            .and_then(|i| self.0.get(i))
+            .and_then(|i| self.loops.get(i))
             .map(|(i, _)| *i)
     }
 }
@@ -71,5 +96,25 @@ impl Ctx {
     }
     pub fn is_ended(&self) -> bool {
         self.inner.ended.load(Ordering::Relaxed)
+    }
+    /// conversationId（2.15+）
+    pub fn conversation_id(&self) -> Option<&str> {
+        self.inner.conversation_id.as_deref()
+    }
+    /// Slot.setAttachment（2.15+）
+    pub fn set_attachment<T: std::any::Any + Send + Sync>(&self, key: impl Into<String>, value: T) {
+        self.inner.set_attachment(key, value);
+    }
+    /// Slot.getAttachment
+    pub fn get_attachment<T: std::any::Any + Send + Sync>(&self, key: &str) -> Option<Arc<T>> {
+        self.inner.get_attachment(key)
+    }
+    /// Slot.hasAttachment
+    pub fn has_attachment(&self, key: &str) -> bool {
+        self.inner.has_attachment(key)
+    }
+    /// Slot.removeAttachment
+    pub fn remove_attachment(&self, key: &str) {
+        self.inner.remove_attachment(key);
     }
 }
