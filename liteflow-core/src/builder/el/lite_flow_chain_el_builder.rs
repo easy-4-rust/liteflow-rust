@@ -304,6 +304,11 @@ impl LiteFlowChainELBuilder {
             let decl = self.bus.get_decl(cmp_id).ok_or_else(|| {
                 LiteflowError::NodeBuild(format!("decl component[{cmp_id}] not registered"))
             })?;
+            if !decl.has_method(method) {
+                return Err(LiteflowError::NodeBuild(format!(
+                    "decl component[{cmp_id}] method[{method}] not registered"
+                )));
+            }
             let instance: Arc<dyn crate::core::node_component::NodeComponent> =
                 Arc::new(DeclMethodComponent::new(decl, method));
             return Ok(self.finish_node(node_ref, instance));

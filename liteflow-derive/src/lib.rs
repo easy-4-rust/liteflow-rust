@@ -47,3 +47,13 @@ pub fn liteflow_method(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn liteflow_retry(attr: TokenStream, item: TokenStream) -> TokenStream {
     annotation::liteflow_retry::expand(attr, item)
 }
+
+#[proc_macro_attribute]
+pub fn script_bean(attr: TokenStream, item: TokenStream) -> TokenStream {
+    annotation::script_bean::expand(attr, item)
+}
+
+#[proc_macro_attribute]
+pub fn script_method(attr: TokenStream, item: TokenStream) -> TokenStream {
+    annotation::script_method::expand(attr, item)
+}

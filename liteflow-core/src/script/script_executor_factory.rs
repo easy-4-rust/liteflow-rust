@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use crate::core::NodeComponent;
 use crate::exception::{LFResult, LiteflowError};
 
+use super::exception::ScriptSpiException;
 use super::{ScriptComponentBuilder, ScriptKind};
 
 fn registry() -> &'static DashMap<String, ScriptComponentBuilder> {
@@ -57,11 +58,10 @@ impl ScriptExecutorFactory {
         let builder = registry()
             .get(language)
             .map(|entry| *entry)
-            .ok_or_else(|| LiteflowError::Script {
-                node: node_id.to_string(),
-                msg: format!(
+            .ok_or_else(|| {
+                ScriptSpiException::new(format!(
                     "unsupported script language: {language}; register it through liteflow-script-plugin"
-                ),
+                ))
             })?;
         builder(node_id, kind, script)
     }

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use liteflow_core::{CmpContext, FlowBus, LiteflowError, NodeComponent};
 use liteflow_derive::{
     alias_for, context_bean, fallback_cmp, liteflow_cmp_define, liteflow_component, liteflow_retry,
+    script_bean, script_method,
 };
 use serde_json::{Value, json};
 
@@ -75,6 +76,22 @@ impl NodeComponent for RetryCmp {
 /// Java `@FallbackCmp` 的 Rust 编译期元数据与真实 BOOLEAN 降级组件。
 #[fallback_cmp("booleanFallback", node_type = "boolean")]
 struct BooleanFallbackCmp;
+
+/// Java `@ScriptBean` 与 `@ScriptMethod` 的 Rust 过程宏映射。
+#[script_bean("derive_math", include = "sum", exclude = "hidden")]
+struct ScriptMath;
+
+impl ScriptMath {
+    #[script_method("sum")]
+    fn sum(left: i64, right: i64) -> i64 {
+        left + right
+    }
+
+    #[script_method]
+    fn hidden() -> &'static str {
+        "hidden"
+    }
+}
 
 #[async_trait]
 impl NodeComponent for BooleanFallbackCmp {
@@ -224,4 +241,39 @@ fn marker_macros_preserve_items_and_metadata() {
     assert_eq!(BooleanFallbackCmp::LITEFLOW_FALLBACK_TYPE, "boolean");
     assert_eq!(BooleanFallbackCmp::LITEFLOW_FALLBACK_ID, "booleanFallback");
     assert_eq!(alias_target(), 7);
+}
+
+#[tokio::test]
+async fn script_annotations_register_filtered_proxy_for_real_rhai_execution() {
+    let sum = liteflow_core::script::proxy::ScriptMethodProxy::new(
+        ScriptMath::LITEFLOW_SCRIPT_METHOD_SUM,
+        Arc::new(|arguments| {
+            let left = arguments[0].as_i64().unwrap();
+            let right = arguments[1].as_i64().unwrap();
+            Ok(json!(ScriptMath::sum(left, right)))
+        }),
+    );
+    let hidden = liteflow_core::script::proxy::ScriptMethodProxy::new(
+        ScriptMath::LITEFLOW_SCRIPT_METHOD_HIDDEN,
+        Arc::new(|_| Ok(json!(ScriptMath::hidden()))),
+    );
+    ScriptMath::register_script_bean(vec![sum, hidden]);
+
+    let bus = FlowBus::new();
+    bus.register_script(
+        "deriveScript",
+        "rhai",
+        r#"data["derive_sum"] = script_call("derive_math", "sum", [19, 23]);"#,
+    )
+    .unwrap();
+    bus.add_chain("deriveScriptChain", "THEN(deriveScript)")
+        .unwrap();
+
+    let response = bus.execute("deriveScriptChain").await;
+
+    assert!(response.is_success(), "{}", response.message);
+    assert_eq!(response.data("derive_sum"), Some(json!(42)));
+    let proxy = liteflow_core::script::ScriptBeanManager::get_script_bean("derive_math").unwrap();
+    assert_eq!(proxy.method_names(), vec!["sum"]);
+    liteflow_core::script::ScriptBeanManager::remove_script_bean("derive_math");
 }

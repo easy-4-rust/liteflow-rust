@@ -12,7 +12,7 @@ use super::json_convert::{dynamic_to_json, json_to_dynamic};
 use crate::common::entity::ValidationResp;
 use crate::exception::{LFResult, LiteflowError};
 use crate::slot::CmpContext;
-use rhai::{AST, Dynamic, Engine, Scope};
+use rhai::{AST, Dynamic, Engine, EvalAltResult, Position, Scope};
 use serde_json::Value;
 
 pub struct RhaiScriptExecutor {
@@ -27,9 +27,25 @@ impl Default for RhaiScriptExecutor {
 
 impl RhaiScriptExecutor {
     pub fn new() -> Self {
-        Self {
-            engine: Engine::new(),
-        }
+        let mut engine = Engine::new();
+        // Rust 无运行期反射，因此通过统一桥接函数访问受控脚本 Bean。
+        // 方法筛选与别名已经在 ScriptBeanProxy 构建阶段固化。
+        engine.register_fn(
+            "script_call",
+            |bean_name: &str,
+             method_name: &str,
+             arguments: rhai::Array|
+             -> Result<Dynamic, Box<EvalAltResult>> {
+                let arguments = arguments.iter().map(dynamic_to_json).collect::<Vec<_>>();
+                crate::script::ScriptBeanManager::invoke(bean_name, method_name, &arguments)
+                    .map(|value| json_to_dynamic(&value))
+                    .map_err(|error| {
+                        EvalAltResult::ErrorRuntime(format!("{error}").into(), Position::NONE)
+                            .into()
+                    })
+            },
+        );
+        Self { engine }
     }
 
     /// 对应脚本编译（Java 版缓存编译产物，isCompiled）

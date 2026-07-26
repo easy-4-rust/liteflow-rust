@@ -2939,6 +2939,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "log",
  "md-5",
  "quick-xml",
  "rand 0.8.7",

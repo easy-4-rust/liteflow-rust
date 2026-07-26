@@ -6,6 +6,7 @@ pub mod el;
 pub mod factory;
 pub mod helper;
 pub mod monitor_file;
+pub mod spi;
 
 pub use base::{BaseJsonFlowParser, BaseXmlFlowParser, BaseYmlFlowParser, FlowParser};
 pub use el::{
@@ -17,3 +18,4 @@ pub use el::{
 pub use factory::{ClassParserFactory, FlowParserFactory, FlowParserProvider, LocalParserFactory};
 pub use helper::{NodeConvertHelper, NodeSimpleVO, ParserHelper};
 pub use monitor_file::RuleWatcher;
+pub use spi::ParserClassNameSpi;

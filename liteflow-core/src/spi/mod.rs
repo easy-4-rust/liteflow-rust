@@ -8,6 +8,7 @@ mod bean;
 pub mod cmp_around_aspect;
 pub mod context_aware;
 pub mod context_cmp_init;
+pub mod decl_component_parser;
 pub mod holder;
 pub mod liteflow_component_support;
 pub mod local;
@@ -19,14 +20,15 @@ pub use bean::Bean;
 pub use cmp_around_aspect::CmpAroundAspect;
 pub use context_aware::ContextAware;
 pub use context_cmp_init::ContextCmpInit;
+pub use decl_component_parser::DeclComponentParser;
 pub use holder::{
-    CmpAroundAspectHolder, ContextAwareHolder, ContextCmpInitHolder,
-    LiteflowComponentSupportHolder, PathContentParserHolder,
+    CmpAroundAspectHolder, ContextAwareHolder, ContextCmpInitHolder, DeclComponentParserHolder,
+    LiteflowComponentSupportHolder, PathContentParserHolder, SpiFactoryInitializing,
 };
 pub use liteflow_component_support::LiteflowComponentSupport;
 pub use local::{
-    LocalCmpAroundAspect, LocalContextAware, LocalContextCmpInit, LocalLiteflowComponentSupport,
-    LocalPathContentParser,
+    LocalCmpAroundAspect, LocalContextAware, LocalContextCmpInit, LocalDeclComponentParser,
+    LocalLiteflowComponentSupport, LocalPathContentParser,
 };
 pub use path_content_parser::PathContentParser;
 pub use spi_factory_cleaner::SpiFactoryCleaner;

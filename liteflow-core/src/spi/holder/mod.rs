@@ -6,11 +6,15 @@
 pub mod cmp_around_aspect_holder;
 pub mod context_aware_holder;
 pub mod context_cmp_init_holder;
+pub mod decl_component_parser_holder;
 pub mod liteflow_component_support_holder;
 pub mod path_content_parser_holder;
+pub mod spi_factory_initializing;
 
 pub use cmp_around_aspect_holder::CmpAroundAspectHolder;
 pub use context_aware_holder::ContextAwareHolder;
 pub use context_cmp_init_holder::ContextCmpInitHolder;
+pub use decl_component_parser_holder::DeclComponentParserHolder;
 pub use liteflow_component_support_holder::LiteflowComponentSupportHolder;
 pub use path_content_parser_holder::PathContentParserHolder;
+pub use spi_factory_initializing::SpiFactoryInitializing;

@@ -39,6 +39,8 @@ pub mod enums;
 pub mod exception;
 pub mod flow;
 pub mod lifecycle;
+pub mod log;
+pub mod meta;
 pub mod monitor;
 pub mod parser;
 pub mod rule_plugin;
@@ -88,8 +90,9 @@ pub use script::{
 pub use serde_json;
 pub use slot::{CmpContext, Ctx, DataBus, Frame, Slot};
 pub use spi::{
-    CmpAroundAspectHolder, ContextAware, ContextAwareHolder, ContextCmpInit,
-    LiteflowComponentSupport, PathContentParser, SpiFactoryCleaner, SpiPriority,
+    CmpAroundAspectHolder, ContextAware, ContextAwareHolder, ContextCmpInit, DeclComponentParser,
+    DeclComponentParserHolder, LiteflowComponentSupport, LocalDeclComponentParser,
+    PathContentParser, SpiFactoryCleaner, SpiFactoryInitializing, SpiPriority,
 };
 pub use thread::{
     ExecutorBuilder, ExecutorCondition, ExecutorConditionBuilder, ExecutorHelper, ExecutorService,

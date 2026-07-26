@@ -8,10 +8,8 @@
 pub enum LiteFlowMethodEnum {
     Process,
     ProcessSwitch,
-    ProcessIf,
+    ProcessBoolean,
     ProcessFor,
-    ProcessWhile,
-    ProcessBreak,
     ProcessIterator,
     IsAccess,
     IsEnd,
@@ -21,6 +19,8 @@ pub enum LiteFlowMethodEnum {
     OnError,
     BeforeProcess,
     AfterProcess,
+    GetDisplayName,
+    Rollback,
 }
 
 impl LiteFlowMethodEnum {
@@ -29,10 +29,8 @@ impl LiteFlowMethodEnum {
         match self {
             Self::Process => "process",
             Self::ProcessSwitch => "processSwitch",
-            Self::ProcessIf => "processIf",
+            Self::ProcessBoolean => "processBoolean",
             Self::ProcessFor => "processFor",
-            Self::ProcessWhile => "processWhile",
-            Self::ProcessBreak => "processBreak",
             Self::ProcessIterator => "processIterator",
             Self::IsAccess => "isAccess",
             Self::IsEnd => "isEnd",
@@ -42,6 +40,8 @@ impl LiteFlowMethodEnum {
             Self::OnError => "onError",
             Self::BeforeProcess => "beforeProcess",
             Self::AfterProcess => "afterProcess",
+            Self::GetDisplayName => "getDisplayName",
+            Self::Rollback => "rollback",
         }
     }
     /// isMainMethod()：是否为主逻辑方法（processXxx）
@@ -50,10 +50,8 @@ impl LiteFlowMethodEnum {
             self,
             Self::Process
                 | Self::ProcessSwitch
-                | Self::ProcessIf
+                | Self::ProcessBoolean
                 | Self::ProcessFor
-                | Self::ProcessWhile
-                | Self::ProcessBreak
                 | Self::ProcessIterator
         )
     }
@@ -62,10 +60,8 @@ impl LiteFlowMethodEnum {
         [
             Self::Process,
             Self::ProcessSwitch,
-            Self::ProcessIf,
+            Self::ProcessBoolean,
             Self::ProcessFor,
-            Self::ProcessWhile,
-            Self::ProcessBreak,
             Self::ProcessIterator,
             Self::IsAccess,
             Self::IsEnd,
@@ -75,6 +71,8 @@ impl LiteFlowMethodEnum {
             Self::OnError,
             Self::BeforeProcess,
             Self::AfterProcess,
+            Self::GetDisplayName,
+            Self::Rollback,
         ]
         .into_iter()
         .find(|e| e.get_method_name() == name)

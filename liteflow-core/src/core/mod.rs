@@ -14,6 +14,7 @@ pub mod node_component;
 mod node_for_component;
 mod node_iterator_component;
 mod node_switch_component;
+pub mod proxy;
 
 pub use component_initializer::ComponentInitializer;
 pub use decl_component::DeclComponent;

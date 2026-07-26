@@ -43,6 +43,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let self_ty = input.self_ty.clone();
     let mut dispatches = Vec::new();
+    let mut method_metadata = Vec::new();
     let mut method_names = HashSet::new();
 
     for impl_item in &mut input.items {
@@ -118,6 +119,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         // contextBeanList 中取事实对象。Rust 端要求 Arc<T>，在编译期生成强类型注入。
         let mut fact_bindings = Vec::new();
         let mut fact_arguments = Vec::new();
+        let mut parameter_metadata = Vec::new();
         for argument in args {
             let FnArg::Typed(argument) = argument else {
                 return syn::Error::new_spanned(
@@ -176,6 +178,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 Ok(inner) => inner,
                 Err(error) => return error.to_compile_error().into(),
             };
+            let parameter_index = fact_arguments.len() + 1;
             fact_bindings.push(quote! {
                 let #fact_ident: #fact_type = ctx
                     .bean::<#fact_inner_type>(#fact_name)
@@ -188,6 +191,13 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                         ))
                     })?;
             });
+            parameter_metadata.push(quote! {
+                ::liteflow_core::core::proxy::ParameterWrapBean::new(
+                    ::std::any::type_name::<#fact_type>(),
+                    Some(#fact_name),
+                    #parameter_index,
+                )
+            });
             fact_arguments.push(fact_ident);
         }
 
@@ -197,6 +207,19 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 #(#fact_bindings)*
                 self.#rust_method(ctx, #(#fact_arguments),*).await
             },
+        });
+        method_metadata.push(quote! {
+            ::liteflow_core::core::proxy::MethodWrapBean::new(
+                ::liteflow_core::core::proxy::LiteFlowMethodBean::new(
+                    #method_name,
+                    ::liteflow_core::enums::LiteFlowMethodEnum::Process,
+                ),
+                ::liteflow_core::enums::LiteFlowMethodEnum::Process,
+                ::liteflow_core::enums::NodeTypeEnum::Common,
+                None,
+                ::std::vec::Vec::new(),
+                ::std::vec![#(#parameter_metadata),*],
+            )
         });
     }
 
@@ -241,9 +264,24 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             /// 声明式组件 id。
             pub const LITEFLOW_DECL_ID: &'static str = #component_id;
 
-            /// 注册声明式组件。对应 Java 容器的 `DeclComponentParser#parseDeclBean`。
+            /// 生成包装元数据、创建代理并注册声明式组件。
+            ///
+            /// 对应 Java `DeclComponentParser#parseDeclBean`、
+            /// `LiteFlowProxyUtil#proxy2NodeComponent`。
             pub fn register_decl(self, bus: &::liteflow_core::FlowBus) {
-                bus.register_decl(Self::LITEFLOW_DECL_ID, ::std::sync::Arc::new(self));
+                let raw_bean: ::std::sync::Arc<
+                    dyn ::liteflow_core::core::decl_component::DeclComponent
+                > = ::std::sync::Arc::new(self);
+                let decl_warp_bean =
+                    ::liteflow_core::core::proxy::DeclWarpBean::new(
+                        Self::LITEFLOW_DECL_ID,
+                        "",
+                        ::liteflow_core::enums::NodeTypeEnum::Common,
+                        raw_bean,
+                        ::std::any::type_name::<Self>(),
+                        ::std::vec![#(#method_metadata),*],
+                    );
+                bus.register_decl_warp(decl_warp_bean);
             }
         }
     }

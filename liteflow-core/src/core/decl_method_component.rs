@@ -32,4 +32,20 @@ impl NodeComponent for DeclMethodComponent {
     async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
         self.decl.call(&self.method, ctx).await
     }
+
+    fn name(&self) -> &str {
+        self.decl.method_name(&self.method).unwrap_or("")
+    }
+
+    fn node_type(&self) -> Option<crate::enums::NodeTypeEnum> {
+        self.decl.method_node_type(&self.method)
+    }
+
+    fn retry_count(&self) -> usize {
+        self.decl.method_retry_count(&self.method)
+    }
+
+    fn is_retry_for(&self, error: &LiteflowError) -> bool {
+        self.decl.is_method_retry_for(&self.method, error)
+    }
 }

@@ -6,6 +6,7 @@ use crate::builder::el::lite_flow_chain_el_builder::LiteFlowChainELBuilder;
 use crate::core::ComponentInitializer;
 use crate::core::decl_component::DeclComponent;
 use crate::core::node_component::NodeComponent;
+use crate::core::proxy::{DeclWarpBean, LiteFlowProxyUtil};
 use crate::el::{El, parse_el};
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::chain::Chain;
@@ -18,7 +19,9 @@ use crate::lifecycle::{
 };
 use crate::monitor::MonitorBus;
 use crate::script::{ScriptExecutorFactory, ScriptKind, build_rhai_component};
+use crate::spi::DeclComponentParserHolder;
 use dashmap::DashMap;
+use md5::{Digest, Md5};
 use std::sync::Arc;
 
 /// 流程总线
@@ -38,6 +41,8 @@ pub struct FlowBus {
     pub(crate) monitor: Arc<MonitorBus>,
     /// 生命周期钩子（LifeCycleHolder）
     pub(crate) lifecycle: Arc<std::sync::RwLock<LifeCycleHolder>>,
+    /// 脚本节点 id → (language, kind)，供脚本热刷新保持原执行器类型。
+    pub(crate) script_nodes: Arc<DashMap<String, (String, ScriptKind)>>,
     /// 实例编号 SPI
     pub(crate) instance_id_spi_holder: NodeInstanceIdManageSpiHolder,
 }
@@ -59,6 +64,7 @@ impl FlowBus {
             aspects: Arc::new(std::sync::RwLock::new(Vec::new())),
             monitor: Arc::new(MonitorBus::new()),
             lifecycle: Arc::new(std::sync::RwLock::new(LifeCycleHolder::default())),
+            script_nodes: Arc::new(DashMap::new()),
             instance_id_spi_holder: NodeInstanceIdManageSpiHolder::default(),
         }
     }
@@ -114,6 +120,23 @@ impl FlowBus {
     /// 注册声明式组件（对应 @LiteflowCmpDefine；EL 以 cmpId.method 引用方法）
     pub fn register_decl(&self, node_id: impl Into<String>, decl: Arc<dyn DeclComponent>) {
         self.decls.insert(node_id.into(), decl);
+    }
+
+    /// 校验、代理并注册声明式组件包装对象。
+    ///
+    /// 对应 Java `FlowBus#getNodeComponentList` 的声明式组件分支。
+    pub fn try_register_decl_warp(&self, decl_warp_bean: DeclWarpBean) -> LFResult<()> {
+        let parser = DeclComponentParserHolder::load_decl_component_parser();
+        for parsed in parser.parse_decl_bean(decl_warp_bean)? {
+            LiteFlowProxyUtil::register_decl_warp(self, parsed)?;
+        }
+        Ok(())
+    }
+
+    /// 注册声明式组件包装对象；失败时与普通 `register` 一样立即终止装配。
+    pub fn register_decl_warp(&self, decl_warp_bean: DeclWarpBean) {
+        self.try_register_decl_warp(decl_warp_bean)
+            .expect("register declarative component failed");
     }
     pub(crate) fn get_decl(&self, node_id: &str) -> Option<Arc<dyn DeclComponent>> {
         self.decls.get(node_id).map(|r| r.clone())
@@ -210,6 +233,7 @@ impl FlowBus {
     /// removeComponent
     pub fn unregister(&self, node_id: &str) {
         self.nodes.remove(node_id);
+        self.script_nodes.remove(node_id);
     }
     pub fn contains_node(&self, node_id: &str) -> bool {
         self.nodes.contains_key(node_id)
@@ -222,8 +246,12 @@ impl FlowBus {
 
     /// LiteFlowChainELBuilder.createChain().setChainId().setEL()
     pub fn add_chain(&self, chain_id: impl Into<String>, el: &str) -> LFResult<()> {
+        let id = chain_id.into();
         let ast = parse_el(el)?;
-        self.add_chain_el(chain_id, ast)
+        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
+        chain.set_el(el, format!("{:x}", Md5::digest(el.as_bytes())));
+        self.add_built_chain(chain);
+        Ok(())
     }
 
     /// 以语法树构建链路（平滑加载：先完整构建，再原子替换）
@@ -280,7 +308,10 @@ impl FlowBus {
             return Err(LiteflowError::ChainNotFound(chain_id.to_string()));
         }
         let ast = parse_el(el)?;
-        self.add_chain_el(chain_id.to_string(), ast)
+        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(chain_id, ast)?;
+        chain.set_el(el, format!("{:x}", Md5::digest(el.as_bytes())));
+        self.add_built_chain(chain);
+        Ok(())
     }
 
     pub fn remove_chain(&self, chain_id: &str) {
@@ -324,15 +355,29 @@ impl FlowBus {
             "rhai" => {
                 let component = build_rhai_component(&id, kind, script)?;
                 self.run_script_engine_init_hooks(language);
-                self.register_arc(id, component);
+                self.register_arc(id.clone(), component);
             }
             other => {
                 let component = ScriptExecutorFactory::build(other, &id, kind, script)?;
                 self.run_script_engine_init_hooks(other);
-                self.register_arc(id, component);
+                self.register_arc(id.clone(), component);
             }
         }
+        self.script_nodes
+            .insert(id.clone(), (language.to_string(), kind));
         Ok(())
+    }
+
+    /// 以原语言和节点类别热刷新脚本。
+    ///
+    /// 对应 Java `FlowBus#reloadScript`：先完整构建新组件，成功后再原子替换。
+    pub fn reload_script(&self, node_id: &str, script: &str) -> LFResult<()> {
+        let (language, kind) = self
+            .script_nodes
+            .get(node_id)
+            .map(|entry| entry.clone())
+            .ok_or_else(|| LiteflowError::NodeNotFound(node_id.to_string()))?;
+        self.register_script_typed(node_id, &language, kind, script)
     }
 
     /// 在脚本组件真实构建完成后调用初始化生命周期。

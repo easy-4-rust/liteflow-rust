@@ -4,7 +4,7 @@
 //! Rust 端组件类映射由返回值类型约定表达（见 docs/语义迁移对照表.md 第三章）。
 
 /// 节点类型枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeTypeEnum {
     Common,
