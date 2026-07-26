@@ -1,0 +1,5 @@
+error: liteflow component id 不能为空
+ --> tests/ui/component_empty_id.rs:3:22
+  |
+3 | #[liteflow_component("")]
+  |                      ^^

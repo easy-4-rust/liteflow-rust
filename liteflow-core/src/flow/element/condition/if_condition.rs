@@ -9,7 +9,7 @@
 //! - Java 通过 slot.getIfResult(类名) 取条件结果；Rust 端条件节点直接返回
 //!   Value::Bool（见 crate::flow::element::node）。
 
-use super::{check_not_pre_finally, expect_bool};
+use super::{Condition, check_not_pre_finally, expect_bool};
 use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
@@ -33,7 +33,12 @@ impl IfCondition {
         elif_list: Vec<(Arc<dyn Executable>, Arc<dyn Executable>)>,
         false_case: Option<Arc<dyn Executable>>,
     ) -> Self {
-        Self { if_item, true_case, elif_list, false_case }
+        Self {
+            if_item,
+            true_case,
+            elif_list,
+            false_case,
+        }
     }
 
     /// 对应 Java IfCondition#getConditionType
@@ -71,5 +76,11 @@ impl Executable for IfCondition {
 
     fn id(&self) -> &str {
         "IF"
+    }
+}
+
+impl Condition for IfCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        IfCondition::condition_type(self)
     }
 }

@@ -1,0 +1,11 @@
+[package]
+name = "liteflow-agent-anthropic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Anthropic model adapter for liteflow-agent"
+
+[dependencies]
+agentscope-core = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-core" }
+serde.workspace = true

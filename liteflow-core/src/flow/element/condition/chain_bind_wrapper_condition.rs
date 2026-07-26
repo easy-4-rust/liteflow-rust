@@ -1,6 +1,8 @@
 //! 对应 ChainBindWrapperCondition：把子链包装成可执行元素（子流程嵌套）。
 //! EL 中直接写子链 id 即可引用（对齐 Java 的子流程语义）。
 
+use super::Condition;
+use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::chain::Chain;
 use crate::flow::element::executable::Executable;
@@ -15,12 +17,19 @@ pub struct ChainBindWrapperCondition {
     /// 2.16：Chain bind 场景下 bind 数据存在 wrapper 上（putBindData），
     /// 避免多个 chain 引用同一子链时的 bind 数据污染
     bind_data: Vec<(String, String)>,
+    /// Chain 全局唯一，TAG 只保存在当前引用包装上。
+    tag: Option<String>,
 }
 
 impl ChainBindWrapperCondition {
     pub fn new(wrapped_chain: Arc<Chain>) -> Self {
         let display = format!("chain_bind_wrapper_{}", wrapped_chain.id);
-        Self { wrapped_chain, display, bind_data: Vec::new() }
+        Self {
+            wrapped_chain,
+            display,
+            bind_data: Vec::new(),
+            tag: None,
+        }
     }
     /// putBindData（对应 Java Condition.putBindData）
     pub fn put_bind_data(&mut self, key: impl Into<String>, value: impl Into<String>) {
@@ -30,6 +39,11 @@ impl ChainBindWrapperCondition {
     }
     pub fn wrapped_chain(&self) -> &Arc<Chain> {
         &self.wrapped_chain
+    }
+
+    /// 设置当前子链引用标签，不修改全局 Chain。
+    pub fn set_tag(&mut self, tag: impl Into<String>) {
+        self.tag = Some(tag.into());
     }
 }
 
@@ -42,5 +56,14 @@ impl Executable for ChainBindWrapperCondition {
     }
     fn id(&self) -> &str {
         &self.display
+    }
+    fn tag(&self) -> Option<&str> {
+        self.tag.as_deref()
+    }
+}
+
+impl Condition for ChainBindWrapperCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::ChainBindWrapper
     }
 }

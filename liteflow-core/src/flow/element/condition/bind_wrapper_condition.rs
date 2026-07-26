@@ -13,25 +13,62 @@ use std::sync::Arc;
 pub struct BindWrapperCondition {
     inner: Arc<dyn Executable>,
     bind_data: Vec<(String, String)>,
+    id: Option<String>,
+    tag: Option<String>,
+    /// Java 线程池实现类名；执行时交给 `ExecutorHelper` 选择真实有界执行器。
+    thread_pool: Option<String>,
 }
 
 impl BindWrapperCondition {
     pub fn new(inner: Arc<dyn Executable>, bind_data: Vec<(String, String)>) -> Self {
-        Self { inner, bind_data }
+        Self {
+            inner,
+            bind_data,
+            id: None,
+            tag: None,
+            thread_pool: None,
+        }
+    }
+
+    /// 创建同时携带 Condition 公共属性的包装。
+    ///
+    /// 对应 Java Condition#setId、setTag、putBindData，以及 LoopCondition
+    /// 的 setThreadPoolExecutorClass。Rust 用一个不可变包装保持对象安全。
+    pub fn with_properties(
+        inner: Arc<dyn Executable>,
+        bind_data: Vec<(String, String)>,
+        id: Option<String>,
+        tag: Option<String>,
+        thread_pool: Option<String>,
+    ) -> Self {
+        Self {
+            inner,
+            bind_data,
+            id,
+            tag,
+            thread_pool,
+        }
+    }
+
+    /// 返回保留的 Java 线程池实现类名。
+    pub fn thread_pool(&self) -> Option<&str> {
+        self.thread_pool.as_deref()
     }
 }
 
 #[async_trait]
 impl Executable for BindWrapperCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
-        let frame = frame.push_bind(&self.bind_data);
+        let frame = frame
+            .push_bind(&self.bind_data)
+            .with_condition_thread_pool(self.thread_pool.as_deref());
         self.inner.execute(ctx, &frame).await
     }
     fn id(&self) -> &str {
-        self.inner.id()
+        self.id.as_deref().unwrap_or_else(|| self.inner.id())
     }
     fn tag(&self) -> Option<&str> {
-        self.inner.tag()
+        self.tag.as_deref().or_else(|| self.inner.tag())
     }
     fn is_pre_or_finally(&self) -> bool {
         self.inner.is_pre_or_finally()

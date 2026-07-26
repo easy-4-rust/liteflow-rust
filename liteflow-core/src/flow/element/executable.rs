@@ -1,5 +1,6 @@
 //! 对应 flow.element.Executable 接口。
 
+use crate::enums::ExecuteableTypeEnum;
 use crate::exception::LFResult;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;
@@ -10,6 +11,15 @@ use serde_json::Value;
 pub trait Executable: Send + Sync {
     /// execute(slotIndex)
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value>;
+
+    /// 返回统一可执行对象类型。对应 Java `Executable#getExecuteType()`。
+    ///
+    /// Rust 中绝大多数 `Executable` 实现是 Condition，因此默认返回 Condition；
+    /// Node 与 Chain 分别覆盖为对应类型。
+    fn execute_type(&self) -> ExecuteableTypeEnum {
+        ExecuteableTypeEnum::Condition
+    }
+
     /// getId()（节点返回 id，条件返回类型名）
     fn id(&self) -> &str {
         ""

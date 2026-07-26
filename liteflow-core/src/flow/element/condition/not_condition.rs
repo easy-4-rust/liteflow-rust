@@ -1,6 +1,7 @@
 //! 对应 NotCondition：布尔取反。
 
-use super::expect_bool;
+use super::{Condition, expect_bool};
+use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -27,5 +28,11 @@ impl Executable for NotCondition {
 
     fn id(&self) -> &str {
         "NOT"
+    }
+}
+
+impl Condition for NotCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Not
     }
 }

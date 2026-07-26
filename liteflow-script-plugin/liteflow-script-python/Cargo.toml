@@ -1,0 +1,13 @@
+[package]
+name = "liteflow-script-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CPython executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+async-trait.workspace = true
+pyo3.workspace = true
+serde_json.workspace = true

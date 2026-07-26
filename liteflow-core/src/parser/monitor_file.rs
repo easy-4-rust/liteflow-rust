@@ -1,9 +1,9 @@
 //! 对应 monitor.MonitorBus + MonitorFile 的"平滑热刷新"：
 //! 轮询文件 mtime，变更后先完整解析，再原子替换链路表；解析失败不影响在跑链路。
 
-use super::local_json_flow_el_parser::load_json_file;
-use crate::flow::flow_bus::FlowBus;
+use super::el::load_json_file;
 use crate::exception::LFResult;
+use crate::flow::flow_bus::FlowBus;
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,11 +22,17 @@ impl RuleWatcher {
         for id in ids {
             chain_ids.insert(id, ());
         }
-        Ok(Self { bus, path: path.as_ref().to_path_buf(), chain_ids })
+        Ok(Self {
+            bus,
+            path: path.as_ref().to_path_buf(),
+            chain_ids,
+        })
     }
 
     fn mtime(&self) -> Option<SystemTime> {
-        std::fs::metadata(&self.path).ok().and_then(|m| m.modified().ok())
+        std::fs::metadata(&self.path)
+            .ok()
+            .and_then(|m| m.modified().ok())
     }
 
     /// 启动后台轮询（abort 返回的 JoinHandle 即停止）

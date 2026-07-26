@@ -9,6 +9,7 @@
 //! - Java 按 isSubChain 区分 setException / setSubException；Rust 端 slot 无子链
 //!   异常槽位，统一记 set_exception（见 crate::slot::Ctx）。
 
+use super::Condition;
 use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
@@ -25,7 +26,11 @@ pub struct ThenCondition {
 
 impl ThenCondition {
     pub fn new() -> Self {
-        Self { pre_list: Vec::new(), executable_list: Vec::new(), finally_list: Vec::new() }
+        Self {
+            pre_list: Vec::new(),
+            executable_list: Vec::new(),
+            finally_list: Vec::new(),
+        }
     }
     /// 对应 Java ThenCondition#addExecutable：按类型分流，
     /// PreCondition → pre_list，FinallyCondition → finally_list，其余进主体列表
@@ -92,5 +97,11 @@ impl Executable for ThenCondition {
 
     fn id(&self) -> &str {
         "THEN"
+    }
+}
+
+impl Condition for ThenCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        ThenCondition::condition_type(self)
     }
 }

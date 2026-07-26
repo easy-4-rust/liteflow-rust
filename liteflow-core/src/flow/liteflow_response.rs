@@ -14,12 +14,28 @@ pub struct LiteflowResponse {
     pub message: String,
     pub cause: Option<String>,
     pub steps: Vec<CmpStep>,
+    /// 失败补偿步骤，顺序即实际回滚顺序。
+    pub rollback_steps: Vec<CmpStep>,
     slot: Arc<Slot>,
 }
 
 impl LiteflowResponse {
-    pub(crate) fn new(slot: Arc<Slot>, success: bool, message: String, cause: Option<String>) -> Self {
-        let steps = slot.steps.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default();
+    pub(crate) fn new(
+        slot: Arc<Slot>,
+        success: bool,
+        message: String,
+        cause: Option<String>,
+    ) -> Self {
+        let steps = slot
+            .steps
+            .lock()
+            .map(|mut s| std::mem::take(&mut *s))
+            .unwrap_or_default();
+        let rollback_steps = slot
+            .rollback_steps
+            .lock()
+            .map(|mut steps| std::mem::take(&mut *steps))
+            .unwrap_or_default();
         Self {
             request_id: slot.request_id.clone(),
             chain_id: slot.chain_id.clone(),
@@ -27,6 +43,7 @@ impl LiteflowResponse {
             message,
             cause,
             steps,
+            rollback_steps,
             slot,
         }
     }
@@ -55,16 +72,37 @@ impl LiteflowResponse {
         self.step_str()
     }
 
+    /// getRollbackStepStr()：按真实回滚顺序输出组件与回滚耗时。
+    pub fn rollback_step_str(&self) -> String {
+        self.rollback_steps
+            .iter()
+            .map(|step| {
+                let mut segment = format!("{}[{}ms]", step.node_id, step.rollback_time_spent_ms());
+                if let Some(error) = &step.exception {
+                    segment.push_str(&format!("[ex:{error}]"));
+                }
+                segment
+            })
+            .collect::<Vec<_>>()
+            .join("==>")
+    }
+
     /// getContextBean
     pub fn bean<T: Any + Send + Sync>(&self, name: &str) -> Option<Arc<T>> {
-        self.slot.beans.get(name).and_then(|v| v.clone().downcast::<T>().ok())
+        self.slot
+            .beans
+            .get(name)
+            .and_then(|v| v.clone().downcast::<T>().ok())
     }
 
     pub fn data(&self, key: &str) -> Option<Value> {
         self.slot.data.get(key).map(|v| v.clone())
     }
     pub fn data_as<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        self.slot.data.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        self.slot
+            .data
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     /// slot.exception

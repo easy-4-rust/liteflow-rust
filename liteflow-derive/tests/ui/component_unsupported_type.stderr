@@ -1,0 +1,5 @@
+error: 不支持的 node_type
+ --> tests/ui/component_unsupported_type.rs:3:42
+  |
+3 | #[liteflow_component("node", node_type = "unknown")]
+  |                                          ^^^^^^^^^

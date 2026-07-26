@@ -1,0 +1,40 @@
+[package]
+name = "liteflow-testcase-el"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "LiteFlow EL integration testcase aggregation"
+
+[dependencies]
+liteflow-testcase-el-nospring = { path = "liteflow-testcase-el-nospring" }
+liteflow-testcase-el-vernal = { path = "liteflow-testcase-el-vernal" }
+liteflow-testcase-el-builder = { path = "liteflow-testcase-el-builder" }
+liteflow-testcase-el-routechain = { path = "liteflow-testcase-el-routechain" }
+liteflow-testcase-el-agent = { path = "liteflow-testcase-el-agent" }
+liteflow-testcase-el-declare-vernal = { path = "liteflow-testcase-el-declare-vernal" }
+liteflow-testcase-el-declare-multi-vernal = { path = "liteflow-testcase-el-declare-multi-vernal" }
+liteflow-testcase-el-apollo = { path = "liteflow-testcase-el-apollo" }
+liteflow-testcase-el-apollo-vernal = { path = "liteflow-testcase-el-apollo-vernal" }
+liteflow-testcase-el-etcd = { path = "liteflow-testcase-el-etcd" }
+liteflow-testcase-el-etcd-vernal = { path = "liteflow-testcase-el-etcd-vernal" }
+liteflow-testcase-el-nacos = { path = "liteflow-testcase-el-nacos" }
+liteflow-testcase-el-nacos-vernal = { path = "liteflow-testcase-el-nacos-vernal" }
+liteflow-testcase-el-redis = { path = "liteflow-testcase-el-redis" }
+liteflow-testcase-el-redis-vernal = { path = "liteflow-testcase-el-redis-vernal" }
+liteflow-testcase-el-sql = { path = "liteflow-testcase-el-sql" }
+liteflow-testcase-el-sql-vernal = { path = "liteflow-testcase-el-sql-vernal" }
+liteflow-testcase-el-zk = { path = "liteflow-testcase-el-zk" }
+liteflow-testcase-el-zk-vernal = { path = "liteflow-testcase-el-zk-vernal" }
+liteflow-testcase-el-script-aviator-vernal = { path = "liteflow-testcase-el-script-aviator-vernal" }
+liteflow-testcase-el-script-graaljs-vernal = { path = "liteflow-testcase-el-script-graaljs-vernal" }
+liteflow-testcase-el-script-groovy-vernal = { path = "liteflow-testcase-el-script-groovy-vernal" }
+liteflow-testcase-el-script-javascript-vernal = { path = "liteflow-testcase-el-script-javascript-vernal" }
+liteflow-testcase-el-script-lua-vernal = { path = "liteflow-testcase-el-script-lua-vernal" }
+liteflow-testcase-el-script-multi-language-vernal = { path = "liteflow-testcase-el-script-multi-language-vernal" }
+liteflow-testcase-el-script-python-vernal = { path = "liteflow-testcase-el-script-python-vernal" }
+liteflow-testcase-el-script-qlexpress-vernal = { path = "liteflow-testcase-el-script-qlexpress-vernal" }
+liteflow-testcase-el-script-rhai-vernal = { path = "liteflow-testcase-el-script-rhai-vernal" }
+
+[dev-dependencies]
+tokio.workspace = true

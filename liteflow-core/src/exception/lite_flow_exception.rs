@@ -19,7 +19,12 @@ pub enum LiteflowError {
     NodeNotFound(String),
     /// 组件执行异常包裹
     #[error("node[{node}] execute error: {msg}")]
-    NodeExec { node: String, msg: String },
+    NodeExec {
+        node: String,
+        msg: String,
+        /// 被节点边界包装前的 LiteflowError 变体名，用于 RETRY 异常过滤。
+        kind: String,
+    },
     /// ChainEndException（正常终止，不算失败）
     #[error("chain end")]
     ChainEnd,
@@ -49,7 +54,11 @@ pub enum LiteflowError {
     TargetCannotBePreOrFinally(String),
     /// IfTypeErrorException / SwitchTypeErrorException
     #[error("node[{node}] should return {expect}, but got {actual}")]
-    NodeTypeError { node: String, expect: String, actual: String },
+    NodeTypeError {
+        node: String,
+        expect: String,
+        actual: String,
+    },
     /// NodeBuildException（链构建期节点未注册等）
     #[error("node build error: {0}")]
     NodeBuild(String),
@@ -70,7 +79,9 @@ pub enum LiteflowError {
     Script { node: String, msg: String },
     /// NodeIdUnIllegalException（2.16：node id 必须符合变量命名规则，
     /// 不能以数字开头，只能由字母/数字/下划线/$ 组成）
-    #[error("invalid node id: [{0}]. node id must follow variable naming rules: cannot start with a digit, must consist of letters, digits, underscores (_), or dollar signs ($)")]
+    #[error(
+        "invalid node id: [{0}]. node id must follow variable naming rules: cannot start with a digit, must consist of letters, digits, underscores (_), or dollar signs ($)"
+    )]
     NodeIdUnIllegal(String),
     /// AndOrConditionException
     #[error("{0}")]
@@ -178,5 +189,3 @@ pub enum LiteflowError {
     #[error("{0}")]
     Custom(String),
 }
-
-pub type LFResult<T> = Result<T, LiteflowError>;

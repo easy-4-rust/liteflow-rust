@@ -1,0 +1,7 @@
+error: liteflow_cmp_define 至少需要一个 #[liteflow_method("...")] 方法
+ --> tests/ui/decl_without_method.rs:6:1
+  |
+6 | / impl EmptyDecl {
+7 | |     async fn helper(&self, _ctx: &liteflow_core::CmpContext) {}
+8 | | }
+  | |_^

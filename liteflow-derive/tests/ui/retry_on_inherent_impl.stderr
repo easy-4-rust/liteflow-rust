@@ -1,0 +1,7 @@
+error: liteflow_retry 必须标注在 NodeComponent trait impl 上
+ --> tests/ui/retry_on_inherent_impl.rs:6:1
+  |
+6 | / impl WrongTarget {
+7 | |     fn helper(&self) {}
+8 | | }
+  | |_^

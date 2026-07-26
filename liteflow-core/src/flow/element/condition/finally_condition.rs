@@ -6,6 +6,7 @@
 //! - Java FinallyCondition 持有 executableList 并循环执行多个可执行项；Rust 端
 //!   EL 中 FINALLY(...) 只包裹单个表达式，由 builder 保证单 item，故持单字段。
 
+use super::Condition;
 use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
@@ -39,5 +40,11 @@ impl Executable for FinallyCondition {
     }
     fn is_pre_or_finally(&self) -> bool {
         true
+    }
+}
+
+impl Condition for FinallyCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        FinallyCondition::condition_type(self)
     }
 }

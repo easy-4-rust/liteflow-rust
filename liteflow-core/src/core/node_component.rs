@@ -1,13 +1,14 @@
-//! 对应 core.NodeComponent 及其子类（NodeBooleanComponent / NodeSwitchComponent /
-//! NodeForComponent / NodeIteratorComponent / NodeBreakComponent）。
+//! 对应 Java `core.NodeComponent` 基类。
 //!
-//! Rust 版合并为一个 trait，用返回值区分类型语义：
+//! 四个有返回值的 Java 子类已经拆到各自文件，并在适配到本 trait 时用
+//! `serde_json::Value` 传递类型结果：
 //! - 普通组件 → `Value::Null`
 //! - 布尔组件（IF/WHILE/BREAK/AND/OR/NOT）→ `Value::Bool`
 //! - SWITCH 组件 → `Value::String`（目标 id，可带 "id:tag"）
 //! - FOR 组件 → 数字
 //! - ITERATOR 组件 → `Value::Array`
 
+use crate::enums::NodeTypeEnum;
 use crate::exception::LiteflowError;
 use crate::flow::executor::NodeExecutor;
 use crate::slot::CmpContext;
@@ -24,10 +25,23 @@ pub trait NodeComponent: Send + Sync + 'static {
     async fn before_process(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
         Ok(())
     }
+    /// onSuccess()：`process` 成功后的回调。
+    ///
+    /// 对应 Java: `com.yomahub.liteflow.core.NodeComponent#onSuccess`。
+    /// 回调抛错时按组件执行失败处理，并继续进入 `on_error` 与 `after_process`。
+    async fn on_success(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
+        Ok(())
+    }
     /// afterProcess()
-    async fn after_process(&self, _ctx: &CmpContext) {}
+    async fn after_process(&self, ctx: &CmpContext) {
+        // 默认组件没有收尾副作用；实现方可覆盖该钩子。
+        let _ = ctx;
+    }
     /// onError()
-    async fn on_error(&self, _ctx: &CmpContext, _e: &LiteflowError) {}
+    async fn on_error(&self, ctx: &CmpContext, error: &LiteflowError) {
+        // 默认组件不吞掉也不改写错误；错误仍由 Node 执行主干传播。
+        let _ = (ctx, error);
+    }
     /// isAccess()
     fn is_access(&self, _ctx: &CmpContext) -> bool {
         true
@@ -36,11 +50,31 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn is_continue_on_error(&self) -> bool {
         false
     }
-    /// Rollbackable.rollback()
-    async fn rollback(&self, _ctx: &CmpContext) {}
+    /// 是否需要失败补偿。
+    ///
+    /// Java 构造器通过反射判断组件是否覆盖 `rollback()`；Rust trait 无法在运行时
+    /// 可靠判断默认方法是否被覆盖，因此显式返回该能力。后续 `liteflow-derive`
+    /// 会在声明了 rollback 方法时自动生成此标记。
+    fn is_rollback(&self) -> bool {
+        false
+    }
+    /// Rollbackable.rollback()。
+    ///
+    /// 对应 Java: `com.yomahub.liteflow.core.NodeComponent#rollback`。
+    async fn rollback(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
+        Ok(())
+    }
     /// getName()
     fn name(&self) -> &str {
         ""
+    }
+    /// getNodeId()：返回初始化器写入的节点 id。
+    fn node_id(&self) -> &str {
+        ""
+    }
+    /// getType()：返回初始化器写入的节点类型。
+    fn node_type(&self) -> Option<NodeTypeEnum> {
+        None
     }
     /// getRetryCount()：最大重试次数（默认 0 = 不重试，总尝试次数 = retry_count + 1）
     fn retry_count(&self) -> usize {
@@ -57,26 +91,4 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn node_executor(&self) -> Option<Arc<dyn NodeExecutor>> {
         None
     }
-}
-
-/// 闭包即组件（按值接收上下文，CmpContext 为廉价 Clone 句柄）
-pub struct FnComponent<F>(pub F);
-
-#[async_trait]
-impl<F, Fut> NodeComponent for FnComponent<F>
-where
-    F: Fn(CmpContext) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<Value, LiteflowError>> + Send,
-{
-    async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
-        (self.0)(ctx.clone()).await
-    }
-}
-
-pub fn cmp<F, Fut>(f: F) -> FnComponent<F>
-where
-    F: Fn(CmpContext) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<Value, LiteflowError>> + Send,
-{
-    FnComponent(f)
 }

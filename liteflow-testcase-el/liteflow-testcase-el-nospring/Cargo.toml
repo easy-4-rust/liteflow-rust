@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-testcase-el-nospring"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+serde_json.workspace = true

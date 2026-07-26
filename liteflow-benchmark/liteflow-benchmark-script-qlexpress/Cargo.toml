@@ -1,0 +1,12 @@
+[package]
+name = "liteflow-benchmark-script-qlexpress"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-benchmark-common = { path = "../liteflow-benchmark-common" }
+liteflow-script-qlexpress = { path = "../../liteflow-script-plugin/liteflow-script-qlexpress" }
+serde_json.workspace = true

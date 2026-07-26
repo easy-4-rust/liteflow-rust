@@ -9,11 +9,13 @@
 //!   返回 Value::Bool。
 
 use super::loop_condition::{handle_future_list, run_sequential, submit_iteration};
-use super::expect_bool;
+use super::{Condition, expect_bool};
 use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
+use crate::flow::parallel::LoopFutureObj;
 use crate::slot::{Ctx, Frame};
+use crate::thread::ExecutorHelper;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -33,7 +35,12 @@ impl WhileCondition {
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
-        Self { while_item, parallel, do_executor, break_item }
+        Self {
+            while_item,
+            parallel,
+            do_executor,
+            break_item,
+        }
     }
 
     /// 对应 Java WhileCondition#getConditionType
@@ -52,14 +59,33 @@ impl Executable for WhileCondition {
         }
         let mut index = 0usize;
         if self.parallel.is_some() {
-            let mut set: JoinSet<LFResult<Value>> = JoinSet::new();
+            let condition_key = format!("{:p}", self);
+            let executor_service = ExecutorHelper::load_instance().build_executor_service(
+                frame.condition_thread_pool(),
+                frame.chain_thread_pool(),
+                &condition_key,
+                &ctx.inner.chain_id,
+                ConditionTypeEnum::While,
+            )?;
+            let mut set: JoinSet<LoopFutureObj> = JoinSet::new();
             loop {
                 let f = frame.push(index, None);
                 let v = self.while_item.execute(ctx, &f).await?;
                 if !expect_bool(self.while_item.id(), &v)? {
                     break;
                 }
-                if !submit_iteration(&mut set, &self.do_executor, self.break_item.as_ref(), ctx, frame, index, None).await? {
+                if !submit_iteration(
+                    &mut set,
+                    &self.do_executor,
+                    self.break_item.as_ref(),
+                    ctx,
+                    frame,
+                    index,
+                    None,
+                    &executor_service,
+                )
+                .await?
+                {
                     break;
                 }
                 index += 1;
@@ -73,7 +99,16 @@ impl Executable for WhileCondition {
             if !expect_bool(self.while_item.id(), &v)? {
                 break;
             }
-            if !run_sequential(&self.do_executor, self.break_item.as_ref(), ctx, frame, index, None).await? {
+            if !run_sequential(
+                &self.do_executor,
+                self.break_item.as_ref(),
+                ctx,
+                frame,
+                index,
+                None,
+            )
+            .await?
+            {
                 break;
             }
             index += 1;
@@ -83,5 +118,11 @@ impl Executable for WhileCondition {
 
     fn id(&self) -> &str {
         "WHILE"
+    }
+}
+
+impl Condition for WhileCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        WhileCondition::condition_type(self)
     }
 }

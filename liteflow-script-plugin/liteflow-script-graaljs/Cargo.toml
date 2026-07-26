@@ -1,0 +1,11 @@
+[package]
+name = "liteflow-script-graaljs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sandboxed GraalJS-compatible entrypoint for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-script-javascript = { path = "../liteflow-script-javascript" }

@@ -1,0 +1,13 @@
+[package]
+name = "liteflow-script-javascript"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Boa JavaScript executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+async-trait.workspace = true
+boa_engine.workspace = true
+serde_json.workspace = true

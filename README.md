@@ -5,69 +5,27 @@
 实现统一 `Executable` 接口；并行策略是 4 个独立执行器对象；构建期由
 `LiteFlowChainELBuilder` 把 EL 语法树组装成 Condition 对象树，与 Java 完全一致。
 
-## 源码结构（与 com.yomahub.liteflow 包一一对应）
+## Workspace 结构
 
 ```
-src/
-├── exception.rs                    # exception 包（30+ 异常类型）
-├── enums.rs                        # enums 包（ConditionTypeEnum / ParallelStrategyEnum ...）
-├── core/                           # core 包
-│   ├── node_component.rs           #   NodeComponent trait（isAccess/isContinueOnError/...）
-│   └── flow_executor.rs            #   FlowExecutor（execute2Resp 各重载）
-├── builder/el/builder.rs           # builder.el 包：LiteFlowChainELBuilder
-├── el.rs                           # EL 词法/语法解析（对应 Java 版底层 QLExpress 层）
-├── flow/
-│   ├── flow_bus.rs                 #   FlowBus + LiteflowMetaOperator
-│   ├── liteflow_response.rs        #   LiteflowResponse
-│   ├── entity/cmp_step.rs          #   CmpStep
-│   ├── element/
-│   │   ├── executable.rs           #   Executable 接口
-│   │   ├── chain.rs                #   Chain
-│   │   ├── node.rs                 #   Node（processFlow 语义）
-│   │   └── condition/              #   每种 Condition 一个对象：
-│   │       ├── then_condition.rs / when_condition.rs
-│   │       ├── if_condition.rs / switch_condition.rs
-│   │       ├── loop_condition.rs   #   LoopCondition 公共逻辑
-│   │       ├── for_condition.rs / while_condition.rs / iterator_condition.rs
-│   │       ├── catch_condition.rs / and_or_condition.rs / not_condition.rs
-│   │       ├── retry_condition.rs / timeout_condition.rs
-│   │       ├── ignore_error_condition.rs
-│   │       └── pre_condition.rs / finally_condition.rs
-│   └── parallel/strategy/          #   flow.parallel.strategy 包
-│       ├── all_of.rs               #   AllOfParallelExecutor
-│       ├── any_of.rs               #   AnyOfParallelExecutor
-│       ├── percentage_of.rs        #   PercentageOfParallelExecutor
-│       └── specify_of.rs           #   SpecifyParallelExecutor
-├── slot/                           # slot 包
-│   ├── slot.rs                     #   Slot
-│   ├── databus.rs                  #   DataBus + 请求 ID 生成
-│   └── default_context.rs          #   DefaultContext（CmpContext）
-├── script/                         # script 包（rhai 脚本节点）
-│   ├── script_executor.rs          #   RhaiScriptExecutor（编译/求值/作用域注入）
-│   ├── script_component.rs         #   ScriptComponent（5 种脚本类型语义）
-│   └── json_convert.rs             #   serde_json ↔ rhai::Dynamic
-├── util/el_regex.rs                # util 包：链继承占位符（{{holder}} 语义）
-├── aop/                            # CmpAroundAspect 全局切面
-├── lifecycle/                      # 生命周期钩子 SPI（4 种）
-├── monitor/                        # MonitorBus 统计报表
-├── instance_id/                    # NodeInstanceIdManageSpi
-├── rule_plugin/                    # 规则源插件（对应 liteflow-rule-plugin 全家）
-│   ├── rule_source.rs              #   RuleSource trait + 轮询热刷新
-│   ├── nacos.rs / etcd.rs / zk.rs  #   feature: nacos / etcd / zk（官方 Rust SDK）
-│   ├── apollo.rs / redis_source.rs #   feature: apollo / redis
-│   └── sql_source.rs               #   feature: sql（rusqlite，表结构对齐）
-└── parser/                         # parser 包
-    ├── chain_def.rs                #   两阶段构建（链继承 extends）
-    ├── local_json_flow_el_parser.rs#   LocalJsonFlowELParser（JSON 规则）
-    ├── local_xml_flow_el_parser.rs #   LocalXmlFlowELParser（XML 规则）
-    ├── local_yml_flow_el_parser.rs #   LocalYmlFlowELParser（YML 规则）
-    └── monitor_file.rs             #   MonitorFile 平滑热刷新
+liteflow-rust/
+├── liteflow-core/                  # EL、FlowBus、Condition、执行器、SPI 与规则源契约
+├── liteflow-derive/                # 组件/声明式组件/Fact/Retry/Fallback 过程宏
+├── liteflow-el-builder/            # 18/18 Java EL Builder 对象的 Rust 链式 API
+├── liteflow-rule-plugin/           # Nacos/Etcd/ZK/Apollo/Redis/SQL 独立规则源
+├── liteflow-script-plugin/         # Lua/JavaScript/Python 与 JVM 表达式公共子集
+├── liteflow-vernal/                # Vernal 生命周期 + Axum/Actix HTTP 适配
+├── liteflow-agent/                 # AgentScope ReAct 组件 + 4 个模型提供方子 crate
+├── liteflow-benchmark/             # 与 Java POM 一致的 8 个 benchmark 子 crate
+├── liteflow-testcase-el/           # 与目标清单一致的 28 个 testcase 子 crate
+├── docs/                           # 对象清单、语义矩阵与分阶段路线图
+└── Cargo.toml                      # 63 个 workspace crate 的统一清单与依赖
 ```
 
 ## 快速开始
 
 ```rust
-use liteflow_rust::{FlowBus, cmp};
+use liteflow_core::{FlowBus, cmp};
 use serde_json::Value;
 
 #[tokio::main]
@@ -125,7 +83,8 @@ async fn main() {
 | 全局 AOP | `register_aspect` | ✅ |
 | 生命周期钩子 | 4 种 LifeCycle | ✅ |
 | 监控统计 | `bus.monitor().report()` | ✅ |
-| 规则源插件 | nacos/etcd/zk/apollo/redis/sql（feature 启用） | ✅ |
+| 规则源插件 | 独立 `liteflow-rule-plugin`：nacos/etcd/zk/apollo/redis/sql | ✅ |
+| 脚本语言插件 | 独立 `liteflow-script-plugin`：lua/js/python + JVM 表达式公共子集 | ✅ |
 | 直接执行 EL | `execute_with_el`（normalize + MD5 匿名链缓存，2.16） | ✅ |
 | ExecuteOption | requestId / conversationId / eventListener（2.16） | ✅ |
 | 执行事件 | `FlowEvent` + `publish_event` + ExecuteOption.event_listener（2.15+） | ✅ |
@@ -146,6 +105,22 @@ bus.register_script("calc", "rhai", "data.total = input.amount * 2").unwrap();
 `node_id`、`tag`、`loop_index`、`loop_object`。脚本最后表达式的值为节点返回值，
 并按脚本类型校验（boolean_script 必须返回 bool 等）。
 
+非 Rhai 语言先由独立插件显式注册：
+
+```rust
+liteflow_script_plugin::register_all()?;
+bus.register_script_typed(
+    "check",
+    "javascript",
+    ScriptKind::Boolean,
+    "return input.score >= 60;",
+)?;
+```
+
+Lua 使用 mlua，JavaScript 使用纯 Rust Boa，Python 使用 PyO3 嵌入式
+CPython，均经过真实引擎执行测试。Groovy、QLExpress、Aviator、Kotlin
+在 Rust 端只接受与 Rhai 重叠的表达式子集；JVM 专属语法会在构建期明确报错。
+
 ## 决策表链路（route，2.12+）
 
 ```rust
@@ -160,7 +135,7 @@ let matched = bus.execute_route_chain(Some("order"), json!({"level": 8})).await?
 `namespace`/`enable` 字段），支持平滑热刷新：
 
 ```rust
-use liteflow_rust::{FlowBus, rule};
+use liteflow_core::{FlowBus, rule};
 let bus = FlowBus::new();
 // 组件注册略
 rule::load_json_file(&bus, "rule.el.json").unwrap();
@@ -190,18 +165,27 @@ let _h = watcher.watch(std::time::Duration::from_secs(1));
 | NodeIteratorComponent | `Ok(Value::Array(_))` |
 
 组件 trait 还提供 `is_access` / `is_continue_on_error` / `before_process` /
-`after_process` / `on_error` / `rollback` 默认方法，与 Java NodeComponent 一一对应。
+`on_success` / `after_process` / `on_error` / `is_rollback` / `rollback` 默认方法。
+Java 通过反射判断是否覆盖 rollback；Rust 端显式返回 `is_rollback = true`，
+由执行器按真实执行记录逆序补偿。
 
 ## 运行测试与示例
 
 ```bash
-export CARGO_TARGET_DIR=/tmp/lf-target  # 本仓库挂载点无执行位，需外挂 target 目录
-cargo test                              # 75 个测试（解析/语义/P1/P2/v2.16）
-cargo check --features lua              # Lua 脚本引擎（mlua）
-cargo check --features nacos            # Nacos 规则源（nacos-sdk）
-cargo check --features etcd,zk,sql,redis,apollo  # 其余规则源
+export PYO3_PYTHON=/path/to/python3.13  # 启用 python feature 时指向可嵌入的 CPython
+cargo test --workspace --all-features --no-fail-fast # 203 个测试入口 + 1 个 doctest
+cargo test -p liteflow-script-plugin --all-features  # Lua/Boa/CPython 真实运行
+cargo test -p liteflow-rule-plugin --all-features    # 含真实临时 SQLite
+cargo test -p liteflow-agent -p liteflow-agent-core --all-features # Provider 构造契约 + ReAct 流程
+cargo test -p liteflow-benchmark                     # 8 个场景执行真实负载
+cargo test -p liteflow-testcase-el                    # 聚合执行全部 28 个 testcase
+cargo test -p liteflow-vernal --all-features         # Vernal + Axum + Actix
+cargo run -p liteflow-vernal --example vernal_demo   # 启动 HTTP 示例
 cargo run --example order_demo
 ```
+
+`PYO3_PYTHON` 必须指向带可链接共享库或 Framework 的 CPython；仅有解释器
+可执行文件但缺少嵌入库时，全特性二进制会在启动阶段失败。
 
 ## 许可证
 

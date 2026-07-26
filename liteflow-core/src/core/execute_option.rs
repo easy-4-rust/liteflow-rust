@@ -2,34 +2,15 @@
 //! requestId / conversationId / contextBeans / eventListener。
 
 use crate::flow::flow_event_listener::FlowEventListener;
+use crate::util::ConversationIdGenerator;
 use std::any::Any;
 use std::sync::Arc;
 
-/// 会话 ID 生成（对应 ConversationIdGenerator 的 NanoId 语义：短随机串）
+/// 生成默认会话 ID。
+///
+/// 保留既有函数入口并委托独立的 `ConversationIdGenerator` 对象。
 pub fn gen_conversation_id() -> String {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let r: u32 = rand_u32();
-    format!("{ts:x}{r:08x}")
-}
-
-fn rand_u32() -> u32 {
-    // 轻量随机：时间 + 栈地址扰动（避免引入 rand 依赖；语义等价于 NanoId 的唯一性保证）
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEED: AtomicU64 = AtomicU64::new(0x9e3779b97f4a7c15);
-    let mut x = SEED.fetch_add(0x9e3779b97f4a7c15, Ordering::Relaxed) ^ {
-        let t = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        t
-    };
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xff51afd7ed558ccd);
-    x ^= x >> 33;
-    x as u32
+    ConversationIdGenerator::generate()
 }
 
 #[derive(Default, Clone)]
@@ -62,9 +43,14 @@ impl ExecuteOption {
     }
     pub fn auto_conversation_id(mut self) -> Self {
         self.auto_conversation_id = true;
+        self.conversation_id = None;
         self
     }
-    pub fn context_bean(mut self, name: impl Into<String>, bean: Arc<dyn Any + Send + Sync>) -> Self {
+    pub fn context_bean(
+        mut self,
+        name: impl Into<String>,
+        bean: Arc<dyn Any + Send + Sync>,
+    ) -> Self {
         self.context_beans.push((name.into(), bean));
         self
     }

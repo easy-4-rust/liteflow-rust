@@ -1,0 +1,13 @@
+[package]
+name = "liteflow-rule-redis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Redis rule source for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+async-trait.workspace = true
+redis.workspace = true
+tokio.workspace = true

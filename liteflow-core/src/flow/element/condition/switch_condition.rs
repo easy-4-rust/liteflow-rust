@@ -9,7 +9,7 @@
 //! - Java 通过 slot.getSwitchResult(类名) 取选择结果；Rust 端 switch 节点
 //!   直接返回 Value::String。
 
-use super::check_not_pre_finally;
+use super::{Condition, check_not_pre_finally};
 use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
@@ -30,7 +30,11 @@ impl SwitchCondition {
         target_list: Vec<Arc<dyn Executable>>,
         default_executor: Option<Arc<dyn Executable>>,
     ) -> Self {
-        Self { switch_node, target_list, default_executor }
+        Self {
+            switch_node,
+            target_list,
+            default_executor,
+        }
     }
 
     /// 对应 Java SwitchCondition#getConditionType
@@ -56,7 +60,7 @@ impl Executable for SwitchCondition {
                     node: self.switch_node.id().to_string(),
                     expect: "string".into(),
                     actual: other.to_string(),
-                })
+                });
             }
         };
 
@@ -88,5 +92,11 @@ impl Executable for SwitchCondition {
 
     fn id(&self) -> &str {
         "SWITCH"
+    }
+}
+
+impl Condition for SwitchCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        SwitchCondition::condition_type(self)
     }
 }

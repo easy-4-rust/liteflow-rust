@@ -8,6 +8,7 @@
 //! - Java 通过 DataBus.getSlot(slotIndex).removeException() 清除 slot 异常；
 //!   Rust 端直接复位 Slot.exception（pub 字段），语义一致。
 
+use super::Condition;
 use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
@@ -23,7 +24,10 @@ pub struct CatchCondition {
 
 impl CatchCondition {
     pub fn new(catch_item: Arc<dyn Executable>, do_item: Option<Arc<dyn Executable>>) -> Self {
-        Self { catch_item, do_item }
+        Self {
+            catch_item,
+            do_item,
+        }
     }
 
     /// 对应 Java CatchCondition#getConditionType
@@ -61,5 +65,11 @@ impl Executable for CatchCondition {
 
     fn id(&self) -> &str {
         "CATCH"
+    }
+}
+
+impl Condition for CatchCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        CatchCondition::condition_type(self)
     }
 }

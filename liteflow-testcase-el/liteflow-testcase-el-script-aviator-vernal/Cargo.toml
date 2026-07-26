@@ -1,0 +1,11 @@
+[package]
+name = "liteflow-testcase-el-script-aviator-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-script-aviator = { path = "../../liteflow-script-plugin/liteflow-script-aviator" }
+liteflow-vernal = { path = "../../liteflow-vernal" }

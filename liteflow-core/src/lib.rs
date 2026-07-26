@@ -30,38 +30,74 @@
 //! }
 //! ```
 
+pub mod aop;
 pub mod builder;
+pub mod common;
 pub mod core;
 pub mod el;
 pub mod enums;
 pub mod exception;
 pub mod flow;
-pub mod parser;
-pub mod util;
 pub mod lifecycle;
 pub mod monitor;
-pub mod aop;
-pub mod instance_id;
+pub mod parser;
 pub mod rule_plugin;
 pub mod script;
 pub mod slot;
 pub mod spi;
+pub mod thread;
+pub mod util;
 
 // ---------- 顶层便捷导出 ----------
-pub use core::{cmp, FlowExecutor, FnComponent, NodeComponent};
-pub use core::execute_option::{gen_conversation_id, ExecuteOption};
-pub use el::{parse_el, El, Mods, NodeRef, WhenOpts};
-pub use enums::{CmpStepTypeEnum, ConditionTypeEnum, ParallelStrategyEnum};
+/// 供 `liteflow-derive` 生成代码使用，调用方无需重复声明 async-trait 依赖。
+pub use async_trait::async_trait;
+pub use builder::{ChainPropBean, LiteFlowNodeBuilder, NodePropBean};
+pub use common::{ChainConstant, LocalDefaultFlowConstant};
+pub use core::execute_option::{ExecuteOption, gen_conversation_id};
+pub use core::{
+    ComponentInitializer, FlowExecutor, FlowExecutorHolder, FlowInitHook, FnComponent,
+    NodeBooleanComponent, NodeComponent, NodeForComponent, NodeIteratorComponent,
+    NodeSwitchComponent, cmp,
+};
+pub use el::{El, Mods, NodeRef, WhenOpts, parse_el};
+pub use enums::{
+    ChainExecuteModeEnum, CmpStepTypeEnum, ConditionTypeEnum, ExecuteableTypeEnum,
+    FlowParserTypeEnum, InnerChainTypeEnum, NodeTypeEnum, ParallelStrategyEnum, ParseModeEnum,
+};
 pub use exception::{LFResult, LiteflowError};
+pub use flow::element::condition::abstract_condition::AbstractCondition;
+pub use flow::element::{Condition, Rollbackable};
+pub use flow::entity::InstanceInfoDto;
 pub use flow::entity::cmp_step::CmpStep;
 pub use flow::id::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGenerator};
+pub use flow::parallel::LoopFutureObj;
+pub use flow::parallel::strategy::ParallelStrategyHelper;
 pub use flow::{FlowBus, LiteflowResponse};
-pub use flow::{listener, FlowEvent, FlowEventBuilder, FlowEventListener, FlowEventPublisher};
-pub use script::script_component::{ScriptComponent, ScriptKind};
-pub use slot::{CmpContext, Ctx, Frame, Slot};
+pub use flow::{FlowEvent, FlowEventBuilder, FlowEventListener, FlowEventPublisher, listener};
+pub use lifecycle::{
+    LifeCycle, LifeCycleHolder, PostProcessChainBuildLifeCycle, PostProcessChainExecuteLifeCycle,
+    PostProcessFlowExecuteLifeCycle, PostProcessNodeBuildLifeCycle,
+    PostProcessScriptEngineInitLifeCycle,
+};
+pub use monitor::{CompStatistics, MonitorBus, MonitorTimeTask};
+pub use script::{
+    ScriptBooleanComponent, ScriptCommonComponent, ScriptComponent, ScriptForComponent,
+    ScriptIteratorComponent, ScriptKind, ScriptSwitchComponent,
+};
+/// 供 `liteflow-derive` 生成代码使用，调用方无需重复声明 serde_json 依赖。
+pub use serde_json;
+pub use slot::{CmpContext, Ctx, DataBus, Frame, Slot};
 pub use spi::{
     CmpAroundAspectHolder, ContextAware, ContextAwareHolder, ContextCmpInit,
     LiteflowComponentSupport, PathContentParser, SpiFactoryCleaner, SpiPriority,
+};
+pub use thread::{
+    ExecutorBuilder, ExecutorCondition, ExecutorConditionBuilder, ExecutorHelper, ExecutorService,
+    LiteFlowDefaultGlobalExecutorBuilder, LiteFlowDefaultMainExecutorBuilder,
+};
+pub use util::{
+    BoundedPriorityBlockingQueue, ConversationIdGenerator, JsonUtil, LimitQueue, PathMatchUtil,
+    SelectiveJavaEscaper, TupleOf2, TupleOf3,
 };
 
 /// 步骤类型别名（兼容旧 API）
@@ -69,8 +105,8 @@ pub type CmpStepType = CmpStepTypeEnum;
 
 /// 规则加载便捷入口（对应 parser 包）
 pub mod rule {
-    pub use crate::parser::local_json_flow_el_parser::{load_json_file, load_json_str};
-    pub use crate::parser::local_xml_flow_el_parser::{load_xml_file, load_xml_str};
-    pub use crate::parser::local_yml_flow_el_parser::{load_yml_file, load_yml_str};
+    pub use crate::parser::el::{
+        load_json_file, load_json_str, load_xml_file, load_xml_str, load_yml_file, load_yml_str,
+    };
     pub use crate::parser::monitor_file::RuleWatcher;
 }

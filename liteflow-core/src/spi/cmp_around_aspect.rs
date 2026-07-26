@@ -3,7 +3,7 @@
 //! 组件全局切面 SPI 接口。本 trait 按 Java 原样定义：
 //! sync、`beforeProcess(nodeId, slot)` / `afterProcess(nodeId, slot)`。
 //!
-//! 注意：crate::aop::CmpAroundAspect（aop/mod.rs）是 async 变体，
+//! 注意：`crate::aop::ICmpAroundAspect` 是面向业务组件注册的异步拦截器；
 //! 是当前 node.rs 执行路径的运行时挂接形态；本 trait 对齐 Java SPI 定义，
 //! 供 SPI 体系（holder/local）按 Java 语义装载。
 

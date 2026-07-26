@@ -5,7 +5,7 @@ use crate::el::parse_el;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::chain::DEFAULT_NAMESPACE;
 use crate::flow::flow_bus::FlowBus;
-use crate::util::el_regex::{is_abstract_chain, replace_abstract_chain};
+use crate::util::el_regex_util::{is_abstract_chain, replace_abstract_chain};
 
 /// 规则文件中一条链的原始定义
 #[derive(Debug, Clone)]
@@ -58,9 +58,9 @@ pub fn resolve_and_build(bus: &FlowBus, defs: Vec<ChainDef>) -> LFResult<Vec<Str
                 "cyclic chain inheritance detected: {id}"
             )));
         }
-        let def = raw
-            .get(id)
-            .ok_or_else(|| LiteflowError::ChainNotFound(format!("[abstract chain not found] chainId={id}")))?;
+        let def = raw.get(id).ok_or_else(|| {
+            LiteflowError::ChainNotFound(format!("[abstract chain not found] chainId={id}"))
+        })?;
         processed.insert(id.to_string());
         let el = match &def.extends {
             Some(parent_id) => {
@@ -85,7 +85,10 @@ pub fn resolve_and_build(bus: &FlowBus, defs: Vec<ChainDef>) -> LFResult<Vec<Str
             Some(r) => bus.add_route_chain(def.id.clone(), &def.namespace, r, &body_el)?,
             None => {
                 let el = parse_el(&body_el)?;
-                let chain = crate::builder::el::builder::LiteFlowChainELBuilder::new(bus.clone())
+                let chain =
+                    crate::builder::el::lite_flow_chain_el_builder::LiteFlowChainELBuilder::new(
+                        bus.clone(),
+                    )
                     .build_chain(&def.id, el)?
                     .with_namespace(&def.namespace);
                 bus.add_built_chain(chain);

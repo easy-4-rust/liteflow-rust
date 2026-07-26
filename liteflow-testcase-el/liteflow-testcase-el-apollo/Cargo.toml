@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-testcase-el-apollo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-rule-apollo = { path = "../../liteflow-rule-plugin/liteflow-rule-apollo" }

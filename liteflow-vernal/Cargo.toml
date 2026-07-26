@@ -1,0 +1,30 @@
+[package]
+name = "liteflow-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Vernal, Axum and Actix integration for liteflow-rust"
+
+[features]
+default = ["axum"]
+axum = ["dep:axum", "dep:vernal-axum"]
+actix = ["dep:actix-web", "dep:vernal-actix-web"]
+
+[dependencies]
+liteflow-core = { path = "../liteflow-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+vernal-beans = { path = "../../vernal-framework/crates/vernal-beans" }
+vernal-context = { path = "../../vernal-framework/crates/vernal-context" }
+vernal-core = { path = "../../vernal-framework/crates/vernal-core" }
+axum = { version = "0.8.9", optional = true }
+vernal-axum = { path = "../../vernal-framework/crates/vernal-axum", optional = true }
+actix-web = { version = "=4.11.0", optional = true, features = ["macros"] }
+vernal-actix-web = { path = "../../vernal-framework/crates/vernal-actix-web", optional = true }
+
+[dev-dependencies]
+tokio.workspace = true
+tower = { version = "0.5.3", features = ["util"] }
+http-body-util = "0.1.3"

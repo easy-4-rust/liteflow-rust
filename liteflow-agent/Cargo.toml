@@ -1,0 +1,25 @@
+[package]
+name = "liteflow-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "AgentScope-Rust integrations for liteflow-rust"
+
+[features]
+default = ["core"]
+core = ["dep:liteflow-agent-core"]
+anthropic = ["core", "dep:liteflow-agent-anthropic"]
+dashscope = ["core", "dep:liteflow-agent-dashscope"]
+gemini = ["core", "dep:liteflow-agent-gemini"]
+openai = ["core", "dep:liteflow-agent-openai"]
+
+[dependencies]
+liteflow-agent-core = { path = "liteflow-agent-core", optional = true }
+liteflow-agent-anthropic = { path = "liteflow-agent-anthropic", optional = true }
+liteflow-agent-dashscope = { path = "liteflow-agent-dashscope", optional = true }
+liteflow-agent-gemini = { path = "liteflow-agent-gemini", optional = true }
+liteflow-agent-openai = { path = "liteflow-agent-openai", optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

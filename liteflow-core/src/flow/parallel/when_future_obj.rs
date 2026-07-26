@@ -4,8 +4,8 @@
 //! success / timeout / executorName / ex 四字段与 Java 对齐。
 //! Java 的 ex 为 java.lang.Exception，Rust 端对应为 LiteflowError。
 
-use crate::exception::when_timeout_exception::WhenTimeoutException;
 use crate::exception::LiteflowError;
+use crate::exception::when_timeout_exception::WhenTimeoutException;
 
 /// 并行任务结果载体（对应 WhenFutureObj）
 #[derive(Debug, Clone)]

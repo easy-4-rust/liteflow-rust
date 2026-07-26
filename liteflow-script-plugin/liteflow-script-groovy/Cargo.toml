@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-script-groovy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Groovy-compatible expression executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }

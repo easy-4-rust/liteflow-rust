@@ -2,7 +2,7 @@
 //! WHEN 并行完成策略，由 ParallelStrategyExecutor 四种执行器实现。
 
 /// 并行策略枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParallelStrategyEnum {
     /// 全部完成（AllOfParallelExecutor，默认）
     All,

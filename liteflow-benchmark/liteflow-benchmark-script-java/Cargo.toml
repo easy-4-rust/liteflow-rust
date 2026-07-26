@@ -1,0 +1,11 @@
+[package]
+name = "liteflow-benchmark-script-java"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-benchmark-common = { path = "../liteflow-benchmark-common" }
+serde_json.workspace = true

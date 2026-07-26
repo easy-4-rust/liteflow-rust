@@ -6,25 +6,19 @@
 //! 经 NodeExecutorHelper 取得节点执行器（对应 NodeExecutor.execute(instance)），
 //! 由执行器的重试主干循环调用 execute_once。
 
-use crate::aop::CmpAroundAspect;
 use crate::core::node_component::NodeComponent;
-use crate::monitor::MonitorBus;
 use crate::el::NodeRef;
 use crate::enums::CmpStepTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
+use crate::flow::element::rollbackable::Rollbackable;
 use crate::flow::entity::cmp_step::CmpStep;
 use crate::slot::{CmpContext, Ctx, Frame};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-/// 节点级横切钩子（AOP + 监控），构建期由 builder 注入
-#[derive(Clone, Default)]
-pub struct NodeHooks {
-    pub aspects: Vec<Arc<dyn CmpAroundAspect>>,
-    pub monitor: Option<Arc<MonitorBus>>,
-}
+use super::NodeHooks;
 
 pub struct Node {
     node_ref: NodeRef,
@@ -56,6 +50,11 @@ impl Node {
 
     pub fn node_instance_id(&self) -> Option<&str> {
         self.node_instance_id.as_deref()
+    }
+
+    /// 设置节点实例编号。对应 Java `Node#setNodeInstanceId`。
+    pub fn set_node_instance_id(&mut self, instance_id: impl Into<String>) {
+        self.node_instance_id = Some(instance_id.into());
     }
 
     pub fn node_ref(&self) -> &NodeRef {
@@ -94,43 +93,64 @@ impl Node {
         step.tag = self.node_ref.tag.clone();
         step.node_name = self.instance.name().to_string();
 
-        // 全局切面 before（对应 CmpAroundAspect）
+        // Java 在 NodeComponent.execute() 开始时就把 instance/refNode 写入 CmpStep。
+        // Rust 端显式登记内部回滚目标；重试会重复登记，但真正回滚时按
+        // NodeInstanceId 去重，对齐 NodeComponent#doRollback。
+        if self.instance.is_rollback() {
+            let node_instance_id = self
+                .node_instance_id
+                .clone()
+                .unwrap_or_else(|| self.node_ref.display().to_string());
+            ctx.register_rollback(node_instance_id, self.instance.clone(), cctx.clone());
+        }
+
+        // 全局切面 beforeProcess（对应 aop.ICmpAroundAspect）
         for aspect in &self.hooks.aspects {
-            aspect.before(&cctx).await;
+            aspect.before_process(&cctx).await;
         }
 
-        // beforeProcess
-        if let Err(e) = self.instance.before_process(&cctx).await {
-            self.instance.on_error(&cctx, &e).await;
-            self.instance.after_process(&cctx).await;
-            step.finish(false, Some(e.to_string()));
-            ctx.record_step(step);
-            if self.instance.is_continue_on_error() {
-                ctx.set_exception(&e.to_string());
-                return Ok(Value::Null);
+        // 对齐 Java NodeComponent#execute：
+        // beforeProcess → process → onSuccess；任一步骤失败都进入 onError；
+        // afterProcess 始终在 finally 语义中执行。
+        let result = match self.instance.before_process(&cctx).await {
+            Ok(()) => match self.instance.process(&cctx).await {
+                Ok(value) => self.instance.on_success(&cctx).await.map(|_| value),
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
+        };
+
+        match &result {
+            Ok(_) => {
+                for aspect in &self.hooks.aspects {
+                    aspect.on_success(&cctx).await;
+                }
             }
-            return Err(LiteflowError::NodeExec {
-                node: self.display_name().to_string(),
-                msg: e.to_string(),
-            });
+            Err(error) => {
+                self.instance.on_error(&cctx, error).await;
+                for aspect in &self.hooks.aspects {
+                    aspect.on_error(&cctx, error).await;
+                }
+                if !matches!(error, LiteflowError::ChainEnd) {
+                    ctx.set_exception(&error.to_string());
+                }
+            }
         }
 
-        let result = self.instance.process(&cctx).await;
         self.instance.after_process(&cctx).await;
-
-        // 全局切面 after / on_error
         for aspect in &self.hooks.aspects {
-            aspect.after(&cctx).await;
-            if let Err(e) = &result {
-                aspect.on_error(&cctx, e).await;
-            }
+            aspect.after_process(&cctx).await;
         }
 
         match result {
             Ok(v) => {
                 step.finish(true, None);
                 if let Some(m) = &self.hooks.monitor {
-                    m.record(self.display_name(), step.time_spent.unwrap_or_default(), true);
+                    m.record(
+                        self.display_name(),
+                        step.time_spent.unwrap_or_default(),
+                        true,
+                    );
                 }
                 ctx.record_step(step);
                 // setIsEnd(true) 语义
@@ -140,16 +160,30 @@ impl Node {
                 Ok(v)
             }
             Err(LiteflowError::ChainEnd) => {
-                step.finish(true, None);
+                step.finish(false, Some(LiteflowError::ChainEnd.to_string()));
+                if let Some(m) = &self.hooks.monitor {
+                    m.record(
+                        self.display_name(),
+                        step.time_spent.unwrap_or_default(),
+                        false,
+                    );
+                }
                 ctx.record_step(step);
                 Err(LiteflowError::ChainEnd)
             }
             Err(e) => {
-                self.instance.on_error(&cctx, &e).await;
-                ctx.set_exception(&e.to_string());
+                let error_kind = format!("{e:?}")
+                    .split([' ', '(', '{'])
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
                 step.finish(false, Some(e.to_string()));
                 if let Some(m) = &self.hooks.monitor {
-                    m.record(self.display_name(), step.time_spent.unwrap_or_default(), false);
+                    m.record(
+                        self.display_name(),
+                        step.time_spent.unwrap_or_default(),
+                        false,
+                    );
                 }
                 ctx.record_step(step);
                 if self.instance.is_continue_on_error() {
@@ -158,6 +192,7 @@ impl Node {
                 Err(LiteflowError::NodeExec {
                     node: self.display_name().to_string(),
                     msg: e.to_string(),
+                    kind: error_kind,
                 })
             }
         }
@@ -173,6 +208,10 @@ impl Executable for Node {
         let executor = crate::flow::executor::NodeExecutorHelper::load_instance()
             .build_node_executor(self.instance.node_executor());
         executor.execute(self, ctx, frame).await
+    }
+
+    fn execute_type(&self) -> crate::enums::ExecuteableTypeEnum {
+        crate::enums::ExecuteableTypeEnum::Node
     }
 
     fn id(&self) -> &str {
@@ -191,5 +230,32 @@ impl Executable for Node {
             frame: frame.clone(),
         };
         self.instance.is_access(&cctx)
+    }
+}
+
+#[async_trait]
+impl Rollbackable for Node {
+    /// 调用组件补偿逻辑并记录 rollback step。
+    ///
+    /// 与 Java `Node#rollback` 一致，组件回滚错误只记录为失败步骤，不覆盖触发
+    /// 补偿的原始流程错误。
+    async fn rollback(&self, ctx: &Ctx, frame: &Frame) -> LFResult<()> {
+        let component_context = CmpContext {
+            inner: ctx.inner.clone(),
+            node: self.node_ref.clone(),
+            frame: frame.clone(),
+        };
+        let mut step = CmpStep::new(self.display_name().to_string(), CmpStepTypeEnum::Single);
+        step.node_name = self.instance.name().to_string();
+        step.tag = self.node_ref.tag.clone();
+
+        match self.instance.rollback(&component_context).await {
+            Ok(()) => step.finish_rollback(true, None),
+            Err(error) => step.finish_rollback(false, Some(error.to_string())),
+        }
+        if let Ok(mut rollback_steps) = ctx.inner.rollback_steps.lock() {
+            rollback_steps.push(step);
+        }
+        Ok(())
     }
 }

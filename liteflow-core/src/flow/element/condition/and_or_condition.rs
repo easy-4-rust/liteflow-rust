@@ -1,7 +1,7 @@
 //! 对应 AndOrCondition：AND/OR 布尔短路。
 
-use super::expect_bool;
-use crate::enums::BooleanConditionTypeEnum;
+use super::{Condition, expect_bool};
+use crate::enums::{BooleanConditionTypeEnum, ConditionTypeEnum};
 use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
@@ -16,7 +16,10 @@ pub struct AndOrCondition {
 
 impl AndOrCondition {
     pub fn new(condition_type: BooleanConditionTypeEnum, items: Vec<Arc<dyn Executable>>) -> Self {
-        Self { condition_type, items }
+        Self {
+            condition_type,
+            items,
+        }
     }
 }
 
@@ -58,5 +61,11 @@ impl Executable for AndOrCondition {
             BooleanConditionTypeEnum::And => "AND",
             BooleanConditionTypeEnum::Or => "OR",
         }
+    }
+}
+
+impl Condition for AndOrCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::AndOr
     }
 }

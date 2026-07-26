@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-testcase-el-redis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-rule-redis = { path = "../../liteflow-rule-plugin/liteflow-rule-redis" }

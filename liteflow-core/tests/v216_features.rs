@@ -3,9 +3,10 @@
 //! Condition 级 bind / NodeId 校验 / AND-OR isAccess 过滤 / execute2RespWithRid
 
 use liteflow_core::{
-    cmp, listener, ExecuteOption, FlowBus, FlowEvent, LiteflowError, NodeComponent,
+    ExecuteOption, FlowBus, FlowEvent, LiteflowError, NodeComponent, cmp, listener,
 };
-use serde_json::{json, Value};
+use md5::{Digest, Md5};
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
 // ---------- execute2RespWithEL（2.16） ----------
@@ -13,10 +14,13 @@ use std::sync::{Arc, Mutex};
 #[tokio::test]
 async fn execute_with_el_direct() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.set_data("ran", json!(true));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("ran", json!(true));
+            Ok(Value::Null)
+        }),
+    );
     bus.register("b", cmp(|_| async move { Ok(Value::Null) }));
 
     // 直接执行 EL 字符串（无需先 add_chain）
@@ -26,7 +30,11 @@ async fn execute_with_el_direct() {
     // elMd5 缓存：同一 EL 复用同一匿名链（空白/单引号差异也被 normalize）
     let resp2 = bus.execute_with_el(" THEN( a , b ) ; ").await;
     assert!(resp2.is_success());
-    assert_eq!(bus.chain_ids().len(), 1, "相同 EL 应复用 elMd5 缓存的匿名链");
+    assert_eq!(
+        bus.chain_ids().len(),
+        1,
+        "相同 EL 应复用 elMd5 缓存的匿名链"
+    );
 
     let resp3 = bus.execute_with_el_data("THEN(a)", json!({"k": 1})).await;
     assert!(resp3.is_success());
@@ -44,11 +52,14 @@ async fn execute_with_el_invalid() {
 #[tokio::test]
 async fn execute_with_option_rid_cid() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        assert_eq!(ctx.request_id(), "RID-001");
-        assert_eq!(ctx.conversation_id(), Some("CID-001"));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            assert_eq!(ctx.request_id(), "RID-001");
+            assert_eq!(ctx.conversation_id(), Some("CID-001"));
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "THEN(a)").unwrap();
 
     let opt = ExecuteOption::of()
@@ -62,10 +73,13 @@ async fn execute_with_option_rid_cid() {
 #[tokio::test]
 async fn execute_with_auto_conversation_id() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        assert!(ctx.conversation_id().is_some());
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            assert!(ctx.conversation_id().is_some());
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "THEN(a)").unwrap();
     let opt = ExecuteOption::of().auto_conversation_id();
     let resp = bus.execute_with_option("c1", Value::Null, opt).await;
@@ -89,24 +103,30 @@ async fn execute_with_rid_keeps_request_id() {
 #[tokio::test]
 async fn flow_event_publish_to_listener() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.publish_event(
-            &FlowEvent::builder("node.text")
-                .node_id("a")
-                .chain_id(ctx.chain_id())
-                .request_id(ctx.request_id())
-                .text("hello")
-                .last(true)
-                .build(),
-        );
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.publish_event(
+                &FlowEvent::builder("node.text")
+                    .node_id("a")
+                    .chain_id(ctx.chain_id())
+                    .request_id(ctx.request_id())
+                    .text("hello")
+                    .last(true)
+                    .build(),
+            );
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "THEN(a)").unwrap();
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let events2 = events.clone();
     let opt = ExecuteOption::of().event_listener(Arc::new(listener(move |e| {
-        events2.lock().unwrap().push((e.event_type.clone(), e.text.clone(), e.last));
+        events2
+            .lock()
+            .unwrap()
+            .push((e.event_type.clone(), e.text.clone(), e.last));
     })));
     let resp = bus.execute_with_option("c1", Value::Null, opt).await;
     assert!(resp.is_success());
@@ -120,11 +140,14 @@ async fn flow_event_publish_to_listener() {
 #[tokio::test]
 async fn flow_event_no_listener_noop() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        // 无 listener 时静默忽略（对齐 Java publish 语义）
-        ctx.publish_event(&FlowEvent::builder("x").build());
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            // 无 listener 时静默忽略（对齐 Java publish 语义）
+            ctx.publish_event(&FlowEvent::builder("x").build());
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "THEN(a)").unwrap();
     assert!(bus.execute("c1").await.is_success());
 }
@@ -134,15 +157,18 @@ async fn flow_event_no_listener_noop() {
 #[tokio::test]
 async fn slot_attachment_crud() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.set_attachment("k1", 42i32);
-        assert!(ctx.has_attachment("k1"));
-        let v: Option<Arc<i32>> = ctx.get_attachment("k1");
-        assert_eq!(*v.unwrap(), 42);
-        ctx.remove_attachment("k1");
-        assert!(!ctx.has_attachment("k1"));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_attachment("k1", 42i32);
+            assert!(ctx.has_attachment("k1"));
+            let v: Option<Arc<i32>> = ctx.get_attachment("k1");
+            assert_eq!(*v.unwrap(), 42);
+            ctx.remove_attachment("k1");
+            assert!(!ctx.has_attachment("k1"));
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "THEN(a)").unwrap();
     assert!(bus.execute("c1").await.is_success());
 }
@@ -152,10 +178,13 @@ async fn slot_attachment_crud() {
 #[tokio::test]
 async fn condition_level_bind() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
+            Ok(Value::Null)
+        }),
+    );
     // THEN(...).bind("mk", "mv")：Condition 级 bind 对子节点可见
     bus.add_chain("c1", "THEN(a).bind(\"mk\", \"mv\")").unwrap();
     let resp = bus.execute("c1").await;
@@ -166,10 +195,13 @@ async fn condition_level_bind() {
 #[tokio::test]
 async fn condition_bind_override_clears_node_bind() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
+            Ok(Value::Null)
+        }),
+    );
     // 节点级 bind 为 "node_v"，Condition 级 bind override=true 应覆盖为 "cond_v"
     bus.add_chain(
         "c1",
@@ -184,14 +216,18 @@ async fn condition_bind_override_clears_node_bind() {
 #[tokio::test]
 async fn chain_bind_via_wrapper() {
     let bus = FlowBus::new();
-    bus.register("a", cmp(|ctx| async move {
-        ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
+            Ok(Value::Null)
+        }),
+    );
     bus.register("b", cmp(|_| async move { Ok(Value::Null) }));
     bus.add_chain("sub", "THEN(a)").unwrap();
     // 子链 id.bind(...)：bind 数据存在 ChainBindWrapperCondition 上，子链内可见
-    bus.add_chain("main", "THEN(sub.bind(\"mk\", \"sub_v\"), b)").unwrap();
+    bus.add_chain("main", "THEN(sub.bind(\"mk\", \"sub_v\"), b)")
+        .unwrap();
     let resp = bus.execute("main").await;
     assert!(resp.is_success(), "{}", resp.message);
     assert_eq!(resp.data("bind_v").unwrap(), json!("sub_v"));
@@ -202,7 +238,10 @@ async fn chain_bind_via_wrapper() {
 #[test]
 fn node_id_validation() {
     let bus = FlowBus::new();
-    assert!(bus.try_register("ok_id$1", cmp(|_| async move { Ok(Value::Null) })).is_ok());
+    assert!(
+        bus.try_register("ok_id$1", cmp(|_| async move { Ok(Value::Null) }))
+            .is_ok()
+    );
     let err = bus.try_register("1bad", cmp(|_| async move { Ok(Value::Null) }));
     assert!(matches!(err, Err(LiteflowError::NodeIdUnIllegal(_))));
     let err2 = bus.try_register("bad-id", cmp(|_| async move { Ok(Value::Null) }));
@@ -264,9 +303,10 @@ async fn el_md5_index_cleanup() {
     let bus = FlowBus::new();
     bus.register("a", cmp(|_| async move { Ok(Value::Null) }));
     bus.execute_with_el("THEN(a)").await;
-    let md5 = format!("{:x}", md5::compute(
-        liteflow_core::util::el_regex::normalize_el("THEN(a)").as_bytes()
-    ));
+    let md5 = format!(
+        "{:x}",
+        Md5::digest(liteflow_core::util::el_regex_util::normalize_el("THEN(a)").as_bytes())
+    );
     let chain_id = bus.get_chain_id_by_el_md5(&md5).unwrap();
     bus.remove_chain(&chain_id);
     assert!(bus.get_chain_id_by_el_md5(&md5).is_none());

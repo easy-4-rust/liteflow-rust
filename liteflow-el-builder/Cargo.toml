@@ -1,0 +1,19 @@
+[package]
+name = "liteflow-el-builder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust-native LiteFlow EL fluent builder aligned with the Java liteflow-el-builder module"
+
+[lib]
+name = "liteflow_el_builder"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+liteflow-core = { path = "../liteflow-core" }
+tokio.workspace = true

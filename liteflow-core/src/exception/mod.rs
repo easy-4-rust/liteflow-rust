@@ -6,7 +6,6 @@
 //! 已有 LiteflowError 变体的异常提供 From 转换；暂无对应变体的（标注 S2 挂接）
 //! 将在 NodeExecutor 主干层落地时接入。
 
-pub mod lite_flow_exception;
 pub mod and_or_condition_exception;
 pub mod catch_error_exception;
 pub mod chain_duplicate_exception;
@@ -31,6 +30,8 @@ pub mod flow_system_exception;
 pub mod if_target_cannot_be_pre_or_finally_exception;
 pub mod if_type_error_exception;
 pub mod json_process_exception;
+mod lf_result;
+pub mod lite_flow_exception;
 pub mod miss_maven_dependency_exception;
 pub mod monitor_file_init_error_exception;
 pub mod multiple_parsers_exception;
@@ -67,7 +68,6 @@ pub mod thread_executor_service_create_exception;
 pub mod when_execute_exception;
 pub mod when_timeout_exception;
 
-pub use lite_flow_exception::{LFResult, LiteflowError};
 pub use and_or_condition_exception::AndOrConditionException;
 pub use catch_error_exception::CatchErrorException;
 pub use chain_duplicate_exception::ChainDuplicateException;
@@ -92,6 +92,8 @@ pub use flow_system_exception::FlowSystemException;
 pub use if_target_cannot_be_pre_or_finally_exception::IfTargetCannotBePreOrFinallyException;
 pub use if_type_error_exception::IfTypeErrorException;
 pub use json_process_exception::JsonProcessException;
+pub use lf_result::LFResult;
+pub use lite_flow_exception::LiteflowError;
 pub use miss_maven_dependency_exception::MissMavenDependencyException;
 pub use monitor_file_init_error_exception::MonitorFileInitErrorException;
 pub use multiple_parsers_exception::MultipleParsersException;

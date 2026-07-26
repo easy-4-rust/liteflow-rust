@@ -19,7 +19,10 @@ impl LocalContextCmpInit {
 
 impl ContextCmpInit for LocalContextCmpInit {
     /// 对应 initCmp()：非 spring 环境不用实现
-    fn init_cmp(&self) {}
+    fn init_cmp(&self) {
+        // 无 IoC 容器时组件已由调用方构造，无需额外初始化。
+        let _ = self;
+    }
 }
 
 impl SpiPriority for LocalContextCmpInit {

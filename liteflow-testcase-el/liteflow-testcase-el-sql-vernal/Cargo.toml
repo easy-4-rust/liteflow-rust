@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-testcase-el-sql-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-testcase-el-sql = { path = "../liteflow-testcase-el-sql" }
+liteflow-vernal = { path = "../../liteflow-vernal" }

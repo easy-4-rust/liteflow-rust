@@ -1,0 +1,3 @@
+mod dash_scope_agent_model_config;
+
+pub use dash_scope_agent_model_config::DashScopeAgentModelConfig;

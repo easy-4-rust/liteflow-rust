@@ -1,7 +1,24 @@
 //! 对应 Java 包：com.yomahub.liteflow.util
 //!
-//! v2.10.0 基线 util 包含 8 个工具类（JsonUtil/SerialsUtil/CopyOnWriteHashMap 等），
-//! 多数在 Rust 侧由标准库/serde/dashmap 直接覆盖，无需迁移；
-//! 当前仅迁移 v2.16.0 新增的 ElRegexUtil（链继承占位符）。
+//! 工具对象按 Java v2.16.0 的对象边界逐文件迁移。
 
-pub mod el_regex;
+pub mod bounded_priority_blocking_queue;
+pub mod conversation_id_generator;
+pub mod el_regex_util;
+pub mod json_util;
+pub mod limit_queue;
+pub mod path_match_util;
+pub mod rule_parse_plugin_util;
+pub mod selective_java_escaper;
+pub mod tuple_of2;
+pub mod tuple_of3;
+
+pub use bounded_priority_blocking_queue::BoundedPriorityBlockingQueue;
+pub use conversation_id_generator::ConversationIdGenerator;
+pub use json_util::JsonUtil;
+pub use limit_queue::LimitQueue;
+pub use path_match_util::PathMatchUtil;
+pub use rule_parse_plugin_util::{ChainDto, RuleParsePluginUtil};
+pub use selective_java_escaper::SelectiveJavaEscaper;
+pub use tuple_of2::TupleOf2;
+pub use tuple_of3::TupleOf3;

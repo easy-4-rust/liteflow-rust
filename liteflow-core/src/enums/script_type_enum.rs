@@ -40,8 +40,15 @@ impl ScriptTypeEnum {
     }
     /// getEnumByDisplayName(displayName)
     pub fn get_enum_by_display_name(display_name: &str) -> Option<Self> {
-        [Self::Groovy, Self::QlExpress, Self::Js, Self::Python, Self::Lua, Self::Rhai]
-            .into_iter()
-            .find(|e| e.get_display_name() == display_name)
+        [
+            Self::Groovy,
+            Self::QlExpress,
+            Self::Js,
+            Self::Python,
+            Self::Lua,
+            Self::Rhai,
+        ]
+        .into_iter()
+        .find(|e| e.get_display_name() == display_name)
     }
 }

@@ -9,6 +9,7 @@
 //! - CATCH 的 DO 成功后清除 slot 异常（Java CatchCondition#executeCondition removeException）
 
 use liteflow_core::exception::{LFResult, LiteflowError};
+use liteflow_core::flow::element::ConditionKey;
 use liteflow_core::flow::element::condition::catch_condition::CatchCondition;
 use liteflow_core::flow::element::condition::finally_condition::FinallyCondition;
 use liteflow_core::flow::element::condition::for_condition::ForCondition;
@@ -20,10 +21,9 @@ use liteflow_core::flow::element::condition::then_condition::ThenCondition;
 use liteflow_core::flow::element::condition::when_condition::WhenCondition;
 use liteflow_core::flow::element::condition::while_condition::WhileCondition;
 use liteflow_core::flow::element::executable::Executable;
-use liteflow_core::flow::element::ConditionKey;
 use liteflow_core::slot::{Ctx, Frame, Slot};
-use liteflow_core::{cmp, ConditionTypeEnum, FlowBus};
-use serde_json::{json, Value};
+use liteflow_core::{ConditionTypeEnum, FlowBus, cmp};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -35,8 +35,16 @@ struct Stub {
 }
 
 impl Stub {
-    fn new(sid: &'static str, access: bool, log: &Arc<Mutex<Vec<&'static str>>>) -> Arc<dyn Executable> {
-        Arc::new(Self { sid, access, log: log.clone() })
+    fn new(
+        sid: &'static str,
+        access: bool,
+        log: &Arc<Mutex<Vec<&'static str>>>,
+    ) -> Arc<dyn Executable> {
+        Arc::new(Self {
+            sid,
+            access,
+            log: log.clone(),
+        })
     }
 }
 
@@ -230,7 +238,9 @@ async fn then_add_executable_routes_pre_and_finally() {
     let mut cond = ThenCondition::new();
     // 故意乱序 add，验证分流而非插入顺序
     cond.add_executable(Stub::new("m1", true, &log));
-    cond.add_executable(Arc::new(FinallyCondition::new(Stub::new("fin", true, &log))));
+    cond.add_executable(Arc::new(FinallyCondition::new(Stub::new(
+        "fin", true, &log,
+    ))));
     cond.add_executable(Arc::new(PreCondition::new(Stub::new("pre", true, &log))));
     cond.add_executable(Stub::new("m2", true, &log));
     let (ctx, frame) = ctx_frame();
@@ -244,12 +254,18 @@ async fn then_add_executable_routes_pre_and_finally() {
 #[tokio::test]
 async fn catch_do_success_clears_slot_exception() {
     let bus = FlowBus::new();
-    bus.register("bad", cmp(|_| async { Err(LiteflowError::Custom("boom".into())) }));
-    bus.register("handle", cmp(|ctx| async move {
-        // catch 住时 slot 上已有异常（对应 Java Condition.execute 的事先 setException）
-        ctx.set_data("caught", json!(true));
-        Ok(Value::Null)
-    }));
+    bus.register(
+        "bad",
+        cmp(|_| async { Err(LiteflowError::Custom("boom".into())) }),
+    );
+    bus.register(
+        "handle",
+        cmp(|ctx| async move {
+            // catch 住时 slot 上已有异常（对应 Java Condition.execute 的事先 setException）
+            ctx.set_data("caught", json!(true));
+            Ok(Value::Null)
+        }),
+    );
     bus.add_chain("c1", "CATCH(bad).DO(handle)").unwrap();
     bus.add_chain("c2", "CATCH(bad)").unwrap();
 

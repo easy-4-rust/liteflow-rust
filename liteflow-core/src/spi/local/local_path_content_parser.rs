@@ -10,10 +10,11 @@
 
 use std::path::Path;
 
-use crate::exception::config_error_exception::ConfigErrorException;
 use crate::exception::LFResult;
+use crate::exception::config_error_exception::ConfigErrorException;
 use crate::spi::path_content_parser::PathContentParser;
 use crate::spi::spi_priority::SpiPriority;
+use crate::util::PathMatchUtil;
 
 /// 对应 FILE_URL_PREFIX = "file:"
 const FILE_URL_PREFIX: &str = "file:";
@@ -53,22 +54,27 @@ impl PathContentParser for LocalPathContentParser {
             return Err(ConfigErrorException::new("rule source must not be null").into());
         }
 
-        let mut content_list = Vec::new();
+        let mut local_paths = Vec::new();
         for path in path_list {
             let local = Self::resolve_local_path(path).ok_or_else(|| {
                 ConfigErrorException::new(format!(
                     "classpath: 路径运行期解析不受支持（Rust 侧对应 include_str!/构建期嵌入）: {path}"
                 ))
             })?;
+            local_paths.push(local);
+        }
+
+        let mut content_list = Vec::new();
+        for local in PathMatchUtil::search_absolute_path(&local_paths) {
             let p = Path::new(&local);
             if !p.is_file() {
                 return Err(ConfigErrorException::new(format!(
-                    "rule source file not found: {path}"
+                    "rule source file not found: {local}"
                 ))
                 .into());
             }
             let content = std::fs::read_to_string(p).map_err(|e| {
-                ConfigErrorException::new(format!("read rule source failed: {path}: {e}"))
+                ConfigErrorException::new(format!("read rule source failed: {local}: {e}"))
             })?;
             // 对应 StrUtil.isNotBlank：空白内容不加入
             if !content.trim().is_empty() {
@@ -84,17 +90,22 @@ impl PathContentParser for LocalPathContentParser {
             return Err(ConfigErrorException::new("rule source must not be null").into());
         }
 
-        let mut result = Vec::new();
+        let mut local_paths = Vec::new();
         for path in path_list {
             // Java 侧 classpath 资源仅当 ClassLoaderUtil.isPresent 时才加入结果，
             // 否则静默跳过；Rust 侧 classpath 无运行期语义，同样跳过。
             let Some(local) = Self::resolve_local_path(path) else {
                 continue;
             };
+            local_paths.push(local);
+        }
+
+        let mut result = Vec::new();
+        for local in PathMatchUtil::search_absolute_path(&local_paths) {
             let p = Path::new(&local);
             if p.is_file() {
                 let abs = p.canonicalize().map_err(|e| {
-                    ConfigErrorException::new(format!("resolve absolute path failed: {path}: {e}"))
+                    ConfigErrorException::new(format!("resolve absolute path failed: {local}: {e}"))
                 })?;
                 result.push(abs.to_string_lossy().into_owned());
             }

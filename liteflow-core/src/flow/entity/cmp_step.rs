@@ -31,7 +31,10 @@ impl CmpStep {
             success: false,
             exception: None,
             rollback_time_spent: None,
-            thread_name: std::thread::current().name().unwrap_or("unnamed").to_string(),
+            thread_name: std::thread::current()
+                .name()
+                .unwrap_or("unnamed")
+                .to_string(),
         }
     }
 
@@ -42,8 +45,26 @@ impl CmpStep {
         self.exception = exception;
     }
 
+    /// 完成回滚步骤计时。
+    ///
+    /// 对应 Java: `CmpStep#setRollbackTimeSpent`，回滚异常只记录在回滚步骤中，
+    /// 不覆盖触发补偿的原始链路异常。
+    pub fn finish_rollback(&mut self, success: bool, exception: Option<String>) {
+        self.end = Some(Instant::now());
+        self.rollback_time_spent = Some(self.end.unwrap().saturating_duration_since(self.start));
+        self.success = success;
+        self.exception = exception;
+    }
+
     /// buildTimeSpent（毫秒）
     pub fn time_spent_ms(&self) -> u128 {
         self.time_spent.map(|d| d.as_millis()).unwrap_or(0)
+    }
+
+    /// 回滚耗时，单位毫秒。
+    pub fn rollback_time_spent_ms(&self) -> u128 {
+        self.rollback_time_spent
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
     }
 }

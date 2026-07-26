@@ -1,0 +1,31 @@
+[package]
+name = "liteflow-script-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Script language plugins for liteflow-rust"
+
+[features]
+default = ["lua"]
+aviator = ["dep:liteflow-script-aviator"]
+graaljs = ["dep:liteflow-script-graaljs"]
+groovy = ["dep:liteflow-script-groovy"]
+javascript = ["dep:liteflow-script-javascript"]
+lua = ["dep:liteflow-script-lua"]
+python = ["dep:liteflow-script-python"]
+qlexpress = ["dep:liteflow-script-qlexpress"]
+
+[dependencies]
+liteflow-core = { path = "../liteflow-core" }
+liteflow-script-aviator = { path = "liteflow-script-aviator", optional = true }
+liteflow-script-graaljs = { path = "liteflow-script-graaljs", optional = true }
+liteflow-script-groovy = { path = "liteflow-script-groovy", optional = true }
+liteflow-script-javascript = { path = "liteflow-script-javascript", optional = true }
+liteflow-script-lua = { path = "liteflow-script-lua", optional = true }
+liteflow-script-python = { path = "liteflow-script-python", optional = true }
+liteflow-script-qlexpress = { path = "liteflow-script-qlexpress", optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio.workspace = true

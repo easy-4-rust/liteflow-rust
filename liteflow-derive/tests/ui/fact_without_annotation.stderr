@@ -1,0 +1,5 @@
+error: CmpContext 之后的参数必须标注 #[liteflow_fact("beanName")]
+  --> tests/ui/fact_without_annotation.rs:16:9
+   |
+16 |         missing_annotation: Arc<String>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

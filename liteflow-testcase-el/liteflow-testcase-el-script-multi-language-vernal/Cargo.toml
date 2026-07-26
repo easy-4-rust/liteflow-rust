@@ -1,0 +1,16 @@
+[package]
+name = "liteflow-testcase-el-script-multi-language-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-testcase-el-script-aviator-vernal = { path = "../liteflow-testcase-el-script-aviator-vernal" }
+liteflow-testcase-el-script-graaljs-vernal = { path = "../liteflow-testcase-el-script-graaljs-vernal" }
+liteflow-testcase-el-script-groovy-vernal = { path = "../liteflow-testcase-el-script-groovy-vernal" }
+liteflow-testcase-el-script-javascript-vernal = { path = "../liteflow-testcase-el-script-javascript-vernal" }
+liteflow-testcase-el-script-lua-vernal = { path = "../liteflow-testcase-el-script-lua-vernal" }
+liteflow-testcase-el-script-python-vernal = { path = "../liteflow-testcase-el-script-python-vernal" }
+liteflow-testcase-el-script-qlexpress-vernal = { path = "../liteflow-testcase-el-script-qlexpress-vernal" }
+liteflow-testcase-el-script-rhai-vernal = { path = "../liteflow-testcase-el-script-rhai-vernal" }

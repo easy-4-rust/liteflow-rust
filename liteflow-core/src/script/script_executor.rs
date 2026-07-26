@@ -9,6 +9,7 @@
 //! 脚本最后一个表达式的值为节点返回值。
 
 use super::json_convert::{dynamic_to_json, json_to_dynamic};
+use crate::common::entity::ValidationResp;
 use crate::exception::{LFResult, LiteflowError};
 use crate::slot::CmpContext;
 use rhai::{AST, Dynamic, Engine, Scope};
@@ -48,10 +49,24 @@ impl RhaiScriptExecutor {
 
     /// 对应 ScriptValidator.validateWithEx(script)（2.16：返回带错误信息的校验结果）
     pub fn validate_ex(&self, script: &str) -> LFResult<()> {
-        self.engine.compile(script).map(|_| ()).map_err(|e| LiteflowError::Script {
-            node: String::new(),
-            msg: format!("script validate failure: {e}"),
-        })
+        self.engine
+            .compile(script)
+            .map(|_| ())
+            .map_err(|e| LiteflowError::Script {
+                node: String::new(),
+                msg: format!("script validate failure: {e}"),
+            })
+    }
+
+    /// 返回包含失败异常的校验响应。
+    ///
+    /// 对应 Java `ScriptValidator#validateWithEx`。保留 `validate_ex` 的
+    /// Result 入口供 Rust `?` 传播，同时提供 Java 对象级的 ValidationResp。
+    pub fn validate_with_ex(&self, script: &str) -> ValidationResp {
+        match self.validate_ex(script) {
+            Ok(()) => ValidationResp::success(),
+            Err(error) => ValidationResp::fail(error),
+        }
     }
 
     /// 对应 ScriptExecutor.execute

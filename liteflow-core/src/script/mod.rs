@@ -1,12 +1,27 @@
-//! 对应 script 包 + liteflow-script-plugin 的 Rust 化实现。
-//! Java 版每种脚本语言一个插件模块（JSR223）；Rust 版内建 rhai 引擎，
-//! 其余语言（groovy/js/lua/python/kotlin/qlexpress/aviator）为 Java 生态特有，
-//! 语义替代方案见迁移对照表。
+//! 对应 core/script 包。
+//! core 内建 Rhai 基线与插件工厂；Lua/JavaScript/Python 等语言实现位于独立
+//! `liteflow-script-plugin` crate，通过 `ScriptExecutorFactory` 显式注册。
 
-pub mod script_executor;
-pub mod script_component;
 pub mod json_convert;
-#[cfg(feature = "lua")]
-pub mod lua_executor;
+mod rhai_script_component_factory;
+mod script_boolean_component;
+mod script_common_component;
+pub mod script_component;
+mod script_component_builder;
+pub mod script_executor;
+pub mod script_executor_factory;
+mod script_for_component;
+mod script_iterator_component;
+mod script_kind;
+mod script_switch_component;
 
-pub use script_component::{ScriptComponent, ScriptKind};
+pub use rhai_script_component_factory::build_rhai_component;
+pub use script_boolean_component::ScriptBooleanComponent;
+pub use script_common_component::ScriptCommonComponent;
+pub use script_component::ScriptComponent;
+pub use script_component_builder::ScriptComponentBuilder;
+pub use script_executor_factory::ScriptExecutorFactory;
+pub use script_for_component::ScriptForComponent;
+pub use script_iterator_component::ScriptIteratorComponent;
+pub use script_kind::ScriptKind;
+pub use script_switch_component::ScriptSwitchComponent;

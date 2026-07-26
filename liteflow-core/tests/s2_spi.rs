@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use liteflow_core::spi::SpiFactoryCleaner;
 use liteflow_core::spi::context_aware::ContextAware;
 use liteflow_core::spi::holder::{
     CmpAroundAspectHolder, ContextAwareHolder, ContextCmpInitHolder,
@@ -17,7 +18,6 @@ use liteflow_core::spi::local::{
 };
 use liteflow_core::spi::path_content_parser::PathContentParser;
 use liteflow_core::spi::spi_priority::SpiPriority;
-use liteflow_core::spi::SpiFactoryCleaner;
 use liteflow_core::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGenerator};
 
 /// 串行化 holder 全局状态相关测试
@@ -62,7 +62,10 @@ fn holders_fallback_to_local_defaults() {
     aware.register_bean("k", Arc::new(1_i32));
     assert!(aware.has_bean("k"));
 
-    assert_eq!(CmpAroundAspectHolder::load_cmp_around_aspect().priority(), 2);
+    assert_eq!(
+        CmpAroundAspectHolder::load_cmp_around_aspect().priority(),
+        2
+    );
     assert_eq!(ContextCmpInitHolder::load_context_cmp_init().priority(), 2);
     assert_eq!(
         LiteflowComponentSupportHolder::load_liteflow_component_support().priority(),
@@ -92,7 +95,11 @@ fn spi_factory_cleaner_restores_local_fallback() {
         fn get_bean(&self, _name: &str) -> Option<liteflow_core::spi::Bean> {
             None
         }
-        fn register_bean(&self, _name: &str, bean: liteflow_core::spi::Bean) -> liteflow_core::spi::Bean {
+        fn register_bean(
+            &self,
+            _name: &str,
+            bean: liteflow_core::spi::Bean,
+        ) -> liteflow_core::spi::Bean {
             bean
         }
         fn has_bean(&self, _name: &str) -> bool {
@@ -132,9 +139,9 @@ fn id_generator_holder_default_and_custom() {
     assert_ne!(id1, id2);
 
     // DefaultRequestIdGenerator 直接调用（对应 IdUtil.fastSimpleUUID 语义）
-    let gen = DefaultRequestIdGenerator::new();
-    let a = gen.generate();
-    let b = gen.generate();
+    let generator = DefaultRequestIdGenerator::new();
+    let a = generator.generate();
+    let b = generator.generate();
     assert_eq!(a.len(), 32);
     assert_ne!(a, b);
 
@@ -200,6 +207,32 @@ fn local_path_content_parser_file_and_classpath() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// 对应 PathMatchUtil：绝对路径的 `*`/`**` 展开、稳定排序与去重。
+#[test]
+fn local_path_content_parser_expands_absolute_ant_patterns() {
+    let parser = LocalPathContentParser::new();
+    let directory = tempfile::tempdir().unwrap();
+    let nested = directory.path().join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(directory.path().join("a.json"), r#"{"id":"a"}"#).unwrap();
+    std::fs::write(nested.join("b.json"), r#"{"id":"b"}"#).unwrap();
+    std::fs::write(nested.join("ignored.xml"), "<flow/>").unwrap();
+
+    let recursive = format!("{}/**/*.json", directory.path().display());
+    let direct = format!("{}/*.json", directory.path().display());
+    let paths = parser
+        .get_file_absolute_path(&[recursive.clone(), direct])
+        .unwrap();
+
+    assert_eq!(paths.len(), 2);
+    assert!(paths[0].ends_with("a.json"));
+    assert!(paths[1].ends_with("nested/b.json"));
+    let contents = parser.parse_content(&[recursive]).unwrap();
+    assert_eq!(contents.len(), 2);
+    assert!(contents.iter().any(|content| content.contains("\"a\"")));
+    assert!(contents.iter().any(|content| content.contains("\"b\"")));
+}
+
 /// 对应 LocalLiteflowComponentSupport：返回组件自身 name()
 #[test]
 fn local_liteflow_component_support_returns_cmp_name() {
@@ -222,8 +255,5 @@ fn local_liteflow_component_support_returns_cmp_name() {
 
     let support = LocalLiteflowComponentSupport::new();
     let cmp = CmpA;
-    assert_eq!(
-        support.get_cmp_name(&cmp),
-        Some("cmp_a".to_string())
-    );
+    assert_eq!(support.get_cmp_name(&cmp), Some("cmp_a".to_string()));
 }

@@ -1,0 +1,13 @@
+[package]
+name = "liteflow-rule-zk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "ZooKeeper rule source for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+async-trait.workspace = true
+tokio.workspace = true
+zookeeper.workspace = true

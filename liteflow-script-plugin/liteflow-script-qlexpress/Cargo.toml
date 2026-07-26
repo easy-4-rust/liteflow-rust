@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-script-qlexpress"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "QLExpress-compatible expression executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }

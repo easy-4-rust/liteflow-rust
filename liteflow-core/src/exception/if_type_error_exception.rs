@@ -19,14 +19,26 @@ pub struct IfTypeErrorException {
 
 impl IfTypeErrorException {
     /// 创建异常（对应 Java 的构造器）
-    pub fn new(node: impl Into<String>, expect: impl Into<String>, actual: impl Into<String>) -> Self {
-        Self { node: node.into(), expect: expect.into(), actual: actual.into() }
+    pub fn new(
+        node: impl Into<String>,
+        expect: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Self {
+        Self {
+            node: node.into(),
+            expect: expect.into(),
+            actual: actual.into(),
+        }
     }
 }
 
 impl fmt::Display for IfTypeErrorException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "node[{}] should return {}, but got {}", self.node, self.expect, self.actual)
+        write!(
+            f,
+            "node[{}] should return {}, but got {}",
+            self.node, self.expect, self.actual
+        )
     }
 }
 
@@ -34,6 +46,10 @@ impl std::error::Error for IfTypeErrorException {}
 
 impl From<IfTypeErrorException> for LiteflowError {
     fn from(e: IfTypeErrorException) -> Self {
-        LiteflowError::NodeTypeError { node: e.node, expect: e.expect, actual: e.actual }
+        LiteflowError::NodeTypeError {
+            node: e.node,
+            expect: e.expect,
+            actual: e.actual,
+        }
     }
 }

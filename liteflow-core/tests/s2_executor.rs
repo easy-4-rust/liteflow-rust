@@ -8,17 +8,17 @@
 //! - NodeExecutorHelper：默认执行器走单例缓存，组件自定义执行器被采用
 //! - flow.parallel：WhenFutureObj 三态构造、complete_on_timeout 超时兜底
 
+use liteflow_core::NodeComponent;
 use liteflow_core::el::NodeRef;
 use liteflow_core::exception::LiteflowError;
 use liteflow_core::flow::element::executable::Executable;
 use liteflow_core::flow::element::node::Node;
 use liteflow_core::flow::executor::{DefaultNodeExecutor, NodeExecutor, NodeExecutorHelper};
-use liteflow_core::flow::parallel::{complete_on_timeout, WhenFutureObj};
+use liteflow_core::flow::parallel::{WhenFutureObj, complete_on_timeout};
 use liteflow_core::slot::{CmpContext, Ctx, Frame, Slot};
-use liteflow_core::NodeComponent;
 use serde_json::Value;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// 可控制第几次调用才成功的组件，用于验证重试主干语义。
@@ -117,7 +117,10 @@ async fn error_outside_retry_for_is_not_retried() {
     let node = node_of(cmp);
     let (ctx, frame) = ctx_frame();
     let r = node.execute(&ctx, &frame).await;
-    assert!(matches!(r, Err(LiteflowError::NodeExec { .. })), "got: {r:?}");
+    assert!(
+        matches!(r, Err(LiteflowError::NodeExec { .. })),
+        "got: {r:?}"
+    );
     let steps = ctx.inner.steps.lock().unwrap().len();
     assert_eq!(steps, 1, "error outside retry_for must not be retried");
 }
@@ -137,7 +140,10 @@ async fn exhausted_retries_throw_last_error() {
     let r = node.execute(&ctx, &frame).await;
     match r {
         Err(LiteflowError::NodeExec { msg, .. }) => {
-            assert!(msg.contains("boom #3"), "last error must be thrown, got: {msg}");
+            assert!(
+                msg.contains("boom #3"),
+                "last error must be thrown, got: {msg}"
+            );
         }
         other => panic!("expected NodeExec, got: {other:?}"),
     }
@@ -151,7 +157,10 @@ async fn helper_caches_default_executor_singleton() {
     let helper = NodeExecutorHelper::load_instance();
     let e1 = helper.build_node_executor(None);
     let e2 = helper.build_node_executor(None);
-    assert!(Arc::ptr_eq(&e1, &e2), "default executor must be cached singleton");
+    assert!(
+        Arc::ptr_eq(&e1, &e2),
+        "default executor must be cached singleton"
+    );
     // 组件指定自定义执行器时直接采用该实例
     let custom: Arc<dyn NodeExecutor> = Arc::new(DefaultNodeExecutor);
     let e3 = helper.build_node_executor(Some(custom.clone()));
@@ -180,10 +189,14 @@ async fn complete_on_timeout_semantics() {
     let v = complete_on_timeout(0, async { 42 }, Duration::from_secs(1)).await;
     assert_eq!(v, 42);
     // 超时 → 默认值
-    let v = complete_on_timeout(7, async {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        42
-    }, Duration::from_millis(20))
+    let v = complete_on_timeout(
+        7,
+        async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            42
+        },
+        Duration::from_millis(20),
+    )
     .await;
     assert_eq!(v, 7);
 }

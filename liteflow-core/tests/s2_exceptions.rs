@@ -1,6 +1,7 @@
 //! S2-C 挂接测试：exception 包中此前缺少 LiteflowError 变体的 34 个异常 struct
 //! 均可通过 From 转换为 LiteflowError，且 Display 与 struct 原始 message 一致。
 
+use liteflow_core::LiteflowError;
 use liteflow_core::exception::and_or_condition_exception::AndOrConditionException;
 use liteflow_core::exception::catch_error_exception::CatchErrorException;
 use liteflow_core::exception::chain_duplicate_exception::ChainDuplicateException;
@@ -38,7 +39,6 @@ use liteflow_core::exception::proxy_exception::ProxyException;
 use liteflow_core::exception::request_id_generator_exception::RequestIdGeneratorException;
 use liteflow_core::exception::route_el_invalid_exception::RouteELInvalidException;
 use liteflow_core::exception::thread_executor_service_create_exception::ThreadExecutorServiceCreateException;
-use liteflow_core::LiteflowError;
 
 /// 断言 message-only 异常 struct 能 From 转换为 LiteflowError，
 /// 且转换后 Display 非空、与 struct 自身 Display（即原始 message）一致。

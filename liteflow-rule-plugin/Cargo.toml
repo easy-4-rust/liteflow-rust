@@ -1,0 +1,31 @@
+[package]
+name = "liteflow-rule-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "External rule sources for liteflow-rust"
+
+[features]
+default = []
+apollo = ["dep:liteflow-rule-apollo"]
+etcd = ["dep:liteflow-rule-etcd"]
+nacos = ["dep:liteflow-rule-nacos"]
+redis = ["dep:liteflow-rule-redis"]
+sql = ["dep:liteflow-rule-sql"]
+zk = ["dep:liteflow-rule-zk"]
+
+[dependencies]
+liteflow-core = { path = "../liteflow-core" }
+liteflow-rule-apollo = { path = "liteflow-rule-apollo", optional = true }
+liteflow-rule-etcd = { path = "liteflow-rule-etcd", optional = true }
+liteflow-rule-nacos = { path = "liteflow-rule-nacos", optional = true }
+liteflow-rule-redis = { path = "liteflow-rule-redis", optional = true }
+liteflow-rule-sql = { path = "liteflow-rule-sql", optional = true }
+liteflow-rule-zk = { path = "liteflow-rule-zk", optional = true }
+
+[dev-dependencies]
+rusqlite.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true

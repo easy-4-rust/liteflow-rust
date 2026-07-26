@@ -1,0 +1,9 @@
+[package]
+name = "liteflow-testcase-el-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-agent-core = { path = "../../liteflow-agent/liteflow-agent-core" }

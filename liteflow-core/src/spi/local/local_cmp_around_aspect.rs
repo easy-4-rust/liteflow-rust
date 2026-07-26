@@ -19,10 +19,16 @@ impl LocalCmpAroundAspect {
 
 impl CmpAroundAspect for LocalCmpAroundAspect {
     /// 对应 beforeProcess：无 spring 环境下为空实现
-    fn before_process(&self, _node_id: &str, _slot: &Slot) {}
+    fn before_process(&self, node_id: &str, slot: &Slot) {
+        // 本地回退实现不注入横切行为。
+        let _ = (node_id, slot);
+    }
 
     /// 对应 afterProcess：无 spring 环境下为空实现
-    fn after_process(&self, _node_id: &str, _slot: &Slot) {}
+    fn after_process(&self, node_id: &str, slot: &Slot) {
+        // 本地回退实现不注入横切行为。
+        let _ = (node_id, slot);
+    }
 }
 
 impl SpiPriority for LocalCmpAroundAspect {

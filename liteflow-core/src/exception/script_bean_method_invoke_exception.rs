@@ -18,13 +18,20 @@ pub struct ScriptBeanMethodInvokeException {
 impl ScriptBeanMethodInvokeException {
     /// 创建异常（对应 Java 的构造器）
     pub fn new(node: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { node: node.into(), message: message.into() }
+        Self {
+            node: node.into(),
+            message: message.into(),
+        }
     }
 }
 
 impl fmt::Display for ScriptBeanMethodInvokeException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "script bean method invoke error in node[{}]: {}", self.node, self.message)
+        write!(
+            f,
+            "script bean method invoke error in node[{}]: {}",
+            self.node, self.message
+        )
     }
 }
 
@@ -32,6 +39,9 @@ impl std::error::Error for ScriptBeanMethodInvokeException {}
 
 impl From<ScriptBeanMethodInvokeException> for LiteflowError {
     fn from(e: ScriptBeanMethodInvokeException) -> Self {
-        LiteflowError::Script { node: e.node, msg: e.message }
+        LiteflowError::Script {
+            node: e.node,
+            msg: e.message,
+        }
     }
 }

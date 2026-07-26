@@ -11,13 +11,6 @@ name = "liteflow_core"
 
 [features]
 default = []
-lua = ["dep:mlua"]
-redis = ["dep:redis"]
-sql = ["dep:rusqlite"]
-apollo = ["dep:ureq"]
-nacos = ["dep:nacos-sdk"]
-etcd = ["dep:etcd-client"]
-zk = ["dep:zookeeper"]
 
 [dependencies]
 tokio = { version = "1.52.4", features = ["rt-multi-thread", "time", "sync", "macros"] }
@@ -31,10 +24,8 @@ rhai = { version = "1.25.1", features = ["sync", "serde"] }
 quick-xml = "0.41.0"
 serde_yaml_ng = "0.10.0"
 md-5 = "0.10.6"
-mlua = { version = "0.10", features = ["lua54", "vendored"], optional = true }
-redis = { version = "0.27", optional = true }
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
-ureq = { version = "3.3.0", features = ["json"], optional = true }
-nacos-sdk = { version = "0.8", optional = true }
-etcd-client = { version = "0.14", optional = true }
-zookeeper = { version = "0.8", optional = true }
+chrono = "0.4.45"
+rand = "0.8.7"
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -8,11 +8,14 @@
 //! - Java 通过 slot.getIteratorResult(类名) 取 Iterator；Rust 端 iterator
 //!   节点直接返回 Value::Array。
 
+use super::Condition;
 use super::loop_condition::{handle_future_list, run_sequential, submit_iteration};
 use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
+use crate::flow::parallel::LoopFutureObj;
 use crate::slot::{Ctx, Frame};
+use crate::thread::ExecutorHelper;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -32,7 +35,12 @@ impl IteratorCondition {
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
-        Self { iterator_node, parallel, do_executor, break_item }
+        Self {
+            iterator_node,
+            parallel,
+            do_executor,
+            break_item,
+        }
     }
 
     /// 对应 Java IteratorCondition#getConditionType
@@ -57,14 +65,33 @@ impl Executable for IteratorCondition {
                     node: self.iterator_node.id().to_string(),
                     expect: "array".into(),
                     actual: other.to_string(),
-                })
+                });
             }
         };
 
         if self.parallel.is_some() {
-            let mut set: JoinSet<LFResult<Value>> = JoinSet::new();
+            let condition_key = format!("{:p}", self);
+            let executor_service = ExecutorHelper::load_instance().build_executor_service(
+                frame.condition_thread_pool(),
+                frame.chain_thread_pool(),
+                &condition_key,
+                &ctx.inner.chain_id,
+                ConditionTypeEnum::Iterator,
+            )?;
+            let mut set: JoinSet<LoopFutureObj> = JoinSet::new();
             for (i, obj) in list.iter().enumerate() {
-                if !submit_iteration(&mut set, &self.do_executor, self.break_item.as_ref(), ctx, frame, i, Some(obj.clone())).await? {
+                if !submit_iteration(
+                    &mut set,
+                    &self.do_executor,
+                    self.break_item.as_ref(),
+                    ctx,
+                    frame,
+                    i,
+                    Some(obj.clone()),
+                    &executor_service,
+                )
+                .await?
+                {
                     break;
                 }
             }
@@ -72,7 +99,16 @@ impl Executable for IteratorCondition {
         }
 
         for (i, obj) in list.into_iter().enumerate() {
-            if !run_sequential(&self.do_executor, self.break_item.as_ref(), ctx, frame, i, Some(obj)).await? {
+            if !run_sequential(
+                &self.do_executor,
+                self.break_item.as_ref(),
+                ctx,
+                frame,
+                i,
+                Some(obj),
+            )
+            .await?
+            {
                 break;
             }
         }
@@ -81,5 +117,11 @@ impl Executable for IteratorCondition {
 
     fn id(&self) -> &str {
         "ITERATOR"
+    }
+}
+
+impl Condition for IteratorCondition {
+    fn condition_type(&self) -> ConditionTypeEnum {
+        IteratorCondition::condition_type(self)
     }
 }

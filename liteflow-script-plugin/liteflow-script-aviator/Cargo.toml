@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-script-aviator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Aviator-compatible expression executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }

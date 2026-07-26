@@ -1,22 +1,80 @@
-[package]
-name = "liteflow-rust"
+[workspace]
+members = [
+    "liteflow-core",
+    "liteflow-derive",
+    "liteflow-el-builder",
+    "liteflow-agent",
+    "liteflow-agent/liteflow-agent-anthropic",
+    "liteflow-agent/liteflow-agent-core",
+    "liteflow-agent/liteflow-agent-dashscope",
+    "liteflow-agent/liteflow-agent-gemini",
+    "liteflow-agent/liteflow-agent-openai",
+    "liteflow-benchmark",
+    "liteflow-benchmark/liteflow-benchmark-common",
+    "liteflow-benchmark/liteflow-benchmark-common-example",
+    "liteflow-benchmark/liteflow-benchmark-compile",
+    "liteflow-benchmark/liteflow-benchmark-script-groovy",
+    "liteflow-benchmark/liteflow-benchmark-script-java",
+    "liteflow-benchmark/liteflow-benchmark-script-javax",
+    "liteflow-benchmark/liteflow-benchmark-script-javax-pro",
+    "liteflow-benchmark/liteflow-benchmark-script-qlexpress",
+    "liteflow-rule-plugin",
+    "liteflow-rule-plugin/liteflow-rule-apollo",
+    "liteflow-rule-plugin/liteflow-rule-etcd",
+    "liteflow-rule-plugin/liteflow-rule-nacos",
+    "liteflow-rule-plugin/liteflow-rule-redis",
+    "liteflow-rule-plugin/liteflow-rule-sql",
+    "liteflow-rule-plugin/liteflow-rule-zk",
+    "liteflow-script-plugin",
+    "liteflow-script-plugin/liteflow-script-aviator",
+    "liteflow-script-plugin/liteflow-script-graaljs",
+    "liteflow-script-plugin/liteflow-script-groovy",
+    "liteflow-script-plugin/liteflow-script-javascript",
+    "liteflow-script-plugin/liteflow-script-lua",
+    "liteflow-script-plugin/liteflow-script-python",
+    "liteflow-script-plugin/liteflow-script-qlexpress",
+    "liteflow-testcase-el",
+    "liteflow-testcase-el/liteflow-testcase-el-agent",
+    "liteflow-testcase-el/liteflow-testcase-el-apollo",
+    "liteflow-testcase-el/liteflow-testcase-el-apollo-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-builder",
+    "liteflow-testcase-el/liteflow-testcase-el-declare-multi-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-declare-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-etcd",
+    "liteflow-testcase-el/liteflow-testcase-el-etcd-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-nacos",
+    "liteflow-testcase-el/liteflow-testcase-el-nacos-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-nospring",
+    "liteflow-testcase-el/liteflow-testcase-el-redis",
+    "liteflow-testcase-el/liteflow-testcase-el-redis-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-routechain",
+    "liteflow-testcase-el/liteflow-testcase-el-script-aviator-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-graaljs-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-groovy-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-javascript-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-lua-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-multi-language-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-python-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-qlexpress-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-rhai-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-sql",
+    "liteflow-testcase-el/liteflow-testcase-el-sql-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-zk",
+    "liteflow-testcase-el/liteflow-testcase-el-zk-vernal",
+    "liteflow-vernal",
+]
+resolver = "2"
+
+# 工作区元信息（仅文档用途，不是真实 crate）
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A semantic port of LiteFlow (dromara/liteflow) component-based rule engine to Rust"
 license = "Apache-2.0"
 
-[features]
-default = []
-lua = ["dep:mlua"]
-redis = ["dep:redis"]
-sql = ["dep:rusqlite"]
-apollo = ["dep:ureq"]
-nacos = ["dep:nacos-sdk"]
-etcd = ["dep:etcd-client"]
-zk = ["dep:zookeeper"]
-
-[dependencies]
+# 共享依赖：所有成员 crate 复用同一份，避免重复下载与版本漂移
+[workspace.dependencies]
 tokio = { version = "1.52.4", features = ["rt-multi-thread", "time", "sync", "macros"] }
 async-trait = "0.1.89"
 async-recursion = "1.1"
@@ -28,10 +86,24 @@ rhai = { version = "1.25.1", features = ["sync", "serde"] }
 quick-xml = "0.41.0"
 serde_yaml_ng = "0.10.0"
 md-5 = "0.10.6"
-mlua = { version = "0.10", features = ["lua54", "vendored"], optional = true }
-redis = { version = "0.27", optional = true }
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
-ureq = { version = "3.3.0", features = ["json"], optional = true }
-nacos-sdk = { version = "0.8", optional = true }
-etcd-client = { version = "0.14", optional = true }
-zookeeper = { version = "0.8", optional = true }
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+redis = "0.27"
+rusqlite = { version = "0.32", features = ["bundled"] }
+ureq = { version = "3.3.0", features = ["json"] }
+nacos-sdk = "0.8"
+etcd-client = "0.14"
+zookeeper = "0.8"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+trybuild = "1.0"
+tempfile = "3.27"
+boa_engine = "0.20"
+pyo3 = { version = "0.23", features = ["auto-initialize"] }
+futures = "0.3"
+humantime-serde = "1.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

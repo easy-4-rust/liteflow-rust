@@ -7,8 +7,8 @@
 
 use dashmap::DashMap;
 
-use crate::spi::context_aware::{Bean, ContextAware};
 use crate::spi::spi_priority::SpiPriority;
+use crate::spi::{Bean, ContextAware};
 
 /// 对应 LocalContextAware：基于 DashMap 的本地 bean 容器
 #[derive(Default)]

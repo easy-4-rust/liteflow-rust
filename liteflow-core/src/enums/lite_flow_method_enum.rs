@@ -60,11 +60,21 @@ impl LiteFlowMethodEnum {
     /// 按 Java 方法名反查（对应按 methodName 匹配的声明式方法解析）
     pub fn get_enum_by_method_name(name: &str) -> Option<Self> {
         [
-            Self::Process, Self::ProcessSwitch, Self::ProcessIf, Self::ProcessFor,
-            Self::ProcessWhile, Self::ProcessBreak, Self::ProcessIterator,
-            Self::IsAccess, Self::IsEnd, Self::IsContinueOnError,
-            Self::GetNodeExecutorClass, Self::OnSuccess, Self::OnError,
-            Self::BeforeProcess, Self::AfterProcess,
+            Self::Process,
+            Self::ProcessSwitch,
+            Self::ProcessIf,
+            Self::ProcessFor,
+            Self::ProcessWhile,
+            Self::ProcessBreak,
+            Self::ProcessIterator,
+            Self::IsAccess,
+            Self::IsEnd,
+            Self::IsContinueOnError,
+            Self::GetNodeExecutorClass,
+            Self::OnSuccess,
+            Self::OnError,
+            Self::BeforeProcess,
+            Self::AfterProcess,
         ]
         .into_iter()
         .find(|e| e.get_method_name() == name)

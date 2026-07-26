@@ -3,7 +3,8 @@
 //! Java 每个枚举携带 type 与 name 两个字符串字段。
 
 /// 条件类型枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ConditionTypeEnum {
     Then,
     When,
@@ -15,10 +16,16 @@ pub enum ConditionTypeEnum {
     While,
     Iterator,
     Catch,
-    /// Rust 端扩展：布尔编排（对应 flow.element.condition 包的 AndOrCondition）
+    /// 布尔 AND/OR 编排。
+    #[serde(rename = "and_or_opt")]
     AndOr,
-    /// Rust 端扩展：NOT 条件
+    /// 布尔 NOT 编排。
+    #[serde(rename = "not_opt")]
     Not,
+    /// 含未实现变量、不可执行的抽象 Chain。
+    Abstract,
+    /// 子 Chain 的 bind 包装条件。
+    ChainBindWrapper,
     /// Rust 端扩展：重试修饰（对应 RetryCondition）
     Retry,
     /// Rust 端扩展：超时修饰（对应 TimeoutCondition）
@@ -39,8 +46,10 @@ impl ConditionTypeEnum {
             Self::While => "while",
             Self::Iterator => "iterator",
             Self::Catch => "catch",
-            Self::AndOr => "and_or",
-            Self::Not => "not",
+            Self::AndOr => "and_or_opt",
+            Self::Not => "not_opt",
+            Self::Abstract => "abstract",
+            Self::ChainBindWrapper => "chain_bind_wrapper",
             Self::Retry => "retry",
             Self::Timeout => "timeout",
         }
@@ -52,9 +61,22 @@ impl ConditionTypeEnum {
     /// getEnumByCode(code)：按 type 字符串反查枚举
     pub fn get_enum_by_code(code: &str) -> Option<Self> {
         [
-            Self::Then, Self::When, Self::Switch, Self::If, Self::Pre, Self::Finally,
-            Self::For, Self::While, Self::Iterator, Self::Catch, Self::AndOr, Self::Not,
-            Self::Retry, Self::Timeout,
+            Self::Then,
+            Self::When,
+            Self::Switch,
+            Self::If,
+            Self::Pre,
+            Self::Finally,
+            Self::For,
+            Self::While,
+            Self::Iterator,
+            Self::Catch,
+            Self::AndOr,
+            Self::Not,
+            Self::Abstract,
+            Self::ChainBindWrapper,
+            Self::Retry,
+            Self::Timeout,
         ]
         .into_iter()
         .find(|e| e.get_type() == code)

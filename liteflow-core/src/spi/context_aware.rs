@@ -4,13 +4,8 @@
 //! Spring/本地容器中取 Bean；Rust 无运行时泛型擦除容器，统一 Rust 化为
 //! 基于 `Arc<dyn Any + Send + Sync>` 的 bean 容器，取用时由调用方 downcast。
 
-use std::any::Any;
-use std::sync::Arc;
-
+use super::Bean;
 use super::spi_priority::SpiPriority;
-
-/// 任意类型 bean 的容器句柄（对应 Java 的 Object bean）
-pub type Bean = Arc<dyn Any + Send + Sync>;
 
 /// 对应 ContextAware（sync 版本，与 Java SPI 定义一致）
 pub trait ContextAware: SpiPriority + Send + Sync {

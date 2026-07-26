@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-testcase-el-nacos-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-testcase-el-nacos = { path = "../liteflow-testcase-el-nacos" }
+liteflow-vernal = { path = "../../liteflow-vernal" }

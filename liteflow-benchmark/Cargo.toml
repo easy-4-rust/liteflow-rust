@@ -1,0 +1,20 @@
+[package]
+name = "liteflow-benchmark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust benchmark scenario aggregation for liteflow-rust"
+
+[dependencies]
+liteflow-benchmark-common = { path = "liteflow-benchmark-common" }
+liteflow-benchmark-common-example = { path = "liteflow-benchmark-common-example" }
+liteflow-benchmark-compile = { path = "liteflow-benchmark-compile" }
+liteflow-benchmark-script-groovy = { path = "liteflow-benchmark-script-groovy" }
+liteflow-benchmark-script-java = { path = "liteflow-benchmark-script-java" }
+liteflow-benchmark-script-javax = { path = "liteflow-benchmark-script-javax" }
+liteflow-benchmark-script-javax-pro = { path = "liteflow-benchmark-script-javax-pro" }
+liteflow-benchmark-script-qlexpress = { path = "liteflow-benchmark-script-qlexpress" }
+
+[dev-dependencies]
+tokio.workspace = true

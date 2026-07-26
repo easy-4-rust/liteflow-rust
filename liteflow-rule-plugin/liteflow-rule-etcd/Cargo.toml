@@ -1,0 +1,13 @@
+[package]
+name = "liteflow-rule-etcd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Etcd rule source for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+async-trait.workspace = true
+etcd-client.workspace = true
+tokio.workspace = true

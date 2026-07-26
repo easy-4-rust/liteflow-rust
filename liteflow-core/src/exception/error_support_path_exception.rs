@@ -16,7 +16,9 @@ pub struct ErrorSupportPathException {
 impl ErrorSupportPathException {
     /// 创建异常（对应 Java 的 message 构造器）
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self {
+            message: message.into(),
+        }
     }
 }
 

@@ -1,0 +1,11 @@
+[package]
+name = "liteflow-testcase-el-script-javascript-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-script-javascript = { path = "../../liteflow-script-plugin/liteflow-script-javascript" }
+liteflow-vernal = { path = "../../liteflow-vernal" }
