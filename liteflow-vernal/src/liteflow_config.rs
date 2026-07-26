@@ -25,7 +25,14 @@ pub struct LiteflowConfig {
     /// 是否打印执行日志。
     pub print_execution_log: bool,
     /// 是否启用监控日志。
+    #[serde(rename = "enableLog", alias = "monitorEnableLog")]
     pub monitor_enable_log: bool,
+    /// 每个组件保留的监控样本数量上限。
+    pub queue_limit: usize,
+    /// 监控任务首次输出前的延迟，单位毫秒。
+    pub delay: u64,
+    /// 监控任务的固定输出周期，单位毫秒。
+    pub period: u64,
     /// WHEN 与异步循环使用的全局执行器构建器名称。
     pub global_thread_pool_executor_class: String,
     /// 全局执行器最大并发数。
@@ -52,6 +59,9 @@ impl Default for LiteflowConfig {
             parse_mode: LiteflowParseMode::ParseAllOnStart,
             print_execution_log: true,
             monitor_enable_log: false,
+            queue_limit: 200,
+            delay: 300_000,
+            period: 300_000,
             global_thread_pool_executor_class: LiteFlowDefaultGlobalExecutorBuilder::CLASS_NAME
                 .to_string(),
             global_thread_pool_size: 64,
@@ -89,6 +99,66 @@ impl LiteflowConfig {
         self.rule_format = format;
         self.rule_source = Some(source.into());
         self
+    }
+
+    /// 返回是否启用监控日志。
+    ///
+    /// 对应 Java: `LiteflowConfig#getEnableLog`。
+    #[must_use]
+    pub fn is_enable_log(&self) -> bool {
+        self.monitor_enable_log
+    }
+
+    /// 设置是否启用监控日志。
+    ///
+    /// 对应 Java: `LiteflowConfig#setEnableLog`。
+    pub fn set_enable_log(&mut self, enable_log: bool) {
+        self.monitor_enable_log = enable_log;
+    }
+
+    /// 返回每个组件保留的监控样本数量上限。
+    ///
+    /// 对应 Java: `LiteflowConfig#getQueueLimit`。
+    #[must_use]
+    pub fn queue_limit(&self) -> usize {
+        self.queue_limit
+    }
+
+    /// 设置每个组件保留的监控样本数量上限。
+    ///
+    /// 对应 Java: `LiteflowConfig#setQueueLimit`。
+    pub fn set_queue_limit(&mut self, queue_limit: usize) {
+        self.queue_limit = queue_limit;
+    }
+
+    /// 返回监控任务首次输出前的延迟毫秒数。
+    ///
+    /// 对应 Java: `LiteflowConfig#getDelay`。
+    #[must_use]
+    pub fn delay(&self) -> u64 {
+        self.delay
+    }
+
+    /// 设置监控任务首次输出前的延迟毫秒数。
+    ///
+    /// 对应 Java: `LiteflowConfig#setDelay`。
+    pub fn set_delay(&mut self, delay: u64) {
+        self.delay = delay;
+    }
+
+    /// 返回监控任务的固定输出周期毫秒数。
+    ///
+    /// 对应 Java: `LiteflowConfig#getPeriod`。
+    #[must_use]
+    pub fn period(&self) -> u64 {
+        self.period
+    }
+
+    /// 设置监控任务的固定输出周期毫秒数。
+    ///
+    /// 对应 Java: `LiteflowConfig#setPeriod`。
+    pub fn set_period(&mut self, period: u64) {
+        self.period = period;
     }
 
     /// 返回全局执行器构建器名称。

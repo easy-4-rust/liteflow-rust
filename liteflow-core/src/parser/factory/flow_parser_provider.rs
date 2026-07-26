@@ -7,6 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 use crate::flow::flow_bus::FlowBus;
 use crate::parser::base::FlowParser;
 use crate::parser::factory::{ClassParserFactory, FlowParserFactory, LocalParserFactory};
+use crate::parser::spi::ParserClassNameSpi;
 
 /// 在本地文件解析器与显式注册的自定义解析器之间完成选择。
 ///
@@ -42,6 +43,22 @@ impl FlowParserProvider {
     ) {
         self.class_factory
             .register(class_name, parser_type, content_provider);
+    }
+
+    /// 通过 `ParserClassNameSpi` 注册自定义解析器。
+    ///
+    /// 对应 Java 容器发现 SPI 后调用 `getSpiClassName` 再选择解析器。
+    pub fn register_class_parser_spi(
+        &self,
+        parser_spi: &dyn ParserClassNameSpi,
+        parser_type: FlowParserTypeEnum,
+        content_provider: Arc<dyn Fn() -> LFResult<String> + Send + Sync>,
+    ) {
+        self.register_class_parser(
+            parser_spi.get_spi_class_name(),
+            parser_type,
+            content_provider,
+        );
     }
 
     /// 根据配置地址返回对应解析器。

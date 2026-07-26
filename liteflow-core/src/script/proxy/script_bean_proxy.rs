@@ -16,7 +16,7 @@ pub struct ScriptBeanProxy {
 }
 
 impl ScriptBeanProxy {
-    /// 根据注解元数据过滤可访问方法。
+    /// 根据调用方提供的包含/排除方法清单过滤可访问方法。
     ///
     /// 包含列表为空时默认允许全部候选方法；排除列表始终最后生效。
     #[must_use]

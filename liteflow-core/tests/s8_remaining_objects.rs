@@ -6,13 +6,13 @@ use liteflow_core::flow::parallel::CompletableFutureExpand;
 use liteflow_core::lifecycle::ChainCacheLifeCycle;
 use liteflow_core::log::LFLoggerManager;
 use liteflow_core::meta::LiteflowMetaOperator;
-use liteflow_core::parser::ParserClassNameSpi;
+use liteflow_core::parser::{FlowParserProvider, ParserClassNameSpi};
 use liteflow_core::thread::ExecutorService;
 use liteflow_core::util::{
     CopyOnWriteHashMap, LOGOPrinter, LiteFlowExecutorPoolShutdown, LiteflowContextRegexMatcher,
     QlExpressUtils, SerialsUtil,
 };
-use liteflow_core::{FlowBus, cmp};
+use liteflow_core::{FlowBus, FlowParserTypeEnum, cmp};
 use serde_json::{Value, json};
 
 #[test]
@@ -102,6 +102,14 @@ async fn meta_operator_and_chain_cache_lifecycle_drive_flow_bus() {
     bus.register_chain_execute_hook(cache);
     bus.register("a", cmp(|_| async { Ok(Value::Null) }));
     bus.register("b", cmp(|_| async { Ok(Value::Null) }));
+    let parser_provider = FlowParserProvider::new(bus.clone());
+    parser_provider.register_class_parser_spi(
+        &TestParserSpi,
+        FlowParserTypeEnum::TypeElJson,
+        Arc::new(|| Ok(r#"{"flow":{"chain":[{"id":"spiChain","body":"THEN(a)"}]}}"#.to_string())),
+    );
+    let spi_parser = parser_provider.lookup("el_json:tests::TestParser").unwrap();
+    assert_eq!(spi_parser.parse_main(&[]).unwrap(), vec!["spiChain"]);
     bus.add_chain("chainA", "THEN(a, a)").unwrap();
     bus.add_chain("chainB", "THEN(b)").unwrap();
     let metadata = LiteflowMetaOperator::new(bus.clone());

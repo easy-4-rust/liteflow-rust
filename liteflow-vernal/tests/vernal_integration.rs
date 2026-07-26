@@ -54,6 +54,9 @@ fn liteflow_config_deserializes_spring_style_properties() {
         "ruleFormat": "json",
         "parseMode": "PARSE_ALL_ON_START",
         "monitorEnableLog": true,
+        "queueLimit": 17,
+        "delay": 23,
+        "period": 29,
         "globalThreadPoolExecutorClass": "test.GlobalExecutor",
         "globalThreadPoolSize": 7,
         "globalThreadPoolQueueSize": 19,
@@ -67,6 +70,9 @@ fn liteflow_config_deserializes_spring_style_properties() {
     assert!(config.enable);
     assert_eq!(config.inline_rule.as_deref(), Some(INLINE_RULE));
     assert!(config.monitor_enable_log);
+    assert_eq!(config.queue_limit(), 17);
+    assert_eq!(config.delay(), 23);
+    assert_eq!(config.period(), 29);
     assert_eq!(
         config.global_thread_pool_executor_class(),
         "test.GlobalExecutor"
@@ -77,6 +83,31 @@ fn liteflow_config_deserializes_spring_style_properties() {
     assert_eq!(config.main_executor_works(), 3);
     assert!(config.is_when_thread_pool_isolate());
     assert!(!config.is_enable_virtual_thread());
+}
+
+/// 验证 Java MonitorBus 构造语义：配置容量、自动启动以及容器关闭时停止调度器。
+#[tokio::test]
+async fn vernal_lifecycle_starts_and_stops_configured_monitor_task() {
+    let config = LiteflowConfig {
+        monitor_enable_log: true,
+        queue_limit: 3,
+        delay: 1,
+        period: 2,
+        ..LiteflowConfig::default()
+    };
+    let module = LiteflowVernalModule::new(config);
+    let mut builder = VernalApplicationBuilder::current().unwrap();
+    builder.register_module(module).unwrap();
+    let context = builder.launch().await.unwrap();
+    let runtime: Arc<LiteflowRuntime> = context.container().resolve().unwrap();
+
+    assert_eq!(runtime.flow_bus().monitor().queue_limit(), 3);
+    assert!(runtime.is_monitor_task_running());
+    tokio::time::sleep(std::time::Duration::from_millis(8)).await;
+    assert!(runtime.is_monitor_task_running());
+
+    context.close().await.unwrap();
+    assert!(!runtime.is_monitor_task_running());
 }
 
 /// 验证 Java LiteflowConfigGetter 的 set/get/clean 回退契约。

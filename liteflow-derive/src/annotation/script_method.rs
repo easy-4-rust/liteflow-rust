@@ -1,7 +1,7 @@
 //! 对应 Java: com.yomahub.liteflow.script.annotation.ScriptMethod
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{ImplItemFn, LitStr, parse_macro_input};
 
 use super::anno_util::AnnoUtil;
@@ -18,8 +18,9 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         parse_macro_input!(attr as LitStr).value()
     };
+    let cache_key = method.sig.to_token_stream().to_string();
     let exposed_name_value =
-        AnnoUtil::get_annotation(&rust_name, "ScriptMethod", || exposed_name_value);
+        AnnoUtil::get_annotation(&cache_key, "ScriptMethod", || exposed_name_value);
     let exposed_name = LitStr::new(&exposed_name_value, method.sig.ident.span());
     let const_name = format_ident!("LITEFLOW_SCRIPT_METHOD_{}", rust_name.to_ascii_uppercase());
     quote! {

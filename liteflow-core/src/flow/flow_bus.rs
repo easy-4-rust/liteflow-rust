@@ -433,14 +433,7 @@ impl FlowBus {
 /// nodeId 合法性校验（2.16：对应 QlExpressUtils.checkVariableName +
 /// NodeIdUnIllegalException；不能以数字开头，只能由字母/数字/下划线/$ 组成）
 fn check_node_id(node_id: &str) -> LFResult<()> {
-    let mut chars = node_id.chars();
-    let ok = match chars.next() {
-        Some(c) if c.is_alphabetic() || c == '_' || c == '$' => {
-            chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
-        }
-        _ => false,
-    };
-    if ok {
+    if crate::util::QlExpressUtils::check_variable_name(node_id) {
         Ok(())
     } else {
         Err(LiteflowError::NodeIdUnIllegal(node_id.to_string()))

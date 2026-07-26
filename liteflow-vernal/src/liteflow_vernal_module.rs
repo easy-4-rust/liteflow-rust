@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use liteflow_core::log::LFLoggerManager;
 use liteflow_core::{ExecutorHelper, FlowBus};
 use vernal_beans::ComponentDefinition;
 use vernal_context::{ApplicationModule, ApplicationModuleRegistrar};
@@ -63,6 +64,7 @@ impl ApplicationModule for LiteflowVernalModule {
             self.config.when_thread_pool_isolate,
             self.config.enable_virtual_thread,
         );
+        LFLoggerManager::set_print_execution_log(self.config.print_execution_log);
         // 与 Java FlowExecutor(LiteflowConfig) 一致，在运行时创建前登记兼容配置。
         LiteflowConfigGetter::set_liteflow_config(self.config.clone());
         let flow_bus = FlowBus::new();
