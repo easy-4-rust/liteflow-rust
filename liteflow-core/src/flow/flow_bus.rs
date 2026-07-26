@@ -377,7 +377,24 @@ impl FlowBus {
             .get(node_id)
             .map(|entry| entry.clone())
             .ok_or_else(|| LiteflowError::NodeNotFound(node_id.to_string()))?;
-        self.register_script_typed(node_id, &language, kind, script)
+        self.register_script_typed(node_id, &language, kind, script)?;
+
+        // 已编译 Chain 中的 Node 持有旧组件 Arc；脚本组件替换后重建 Chain，
+        // 对齐 Java 通过共享 ScriptExecutor 缓存让既有 Chain 立即看到新脚本。
+        let chain_sources = self
+            .chains
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .value()
+                    .el()
+                    .map(|el| (entry.key().clone(), el.to_string()))
+            })
+            .collect::<Vec<_>>();
+        for (chain_id, el) in chain_sources {
+            self.reload_chain(&chain_id, &el)?;
+        }
+        Ok(())
     }
 
     /// 在脚本组件真实构建完成后调用初始化生命周期。

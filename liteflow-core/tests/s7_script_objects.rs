@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use liteflow_core::script::annotation::ScriptBean;
 use liteflow_core::script::jsr223::JSR223ScriptExecutor;
 use liteflow_core::script::proxy::{ScriptBeanProxy, ScriptMethodProxy};
 use liteflow_core::script::validator::ScriptValidator;
@@ -25,11 +24,13 @@ fn sum_method() -> ScriptMethodProxy {
 
 #[tokio::test]
 async fn script_bean_proxy_filters_methods_and_rhai_calls_real_function() {
-    let metadata = ScriptBean::new("s7_math")
-        .include_method_names(["sum", "hidden"])
-        .exclude_method_names(["hidden"]);
     let hidden = ScriptMethodProxy::new("hidden", Arc::new(|_| Ok(json!("secret"))));
-    let proxy = ScriptBeanProxy::new("s7_math", &metadata, [sum_method(), hidden]);
+    let proxy = ScriptBeanProxy::new(
+        "s7_math",
+        &["sum", "hidden"],
+        &["hidden"],
+        [sum_method(), hidden],
+    );
 
     assert_eq!(proxy.method_names(), vec!["sum"]);
     assert!(proxy.invoke("hidden", &[]).is_err());

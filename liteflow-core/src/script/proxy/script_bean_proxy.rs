@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use crate::exception::{LFResult, LiteflowError, ScriptBeanMethodInvokeException};
-use crate::script::annotation::ScriptBean;
 
 use super::ScriptMethodProxy;
 
@@ -23,19 +22,12 @@ impl ScriptBeanProxy {
     #[must_use]
     pub fn new(
         bean_name: impl Into<String>,
-        metadata: &ScriptBean,
+        include_method_names: &[&str],
+        exclude_method_names: &[&str],
         methods: impl IntoIterator<Item = ScriptMethodProxy>,
     ) -> Self {
-        let includes = metadata
-            .includes()
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>();
-        let excludes = metadata
-            .excludes()
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>();
+        let includes = include_method_names.iter().copied().collect::<HashSet<_>>();
+        let excludes = exclude_method_names.iter().copied().collect::<HashSet<_>>();
         let methods = methods
             .into_iter()
             .filter(|method| {

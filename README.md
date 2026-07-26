@@ -173,7 +173,8 @@ Java 通过反射判断是否覆盖 rollback；Rust 端显式返回 `is_rollback
 
 ```bash
 export PYO3_PYTHON=/path/to/python3.13  # 启用 python feature 时指向可嵌入的 CPython
-cargo test --workspace --all-features --no-fail-fast # 203 个测试入口 + 1 个 doctest
+export DYLD_LIBRARY_PATH=/path/to/python3.13/lib  # macOS Framework/共享库搜索路径
+cargo test --workspace --all-features --no-fail-fast # 237 个测试（含 doctest）
 cargo test -p liteflow-script-plugin --all-features  # Lua/Boa/CPython 真实运行
 cargo test -p liteflow-rule-plugin --all-features    # 含真实临时 SQLite
 cargo test -p liteflow-agent -p liteflow-agent-core --all-features # Provider 构造契约 + ReAct 流程

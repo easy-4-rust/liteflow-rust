@@ -2,7 +2,6 @@
 //! core 内建 Rhai 基线与插件工厂；Lua/JavaScript/Python 等语言实现位于独立
 //! `liteflow-script-plugin` crate，通过 `ScriptExecutorFactory` 显式注册。
 
-pub mod annotation;
 pub mod exception;
 pub mod json_convert;
 pub mod jsr223;

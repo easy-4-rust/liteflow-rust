@@ -72,14 +72,10 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             pub fn register_script_bean(
                 methods: ::std::vec::Vec<::liteflow_core::script::proxy::ScriptMethodProxy>,
             ) {
-                let metadata = ::liteflow_core::script::annotation::ScriptBean::new(
-                    Self::LITEFLOW_SCRIPT_BEAN_NAME,
-                )
-                .include_method_names([#(#includes),*])
-                .exclude_method_names([#(#excludes),*]);
                 let proxy = ::liteflow_core::script::proxy::ScriptBeanProxy::new(
                     Self::LITEFLOW_SCRIPT_BEAN_NAME,
-                    &metadata,
+                    &[#(#includes),*],
+                    &[#(#excludes),*],
                     methods,
                 );
                 ::liteflow_core::script::ScriptBeanManager::add_script_bean(proxy);
