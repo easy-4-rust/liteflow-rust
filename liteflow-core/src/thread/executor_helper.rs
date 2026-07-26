@@ -131,9 +131,13 @@ impl ExecutorHelper {
         &self,
         executor_class: Option<&str>,
     ) -> LFResult<Arc<ExecutorService>> {
-        let settings = self.settings.read().expect("执行器配置读锁中毒");
-        let executor_class =
-            non_blank(executor_class).unwrap_or(settings.global_executor_class.as_str());
+        let default_executor_class = self
+            .settings
+            .read()
+            .expect("执行器配置读锁中毒")
+            .global_executor_class
+            .clone();
+        let executor_class = non_blank(executor_class).unwrap_or(&default_executor_class);
         self.get_executor_service(executor_class, None)
     }
 
@@ -145,9 +149,13 @@ impl ExecutorHelper {
         executor_class: Option<&str>,
         hash: &str,
     ) -> LFResult<Arc<ExecutorService>> {
-        let settings = self.settings.read().expect("执行器配置读锁中毒");
-        let executor_class =
-            non_blank(executor_class).unwrap_or(settings.global_executor_class.as_str());
+        let default_executor_class = self
+            .settings
+            .read()
+            .expect("执行器配置读锁中毒")
+            .global_executor_class
+            .clone();
+        let executor_class = non_blank(executor_class).unwrap_or(&default_executor_class);
         self.get_executor_service(executor_class, non_blank(Some(hash)))
     }
 
@@ -158,9 +166,13 @@ impl ExecutorHelper {
         &self,
         executor_class: Option<&str>,
     ) -> LFResult<Arc<ExecutorService>> {
-        let settings = self.settings.read().expect("执行器配置读锁中毒");
-        let executor_class =
-            non_blank(executor_class).unwrap_or(settings.main_executor_class.as_str());
+        let default_executor_class = self
+            .settings
+            .read()
+            .expect("执行器配置读锁中毒")
+            .main_executor_class
+            .clone();
+        let executor_class = non_blank(executor_class).unwrap_or(&default_executor_class);
         self.get_executor_service(executor_class, None)
     }
 
@@ -177,7 +189,7 @@ impl ExecutorHelper {
         chain_key: &str,
         condition_type: ConditionTypeEnum,
     ) -> LFResult<Arc<ExecutorService>> {
-        let settings = self.settings.read().expect("执行器配置读锁中毒");
+        let settings = self.settings.read().expect("执行器配置读锁中毒").clone();
         let executor_condition = ExecutorConditionBuilder::build_executor_condition(
             condition_executor_class,
             chain_executor_class,

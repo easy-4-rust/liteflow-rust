@@ -53,13 +53,30 @@ fn liteflow_config_deserializes_spring_style_properties() {
         "inlineRule": INLINE_RULE,
         "ruleFormat": "json",
         "parseMode": "PARSE_ALL_ON_START",
-        "monitorEnableLog": true
+        "monitorEnableLog": true,
+        "globalThreadPoolExecutorClass": "test.GlobalExecutor",
+        "globalThreadPoolSize": 7,
+        "globalThreadPoolQueueSize": 19,
+        "mainExecutorClass": "test.MainExecutor",
+        "mainExecutorWorks": 3,
+        "whenThreadPoolIsolate": true,
+        "enableVirtualThread": false
     }))
     .unwrap();
 
     assert!(config.enable);
     assert_eq!(config.inline_rule.as_deref(), Some(INLINE_RULE));
     assert!(config.monitor_enable_log);
+    assert_eq!(
+        config.global_thread_pool_executor_class(),
+        "test.GlobalExecutor"
+    );
+    assert_eq!(config.global_thread_pool_size(), 7);
+    assert_eq!(config.global_thread_pool_queue_size(), 19);
+    assert_eq!(config.main_executor_class(), "test.MainExecutor");
+    assert_eq!(config.main_executor_works(), 3);
+    assert!(config.is_when_thread_pool_isolate());
+    assert!(!config.is_enable_virtual_thread());
 }
 
 /// 验证 Java LiteflowConfigGetter 的 set/get/clean 回退契约。
