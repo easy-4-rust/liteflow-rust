@@ -12,6 +12,7 @@ use crate::common::entity::ValidationResp;
 use crate::enums::ScriptTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::slot::CmpContext;
+use chrono::Local;
 use rhai::{AST, Dynamic, Engine, EvalAltResult, Position, Scope};
 use serde_json::Value;
 
@@ -51,6 +52,11 @@ impl RhaiScriptExecutor {
                     })
             },
         );
+        // Aviator 基线脚本中的 DateUtil.formatDateTime(new Date()) 在适配层被映射到
+        // 此运行时函数，确保时间在每次执行时生成，而不是在脚本编译时冻结。
+        engine.register_fn("aviator_now", || {
+            Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+        });
         Self {
             engine,
             compiled_script_map: RwLock::new(HashMap::new()),

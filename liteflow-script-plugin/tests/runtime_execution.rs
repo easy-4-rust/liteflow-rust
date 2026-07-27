@@ -316,7 +316,36 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
     ScriptBeanManager::remove_script_bean("ql_math");
 }
 
-/// Aviator/Groovy 映射只接受与 Rhai 重叠的表达式语法，并实际经过完整执行链。
+/// 对应 Java Aviator 基线：验证导入、DateUtil、println 与 setData 上下文写回。
+#[cfg(feature = "aviator")]
+#[tokio::test]
+async fn aviator_executes_java_liteflow_baseline_syntax() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "aviator_common",
+        "aviator",
+        r#"
+            use java.util.Date;
+            use cn.hutool.core.date.DateUtil;
+            let d = DateUtil.formatDateTime(new Date());
+            println(d);
+            a = 2;
+            b = 3;
+            setData(defaultContext, "s1", a*b);
+        "#,
+    )
+    .unwrap();
+    bus.add_chain("aviator_baseline_chain", "THEN(aviator_common)")
+        .unwrap();
+
+    let response = bus.execute("aviator_baseline_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("s1"), Some(json!(6)));
+}
+
+/// Aviator/Groovy 公共表达式兼容面经过完整布尔分支执行链。
 #[cfg(all(feature = "aviator", feature = "groovy"))]
 #[tokio::test]
 async fn jvm_expression_subcrates_execute_declared_common_subset() {
