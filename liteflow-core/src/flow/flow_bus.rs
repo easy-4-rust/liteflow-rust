@@ -18,15 +18,15 @@ use crate::lifecycle::{
     PostProcessFlowExecuteLifeCycle, PostProcessNodeBuildLifeCycle,
     PostProcessScriptEngineInitLifeCycle,
 };
-use crate::monitor::MonitorBus;
+use crate::monitor::{MonitorBus, MonitorFile};
 use crate::parser::el::{JsonFlowElParser, XmlFlowElParser, YmlFlowElParser};
 use crate::script::{ScriptKind, build_rhai_component};
 use crate::spi::DeclComponentParserHolder;
 use dashmap::DashMap;
 use md5::{Digest, Md5};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 type MonitorFileCleaner = Arc<dyn Fn() -> LFResult<()> + Send + Sync>;
 
@@ -57,6 +57,11 @@ pub struct FlowBus {
     init_stat: Arc<AtomicBool>,
     /// 当前总线创建的文件监听器弱清理动作。
     monitor_file_cleaners: Arc<std::sync::RwLock<Vec<MonitorFileCleaner>>>,
+    /// 当前运行时的 MonitorFile 弱单例。
+    ///
+    /// Java 使用进程级 Hutool Singleton；Rust 按 FlowBus 隔离运行时，并用弱引用
+    /// 避免 `FlowBus -> MonitorFile -> FlowBus` 强引用环。
+    pub(crate) monitor_file_instance: Arc<Mutex<Weak<MonitorFile>>>,
 }
 
 impl Default for FlowBus {
@@ -80,6 +85,7 @@ impl FlowBus {
             instance_id_spi_holder: NodeInstanceIdManageSpiHolder::default(),
             init_stat: Arc::new(AtomicBool::new(false)),
             monitor_file_cleaners: Arc::new(std::sync::RwLock::new(Vec::new())),
+            monitor_file_instance: Arc::new(Mutex::new(Weak::new())),
         }
     }
 

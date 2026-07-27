@@ -17,9 +17,33 @@ pub struct MonitorFile {
     flow_bus: FlowBus,
     paths: Arc<RwLock<HashSet<PathBuf>>>,
     monitors: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    file_chains: Arc<Mutex<HashMap<PathBuf, HashSet<String>>>>,
 }
 
 impl MonitorFile {
+    /// 返回当前 FlowBus 隔离域中的共享文件监听器。
+    ///
+    /// - `flow_bus`：接收规则变更的 LiteFlow 运行时。
+    /// - 返回：同一 FlowBus 的克隆调用共享同一个 `MonitorFile`，不同 FlowBus
+    ///   保持隔离。
+    ///
+    /// Java 使用 Hutool 进程级 Singleton；Rust 将单例范围收窄到 FlowBus，
+    /// 避免测试和多租户运行时相互覆盖。对应 Java: `MonitorFile#getInstance()`。
+    #[must_use]
+    pub fn get_instance(flow_bus: FlowBus) -> Arc<Self> {
+        let mut instance = flow_bus
+            .monitor_file_instance
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(monitor_file) = instance.upgrade() {
+            return monitor_file;
+        }
+
+        let monitor_file = Arc::new(Self::new(flow_bus.clone()));
+        *instance = Arc::downgrade(&monitor_file);
+        monitor_file
+    }
+
     /// 创建绑定指定流程总线的文件监听器。
     ///
     /// `flow_bus` 接收规则热刷新结果；对应 Java 通过全局
@@ -28,8 +52,10 @@ impl MonitorFile {
     pub fn new(flow_bus: FlowBus) -> Self {
         let paths = Arc::new(RwLock::new(HashSet::new()));
         let monitors = Arc::new(Mutex::new(Vec::<tokio::task::JoinHandle<()>>::new()));
+        let file_chains = Arc::new(Mutex::new(HashMap::<PathBuf, HashSet<String>>::new()));
         let weak_paths = Arc::downgrade(&paths);
         let weak_monitors = Arc::downgrade(&monitors);
+        let weak_file_chains = Arc::downgrade(&file_chains);
 
         // 只登记弱清理动作，避免 FlowBus 与 MonitorFile 相互强引用。
         flow_bus.register_monitor_file_cleaner(Arc::new(move || {
@@ -47,6 +73,12 @@ impl MonitorFile {
                     .map_err(|_| monitor_error("monitor path lock poisoned"))?
                     .clear();
             }
+            if let Some(file_chains) = weak_file_chains.upgrade() {
+                file_chains
+                    .lock()
+                    .map_err(|_| monitor_error("monitor chain state lock poisoned"))?
+                    .clear();
+            }
             Ok(())
         }));
 
@@ -54,6 +86,7 @@ impl MonitorFile {
             flow_bus,
             paths,
             monitors,
+            file_chains,
         }
     }
 
@@ -98,19 +131,52 @@ impl MonitorFile {
         }
 
         let files = self.rule_files()?;
-        let mut initial = HashMap::new();
         for path in &files {
-            initial.insert(path.clone(), load_rule_file(&self.flow_bus, path)?);
+            let chain_ids = load_rule_file(&self.flow_bus, path)?;
+            self.file_chains
+                .lock()
+                .map_err(|_| monitor_error("monitor chain state lock poisoned"))?
+                .insert(path.clone(), chain_ids);
         }
 
         for path in files {
             let flow_bus = self.flow_bus.clone();
-            let chain_ids = initial.remove(&path).unwrap_or_default();
+            let file_chains = Arc::clone(&self.file_chains);
             monitors.push(tokio::spawn(async move {
-                watch_file(flow_bus, path, chain_ids, interval).await;
+                watch_file(flow_bus, file_chains, path, interval).await;
             }));
         }
         Ok(())
+    }
+
+    /// 处理规则文件修改事件并平滑替换该文件提供的 Chain。
+    ///
+    /// - `file`：发生修改的规则文件。
+    /// - 返回：新规则完整解析成功时返回 `Ok(())`；失败时保留上一次成功记录。
+    ///
+    /// 对应 Java: `MonitorFile` 文件监听器的 `onFileChange(File)`。
+    pub fn on_file_change(&self, file: impl AsRef<Path>) -> LFResult<()> {
+        reload_file(&self.flow_bus, &self.file_chains, file.as_ref())
+    }
+
+    /// 处理规则文件删除事件并卸载该文件最后一次提供的全部 Chain。
+    ///
+    /// - `file`：已经删除的规则文件路径。
+    /// - 返回：状态锁可用并完成卸载时返回 `Ok(())`。
+    ///
+    /// 对应 Java: `MonitorFile` 文件监听器的 `onFileDelete(File)`。
+    pub fn on_file_delete(&self, file: impl AsRef<Path>) -> LFResult<()> {
+        remove_file_chains(&self.flow_bus, &self.file_chains, file.as_ref())
+    }
+
+    /// 处理规则文件创建事件并装载文件中的全部 Chain。
+    ///
+    /// - `file`：新创建的规则文件。
+    /// - 返回：规则完整解析并登记成功时返回 `Ok(())`。
+    ///
+    /// 对应 Java: `MonitorFile` 文件监听器的 `onFileCreate(File)`。
+    pub fn on_file_create(&self, file: impl AsRef<Path>) -> LFResult<()> {
+        reload_file(&self.flow_bus, &self.file_chains, file.as_ref())
     }
 
     /// 停止所有后台监听并清空路径配置。
@@ -128,6 +194,10 @@ impl MonitorFile {
         self.paths
             .write()
             .map_err(|_| monitor_error("monitor path lock poisoned"))?
+            .clear();
+        self.file_chains
+            .lock()
+            .map_err(|_| monitor_error("monitor chain state lock poisoned"))?
             .clear();
         Ok(())
     }
@@ -192,8 +262,8 @@ impl Drop for MonitorFile {
 
 async fn watch_file(
     flow_bus: FlowBus,
+    file_chains: Arc<Mutex<HashMap<PathBuf, HashSet<String>>>>,
     path: PathBuf,
-    mut chain_ids: HashSet<String>,
     interval: Duration,
 ) {
     let mut last_modified = modified_at(&path);
@@ -207,23 +277,54 @@ async fn watch_file(
         match current_modified {
             Some(_) => {
                 // 只有完整解析成功后才替换文件所属 Chain 集合，避免坏规则污染运行时。
-                if let Ok(new_chain_ids) = load_rule_file(&flow_bus, &path) {
-                    for stale_chain_id in chain_ids.difference(&new_chain_ids) {
-                        flow_bus.remove_chain(stale_chain_id);
-                    }
-                    chain_ids = new_chain_ids;
+                if reload_file(&flow_bus, &file_chains, &path).is_ok() {
                     last_modified = current_modified;
                 }
             }
             None => {
                 // 文件删除时卸载该文件最后一次成功提供的全部 Chain。
-                for chain_id in chain_ids.drain() {
-                    flow_bus.remove_chain(&chain_id);
+                if remove_file_chains(&flow_bus, &file_chains, &path).is_ok() {
+                    last_modified = None;
                 }
-                last_modified = None;
             }
         }
     }
+}
+
+fn reload_file(
+    flow_bus: &FlowBus,
+    file_chains: &Mutex<HashMap<PathBuf, HashSet<String>>>,
+    path: &Path,
+) -> LFResult<()> {
+    // 先完整解析新文件；解析失败时不触碰上一次成功的归属关系。
+    let new_chain_ids = load_rule_file(flow_bus, path)?;
+    let old_chain_ids = file_chains
+        .lock()
+        .map_err(|_| monitor_error("monitor chain state lock poisoned"))?
+        .insert(path.to_path_buf(), new_chain_ids.clone())
+        .unwrap_or_default();
+
+    // 新规则发布成功后才删除已经从该文件消失的 Chain，保证热更新平滑。
+    for stale_chain_id in old_chain_ids.difference(&new_chain_ids) {
+        flow_bus.remove_chain(stale_chain_id);
+    }
+    Ok(())
+}
+
+fn remove_file_chains(
+    flow_bus: &FlowBus,
+    file_chains: &Mutex<HashMap<PathBuf, HashSet<String>>>,
+    path: &Path,
+) -> LFResult<()> {
+    let chain_ids = file_chains
+        .lock()
+        .map_err(|_| monitor_error("monitor chain state lock poisoned"))?
+        .remove(path)
+        .unwrap_or_default();
+    for chain_id in chain_ids {
+        flow_bus.remove_chain(&chain_id);
+    }
+    Ok(())
 }
 
 fn load_rule_file(flow_bus: &FlowBus, path: &Path) -> LFResult<HashSet<String>> {

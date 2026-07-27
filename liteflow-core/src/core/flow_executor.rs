@@ -1,17 +1,26 @@
 //! 对应 core.FlowExecutor：执行入口。
 
-use crate::enums::ChainExecuteModeEnum;
+use crate::core::FlowInitHook;
+use crate::el::NodeRef;
+use crate::enums::{ChainExecuteModeEnum, FlowParserTypeEnum};
 use crate::exception::{LFResult, LiteflowError};
+use crate::flow::element::node::Node;
 use crate::flow::flow_bus::FlowBus;
 use crate::flow::id::IdGeneratorHolder;
 use crate::flow::liteflow_response::LiteflowResponse;
+use crate::lifecycle::ChainCacheLifeCycle;
+use crate::monitor::MonitorFile;
+use crate::parser::FlowParserProvider;
 use crate::property::{LiteflowConfig, LiteflowConfigGetter};
-use crate::slot::{Ctx, DataBus, Slot};
+use crate::slot::{Ctx, DataBus, Frame, Slot};
+use crate::spi::ContextCmpInitHolder;
 use crate::thread::ExecutorHelper;
 use md5::{Digest, Md5};
 use serde::Serialize;
 use serde_json::Value;
 use std::any::Any;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -22,6 +31,9 @@ use std::time::Duration;
 pub struct FlowExecutor {
     bus: FlowBus,
     liteflow_config: Arc<RwLock<LiteflowConfig>>,
+    parser_provider: FlowParserProvider,
+    monitor_file: Arc<RwLock<Option<Arc<MonitorFile>>>>,
+    start_up_phase: Arc<AtomicBool>,
 }
 
 impl FlowExecutor {
@@ -35,8 +47,11 @@ impl FlowExecutor {
         // Slot 池初始容量；Rust 在保存执行器配置前执行同一初始化动作。
         DataBus::init(liteflow_config.get_slot_size());
         Self {
+            parser_provider: FlowParserProvider::new(bus.clone()),
             bus,
             liteflow_config: Arc::new(RwLock::new(liteflow_config)),
+            monitor_file: Arc::new(RwLock::new(None)),
+            start_up_phase: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -49,8 +64,11 @@ impl FlowExecutor {
         // 对应 Java FlowExecutor(LiteflowConfig) 构造器末尾的 DataBus.init()。
         DataBus::init(liteflow_config.get_slot_size());
         Self {
+            parser_provider: FlowParserProvider::new(bus.clone()),
             bus,
             liteflow_config: Arc::new(RwLock::new(liteflow_config)),
+            monitor_file: Arc::new(RwLock::new(None)),
+            start_up_phase: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -75,6 +93,168 @@ impl FlowExecutor {
     pub fn set_liteflow_config(&self, liteflow_config: LiteflowConfig) {
         *self.liteflow_config.write().unwrap() = liteflow_config.clone();
         LiteflowConfigGetter::set_liteflow_config(liteflow_config);
+    }
+
+    /// 注册 Rust 自定义规则内容源，供 `init` 按 Java 自定义 Parser 前缀加载。
+    ///
+    /// - `class_name`：Java Parser 实现类全名对应的稳定注册名。
+    /// - `parser_type`：规则内容格式。
+    /// - `content_provider`：返回真实规则文本的内容提供器。
+    ///
+    /// Rust 使用显式注册替代 `Class.forName`。对应 Java:
+    /// `FlowParserProvider#lookup` 的自定义 Parser 分支。
+    pub fn register_class_parser(
+        &self,
+        class_name: impl Into<String>,
+        parser_type: FlowParserTypeEnum,
+        content_provider: Arc<dyn Fn() -> LFResult<String> + Send + Sync>,
+    ) {
+        self.parser_provider
+            .register_class_parser(class_name, parser_type, content_provider);
+    }
+
+    /// 初始化组件、请求 ID、规则解析、缓存生命周期和启动钩子。
+    ///
+    /// - `is_start`：是否为首次启动；重载规则时传入 `false`。
+    /// - 返回：全部初始化动作成功时返回 `Ok(())`，否则返回具体 LiteFlow 错误。
+    ///
+    /// 启动阶段使用析构守卫复位，因此规则解析或监听器创建失败时不会把执行器
+    /// 永久留在启动状态。对应 Java: `FlowExecutor#init(boolean)`。
+    pub fn init(&self, is_start: bool) -> LFResult<()> {
+        if is_start {
+            self.start_up_phase.store(true, Ordering::Release);
+        }
+        let _start_up_phase_guard =
+            StartUpPhaseGuard::new(Arc::clone(&self.start_up_phase), is_start);
+        let liteflow_config = self.get_liteflow_config();
+
+        // 容器组件初始化在首次启动和规则重载时都执行，与 Java SPI 调用位置一致。
+        ContextCmpInitHolder::load_context_cmp_init().init_cmp();
+        if is_start {
+            IdGeneratorHolder::init()?;
+        }
+
+        if is_start && liteflow_config.get_chain_cache_enabled() {
+            let capacity = liteflow_config.get_chain_cache_capacity();
+            let cleaner = self.bus.chain_cache_cleaner();
+            ChainCacheLifeCycle::init_if_absent(capacity, cleaner);
+            let cache = ChainCacheLifeCycle::get_life_cycle();
+            if let Some(cache) = cache {
+                self.bus.register_chain_execute_hook(cache);
+            }
+        }
+
+        let Some(rule_source) = liteflow_config
+            .get_rule_source()
+            .map(str::trim)
+            .filter(|rule_source| !rule_source.is_empty())
+        else {
+            // Java 允许完全通过代码动态构建 Chain；没有规则源不属于初始化失败。
+            return Ok(());
+        };
+        let rule_paths = split_rule_source(rule_source);
+        self.parse_rule_paths(&rule_paths, liteflow_config.is_support_multiple_type())?;
+
+        if is_start {
+            FlowInitHook::execute_hook();
+        }
+
+        if is_start && liteflow_config.get_enable_monitor_file() {
+            let monitor_paths: Vec<&str> = rule_paths
+                .iter()
+                .map(String::as_str)
+                .filter(|path| !is_custom_parser_path(path) && Path::new(path).exists())
+                .collect();
+            if !monitor_paths.is_empty() {
+                // MonitorFile 内部使用 Tokio 后台任务；显式验证运行时可用性，将原本
+                // 的 tokio::spawn panic 转换为可诊断的 LiteFlow 初始化错误。
+                tokio::runtime::Handle::try_current().map_err(|error| {
+                    LiteflowError::MonitorFileInitError(format!(
+                        "monitor file requires an active Tokio runtime: {error}"
+                    ))
+                })?;
+                let monitor_file = MonitorFile::get_instance(self.bus.clone());
+                monitor_file.add_monitor_file_paths(monitor_paths)?;
+                monitor_file.create(Duration::from_secs(1))?;
+                *self.monitor_file.write().unwrap() = Some(monitor_file);
+            }
+        }
+        Ok(())
+    }
+
+    /// 重新读取当前配置中的全部规则源。
+    ///
+    /// - 返回：规则重新解析成功时返回 `Ok(())`；旧规则在解析失败时仍由解析器的
+    ///   平滑装载语义保留。
+    ///
+    /// 重载不会重复初始化请求 ID、启动钩子或文件监听任务。对应 Java:
+    /// `FlowExecutor#reloadRule()`。
+    pub fn reload_rule(&self) -> LFResult<()> {
+        self.init(false)
+    }
+
+    /// 在指定 Slot 中执行一个已经注册的节点。
+    ///
+    /// - `node_id`：Java `nodeId`，目标节点标识。
+    /// - `slot_index`：Java `slotIndex`，必须仍由 `DataBus` 持有。
+    /// - 返回：节点真实执行结果；节点或 Slot 不存在以及组件执行失败时返回错误。
+    ///
+    /// 该入口经 `NodeExecutor` 完成访问判断、重试、回调与步骤记录，而不是绕过
+    /// 生命周期直接调用组件。对应 Java: `FlowExecutor#invoke(String, Integer)`。
+    #[deprecated(note = "仅用于兼容 Java FlowExecutor#invoke；优先执行 Chain")]
+    pub async fn invoke(&self, node_id: &str, slot_index: usize) -> LFResult<Value> {
+        let slot = DataBus::get_slot(slot_index).ok_or_else(|| {
+            LiteflowError::DataNotFound(format!("slot index does not exist: {slot_index}"))
+        })?;
+        let component = self
+            .bus
+            .get_node(node_id)
+            .ok_or_else(|| LiteflowError::NodeNotFound(node_id.to_string()))?;
+        let mut node = Node::new(NodeRef::new(node_id), component);
+        node.set_curr_chain_id(slot.chain_id.clone());
+        node.execute(&Ctx::new(slot), &Frame::root()).await
+    }
+
+    /// 返回共享的启动阶段状态。
+    ///
+    /// - 返回：与执行器克隆实例共享的 `AtomicBool`；`init(true)` 执行期间为
+    ///   `true`，正常返回和错误返回后均为 `false`。
+    ///
+    /// 对应 Java: `FlowExecutor#getStartUpPhase()`。
+    #[must_use]
+    pub fn get_start_up_phase(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.start_up_phase)
+    }
+
+    fn parse_rule_paths(&self, rule_paths: &[String], support_multiple_type: bool) -> LFResult<()> {
+        if rule_paths.is_empty() {
+            return Ok(());
+        }
+        if support_multiple_type {
+            for rule_path in rule_paths {
+                let parser = self.parser_provider.lookup(rule_path)?;
+                parser.parse_main(parser_arguments(rule_path))?;
+            }
+            return Ok(());
+        }
+
+        let expected_identity = parser_identity(&rule_paths[0]);
+        if rule_paths
+            .iter()
+            .skip(1)
+            .any(|rule_path| parser_identity(rule_path) != expected_identity)
+        {
+            return Err(LiteflowError::MultipleParsers(
+                "multiple parser types found while supportMultipleType is false".to_string(),
+            ));
+        }
+        let parser = self.parser_provider.lookup(&rule_paths[0])?;
+        if is_custom_parser_path(&rule_paths[0]) {
+            parser.parse_main(&[])?;
+        } else {
+            parser.parse_main(rule_paths)?;
+        }
+        Ok(())
     }
 
     /// execute2Resp(chainId)
@@ -593,4 +773,78 @@ impl FlowExecutor {
         self.run_after_hooks(chain_id).await;
         response
     }
+}
+
+/// `FlowExecutor` 的内部伴随守卫，在 `init(true)` 的所有返回路径复位启动状态。
+///
+/// 对应 Java `FlowExecutor#startUpPhase` 在初始化结束时恢复 `false` 的语义。
+struct StartUpPhaseGuard {
+    start_up_phase: Arc<AtomicBool>,
+    active: bool,
+}
+
+impl StartUpPhaseGuard {
+    fn new(start_up_phase: Arc<AtomicBool>, active: bool) -> Self {
+        Self {
+            start_up_phase,
+            active,
+        }
+    }
+}
+
+impl Drop for StartUpPhaseGuard {
+    fn drop(&mut self) {
+        if self.active {
+            self.start_up_phase.store(false, Ordering::Release);
+        }
+    }
+}
+
+fn split_rule_source(rule_source: &str) -> Vec<String> {
+    rule_source
+        .replace(' ', "")
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn parser_arguments(rule_path: &String) -> &[String] {
+    if is_custom_parser_path(rule_path) {
+        &[]
+    } else {
+        std::slice::from_ref(rule_path)
+    }
+}
+
+fn is_custom_parser_path(rule_path: &str) -> bool {
+    let lower = rule_path.to_ascii_lowercase();
+    rule_path
+        .split_once(':')
+        .is_some_and(|(prefix, _)| FlowParserTypeEnum::get_enum_by_type(prefix).is_some())
+        || (!lower.ends_with(".xml") && !lower.ends_with(".json") && !lower.ends_with(".yml"))
+}
+
+fn parser_identity(rule_path: &str) -> Option<(FlowParserTypeEnum, bool)> {
+    if let Some((prefix, _)) = rule_path.split_once(':') {
+        return FlowParserTypeEnum::get_enum_by_type(prefix).map(|parser_type| (parser_type, true));
+    }
+    let lower = rule_path.to_ascii_lowercase();
+    let parser_type = if lower.ends_with(".el.xml") {
+        FlowParserTypeEnum::TypeElXml
+    } else if lower.ends_with(".el.json") {
+        FlowParserTypeEnum::TypeElJson
+    } else if lower.ends_with(".el.yml") {
+        FlowParserTypeEnum::TypeElYml
+    } else if lower.ends_with(".xml") {
+        FlowParserTypeEnum::TypeXml
+    } else if lower.ends_with(".json") {
+        FlowParserTypeEnum::TypeJson
+    } else if lower.ends_with(".yml") {
+        FlowParserTypeEnum::TypeYml
+    } else {
+        return None;
+    };
+    Some((parser_type, false))
 }

@@ -77,6 +77,46 @@ async fn flow_bus_clean_monitor_file_stops_registered_monitor_tasks() {
     assert!(!monitor.is_monitoring());
 }
 
+#[test]
+fn monitor_file_java_events_share_runtime_instance_and_real_chain_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let rule_file = directory.path().join("events.json");
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"name":"event_a","condition":[{"type":"then","value":"a"}]}]}}"#,
+    )
+    .unwrap();
+
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let monitor = MonitorFile::get_instance(bus.clone());
+    let same_monitor = MonitorFile::get_instance(bus.clone());
+    let other_monitor = MonitorFile::get_instance(FlowBus::new());
+    assert!(Arc::ptr_eq(&monitor, &same_monitor));
+    assert!(!Arc::ptr_eq(&monitor, &other_monitor));
+
+    monitor.on_file_create(&rule_file).unwrap();
+    assert!(bus.contains_chain("event_a"));
+
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"name":"event_b","condition":[{"type":"then","value":"a"}]}]}}"#,
+    )
+    .unwrap();
+    monitor.on_file_change(&rule_file).unwrap();
+    assert!(!bus.contains_chain("event_a"));
+    assert!(bus.contains_chain("event_b"));
+
+    // 坏规则不能删除上一版可执行 Chain，验证热更新的失败保留语义。
+    std::fs::write(&rule_file, "{broken json").unwrap();
+    assert!(monitor.on_file_change(&rule_file).is_err());
+    assert!(bus.contains_chain("event_b"));
+
+    std::fs::remove_file(&rule_file).unwrap();
+    monitor.on_file_delete(&rule_file).unwrap();
+    assert!(!bus.contains_chain("event_b"));
+}
+
 // ---------- YML 规则 ----------
 
 #[tokio::test]

@@ -24,6 +24,8 @@ use liteflow_core::{
 };
 use serde_json::{Value, json};
 
+static FLOW_EXECUTOR_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 struct DirectRollbackComponent {
     calls: Arc<AtomicUsize>,
 }
@@ -37,6 +39,10 @@ struct DataBusAwareComponent {
 struct CancellationProbeComponent {
     seen_slot_index: Arc<Mutex<Option<usize>>>,
     started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+struct InvokeLifecycleComponent {
+    calls: Arc<Mutex<Vec<&'static str>>>,
 }
 
 struct ScriptEngineInitHook {
@@ -124,6 +130,28 @@ impl NodeComponent for CancellationProbeComponent {
         }
         std::future::pending::<()>().await;
         Ok(Value::Null)
+    }
+}
+
+#[liteflow_core::async_trait]
+impl NodeComponent for InvokeLifecycleComponent {
+    async fn before_process(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
+        self.calls.lock().unwrap().push("before");
+        Ok(())
+    }
+
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        self.calls.lock().unwrap().push("process");
+        Ok(json!("invoked"))
+    }
+
+    async fn on_success(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
+        self.calls.lock().unwrap().push("success");
+        Ok(())
+    }
+
+    async fn after_process(&self, _ctx: &CmpContext) {
+        self.calls.lock().unwrap().push("after");
     }
 }
 
@@ -713,6 +741,9 @@ fn script_executor_owns_real_load_unload_and_cache_lifecycle() {
 
 #[test]
 fn flow_init_hook_executes_every_registered_supplier() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     FlowInitHook::clean_hook();
     let calls = Arc::new(AtomicUsize::new(0));
     for _ in 0..2 {
@@ -732,6 +763,9 @@ fn flow_init_hook_executes_every_registered_supplier() {
 
 #[tokio::test]
 async fn flow_executor_holder_loads_and_executes_real_chain() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     FlowExecutorHolder::clean();
     assert!(FlowExecutorHolder::load_instance().is_err());
 
@@ -750,6 +784,9 @@ async fn flow_executor_holder_loads_and_executes_real_chain() {
 
 #[test]
 fn flow_executor_configuration_updates_the_core_global_getter() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     LiteflowConfigGetter::clean();
     let bus = FlowBus::new();
     let mut configured = LiteflowConfig::default();
@@ -765,6 +802,127 @@ fn flow_executor_configuration_updates_the_core_global_getter() {
     assert_eq!(executor.liteflow_config(), updated);
     assert_eq!(LiteflowConfigGetter::get(), updated);
     LiteflowConfigGetter::clean();
+}
+
+#[test]
+fn flow_executor_init_loads_rules_runs_hook_and_resets_startup_phase() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    FlowInitHook::clean_hook();
+    let directory = tempfile::tempdir().unwrap();
+    let rule_file = directory.path().join("flow.json");
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"id":"init_chain","body":"THEN(a)"}]}}"#,
+    )
+    .unwrap();
+
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let mut config = LiteflowConfig::default();
+    config.set_rule_source(Some(rule_file.to_string_lossy().into_owned()));
+    let executor = FlowExecutor::new_with_config(bus.clone(), config);
+    let start_up_phase = executor.get_start_up_phase();
+    let observed_start_up_phase = Arc::new(Mutex::new(false));
+    let observed_for_hook = Arc::clone(&observed_start_up_phase);
+    FlowInitHook::add_hook(move || {
+        *observed_for_hook.lock().unwrap() = start_up_phase.load(Ordering::Acquire);
+        true
+    });
+
+    executor.init(true).unwrap();
+
+    assert!(bus.contain_chain("init_chain"));
+    assert!(*observed_start_up_phase.lock().unwrap());
+    assert!(
+        !executor.get_start_up_phase().load(Ordering::Acquire),
+        "初始化返回后必须复位启动状态"
+    );
+
+    let mut invalid_config = executor.get_liteflow_config();
+    invalid_config.set_rule_source(Some(
+        directory
+            .path()
+            .join("missing.json")
+            .to_string_lossy()
+            .into_owned(),
+    ));
+    executor.set_liteflow_config(invalid_config);
+    assert!(executor.init(true).is_err());
+    assert!(
+        !executor.get_start_up_phase().load(Ordering::Acquire),
+        "初始化失败也必须复位启动状态"
+    );
+    FlowInitHook::clean_hook();
+}
+
+#[test]
+fn flow_executor_reload_rule_reads_current_file_contents() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let directory = tempfile::tempdir().unwrap();
+    let rule_file = directory.path().join("flow.json");
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"id":"before_reload","body":"THEN(a)"}]}}"#,
+    )
+    .unwrap();
+
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let mut config = LiteflowConfig::default();
+    config.set_rule_source(Some(rule_file.to_string_lossy().into_owned()));
+    let executor = FlowExecutor::new_with_config(bus.clone(), config);
+    executor.init(true).unwrap();
+    assert!(bus.contain_chain("before_reload"));
+
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"id":"after_reload","body":"THEN(a)"}]}}"#,
+    )
+    .unwrap();
+    executor.reload_rule().unwrap();
+
+    assert!(bus.contain_chain("after_reload"));
+}
+
+#[tokio::test]
+#[allow(deprecated)]
+async fn flow_executor_invoke_uses_registered_slot_and_full_node_lifecycle() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let bus = FlowBus::new();
+    bus.register(
+        "invoked_node",
+        InvokeLifecycleComponent {
+            calls: Arc::clone(&calls),
+        },
+    );
+    let executor = FlowExecutor::new(bus);
+    let slot = Arc::new(Slot::new(
+        "invoke-request".to_string(),
+        "invoke-chain",
+        Value::Null,
+    ));
+    let slot_index = DataBus::offer_slot(Arc::clone(&slot));
+
+    let result = executor.invoke("invoked_node", slot_index).await.unwrap();
+
+    assert_eq!(result, json!("invoked"));
+    assert_eq!(
+        *calls.lock().unwrap(),
+        ["before", "process", "success", "after"]
+    );
+    assert_eq!(slot.get_execute_steps().len(), 1);
+    assert!(DataBus::release_slot(slot_index));
+    assert!(matches!(
+        executor.invoke("invoked_node", slot_index).await,
+        Err(LiteflowError::DataNotFound(_))
+    ));
 }
 
 #[tokio::test]
