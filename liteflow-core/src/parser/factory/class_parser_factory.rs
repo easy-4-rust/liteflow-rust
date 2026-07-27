@@ -111,22 +111,53 @@ impl ClassParserFactory {
             _ => unreachable!("parser_family always returns a canonical non-EL type"),
         }
     }
+
+    /// 创建已注册的自定义 JSON EL 解析器。
+    ///
+    /// - `path`：对应 Java `path`，表示已经注册的自定义解析器类名。
+    /// - 返回：格式匹配时返回真实 JSON 解析器；未注册或格式冲突时返回错误。
+    ///
+    /// Rust 以显式注册表替代 Java `Class.forName` 与容器 `registerBean`。对应 Java:
+    /// `ClassParserFactory#createJsonELParser`。
+    pub fn create_json_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
+        self.create_for_type(path, FlowParserTypeEnum::TypeElJson)
+    }
+
+    /// 创建已注册的自定义 XML EL 解析器。
+    ///
+    /// - `path`：对应 Java `path`，表示已经注册的自定义解析器类名。
+    /// - 返回：格式匹配时返回真实 XML 解析器；未注册或格式冲突时返回错误。
+    ///
+    /// 对应 Java: `ClassParserFactory#createXmlELParser`。
+    pub fn create_xml_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
+        self.create_for_type(path, FlowParserTypeEnum::TypeElXml)
+    }
+
+    /// 创建已注册的自定义 YML EL 解析器。
+    ///
+    /// - `path`：对应 Java `path`，表示已经注册的自定义解析器类名。
+    /// - 返回：格式匹配时返回真实 YML 解析器；未注册或格式冲突时返回错误。
+    ///
+    /// 对应 Java: `ClassParserFactory#createYmlELParser`。
+    pub fn create_yml_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
+        self.create_for_type(path, FlowParserTypeEnum::TypeElYml)
+    }
 }
 
 impl FlowParserFactory for ClassParserFactory {
     /// 创建已注册的自定义 JSON EL 解析器。
     fn create_json_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
-        self.create_for_type(path, FlowParserTypeEnum::TypeElJson)
+        ClassParserFactory::create_json_el_parser(self, path)
     }
 
     /// 创建已注册的自定义 XML EL 解析器。
     fn create_xml_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
-        self.create_for_type(path, FlowParserTypeEnum::TypeElXml)
+        ClassParserFactory::create_xml_el_parser(self, path)
     }
 
     /// 创建已注册的自定义 YML EL 解析器。
     fn create_yml_el_parser(&self, path: &str) -> LFResult<Box<dyn FlowParser>> {
-        self.create_for_type(path, FlowParserTypeEnum::TypeElYml)
+        ClassParserFactory::create_yml_el_parser(self, path)
     }
 }
 

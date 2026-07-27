@@ -23,6 +23,19 @@ impl LocalJsonFlowElParser {
             parser: JsonFlowElParser::new(bus),
         }
     }
+
+    /// 读取路径列表并解析 JSON EL 规则。
+    ///
+    /// - `path_list`：本地文件或 `PathContentParser` 支持的资源路径列表。
+    /// - 返回：成功装载到 `FlowBus` 的 Chain ID 列表。
+    ///
+    /// 路径读取失败或 JSON 规则非法时返回对应 `LiteflowError`。对应 Java:
+    /// `LocalJsonFlowELParser#parseMain`。
+    pub fn parse_main(&self, path_list: &[String]) -> LFResult<Vec<String>> {
+        let contents =
+            PathContentParserHolder::load_path_content_parser().parse_content(path_list)?;
+        self.parse(&contents)
+    }
 }
 
 impl FlowParser for LocalJsonFlowElParser {
@@ -31,9 +44,7 @@ impl FlowParser for LocalJsonFlowElParser {
     /// 参数 `path_list` 对应 Java `pathList`。
     /// 对应 Java: `LocalJsonFlowELParser#parseMain`。
     fn parse_main(&self, path_list: &[String]) -> LFResult<Vec<String>> {
-        let contents =
-            PathContentParserHolder::load_path_content_parser().parse_content(path_list)?;
-        self.parse(&contents)
+        LocalJsonFlowElParser::parse_main(self, path_list)
     }
 
     /// 解析已经读取的 JSON 规则文本。

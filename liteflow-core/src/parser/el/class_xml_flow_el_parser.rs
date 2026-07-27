@@ -34,15 +34,26 @@ impl ClassXmlFlowElParser {
     pub fn parse_custom(&self) -> LFResult<String> {
         (self.content_provider)()
     }
+
+    /// 调用自定义内容源并解析 XML EL 规则。
+    ///
+    /// - `path_list`：对应 Java `pathList`；自定义类解析器按 Java 语义忽略路径。
+    /// - 返回：成功装载到 `FlowBus` 的 Chain ID 列表。
+    ///
+    /// 内容提供器失败或 XML 规则非法时返回对应 `LiteflowError`。对应 Java:
+    /// `ClassXmlFlowELParser#parseMain`。
+    pub fn parse_main(&self, _path_list: &[String]) -> LFResult<Vec<String>> {
+        let content = self.parse_custom()?;
+        self.parse(&[content])
+    }
 }
 
 impl FlowParser for ClassXmlFlowElParser {
     /// 忽略路径参数，调用自定义内容源并解析。
     ///
     /// 对应 Java: `ClassXmlFlowELParser#parseMain`。
-    fn parse_main(&self, _path_list: &[String]) -> LFResult<Vec<String>> {
-        let content = self.parse_custom()?;
-        self.parse(&[content])
+    fn parse_main(&self, path_list: &[String]) -> LFResult<Vec<String>> {
+        ClassXmlFlowElParser::parse_main(self, path_list)
     }
 
     /// 解析已经读取的 XML 规则文本。
