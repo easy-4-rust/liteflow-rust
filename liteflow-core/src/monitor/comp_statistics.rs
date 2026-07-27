@@ -68,8 +68,16 @@ impl CompStatistics {
 
     /// 返回组件类名。对应 Java: `CompStatistics#getComponentClazzName`。
     #[must_use]
-    pub fn component_clazz_name(&self) -> &str {
+    pub fn get_component_clazz_name(&self) -> &str {
         &self.component_clazz_name
+    }
+
+    /// 返回组件类名。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_component_clazz_name`。
+    #[must_use]
+    pub fn component_clazz_name(&self) -> &str {
+        self.get_component_clazz_name()
     }
 
     /// 设置组件类名。对应 Java: `CompStatistics#setComponentClazzName`。
@@ -80,8 +88,16 @@ impl CompStatistics {
 
     /// 返回单次执行耗时（毫秒）。对应 Java: `CompStatistics#getTimeSpent`。
     #[must_use]
-    pub fn time_spent(&self) -> u64 {
+    pub fn get_time_spent(&self) -> u64 {
         self.time_spent
+    }
+
+    /// 返回单次执行耗时（毫秒）。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_time_spent`。
+    #[must_use]
+    pub fn time_spent(&self) -> u64 {
+        self.get_time_spent()
     }
 
     /// 设置单次执行耗时（毫秒）。对应 Java: `CompStatistics#setTimeSpent`。
@@ -93,8 +109,16 @@ impl CompStatistics {
 
     /// 返回内存占用统计。对应 Java: `CompStatistics#getMemorySpent`。
     #[must_use]
-    pub fn memory_spent(&self) -> u64 {
+    pub fn get_memory_spent(&self) -> u64 {
         self.memory_spent
+    }
+
+    /// 返回内存占用统计。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_memory_spent`。
+    #[must_use]
+    pub fn memory_spent(&self) -> u64 {
+        self.get_memory_spent()
     }
 
     /// 设置内存占用统计。对应 Java: `CompStatistics#setMemorySpent`。
@@ -104,8 +128,29 @@ impl CompStatistics {
 
     /// 返回记录创建时间的毫秒时间戳。对应 Java: `CompStatistics#getRecordTime`。
     #[must_use]
-    pub fn record_time(&self) -> u64 {
+    pub fn get_record_time(&self) -> u64 {
         self.record_time
+    }
+
+    /// 返回记录创建时间的毫秒时间戳。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_record_time`。
+    #[must_use]
+    pub fn record_time(&self) -> u64 {
+        self.get_record_time()
+    }
+
+    /// 比较两条统计记录，新记录排在旧记录之前。
+    ///
+    /// 参数 `other` 对应 Java 同名参数；`None` 对齐 Java 的 null，当前对象排在
+    /// null 之后并返回 `Ordering::Greater`。对应 Java:
+    /// `CompStatistics#compareTo`。
+    #[must_use]
+    pub fn compare_to(&self, other: Option<&Self>) -> Ordering {
+        let Some(other) = other else {
+            return Ordering::Greater;
+        };
+        other.get_record_time().cmp(&self.record_time)
     }
 }
 
@@ -126,7 +171,7 @@ impl PartialOrd for CompStatistics {
 impl Ord for CompStatistics {
     /// 按记录时间从新到旧排序。对应 Java: `CompStatistics#compareTo`。
     fn cmp(&self, other: &Self) -> Ordering {
-        other.record_time.cmp(&self.record_time)
+        self.compare_to(Some(other))
     }
 }
 

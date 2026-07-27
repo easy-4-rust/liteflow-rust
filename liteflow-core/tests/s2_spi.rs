@@ -23,27 +23,24 @@ use liteflow_core::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGener
 /// 串行化 holder 全局状态相关测试
 static HOLDER_LOCK: Mutex<()> = Mutex::new(());
 
-/// 对应 LocalContextAware：注册 / 获取 / hasBean / registerOrGet
+/// 对应 Java LocalContextAware：非容器环境不保存 Bean。
 #[test]
-fn local_context_aware_register_get_register_or_get() {
+fn local_context_aware_preserves_java_empty_container_semantics() {
     let aware = LocalContextAware::new();
     assert!(!aware.has_bean("svc"));
 
-    // registerBean + getBean
-    aware.register_bean("svc", Arc::new(42_i32));
-    assert!(aware.has_bean("svc"));
-    let bean = aware.get_bean("svc").unwrap();
-    assert_eq!(*bean.downcast::<i32>().unwrap(), 42);
-    assert!(aware.get_bean("missing").is_none());
+    // Java registerBean(String, Object) 原样返回对象，但不会把对象写入不存在的容器。
+    let registered = aware.register_bean("svc", Arc::new(42_i32));
+    assert_eq!(*registered.downcast::<i32>().unwrap(), 42);
+    assert!(!aware.has_bean("svc"));
+    assert!(aware.get_bean("svc").is_none());
 
-    // registerOrGet：已存在时返回现有 bean（不走 factory）
-    let got = aware.register_or_get("svc", &|| Arc::new(99_i32));
-    assert_eq!(*got.downcast::<i32>().unwrap(), 42);
-
-    // registerOrGet：不存在时用 factory 构造并注册
+    // Java registerOrGet 委托反射构造；本地空实现每次都产生新对象且不落库。
     let created = aware.register_or_get("other", &|| Arc::new("hello".to_string()));
     assert_eq!(created.downcast::<String>().unwrap().as_str(), "hello");
-    assert!(aware.has_bean("other"));
+    assert!(!aware.has_bean("other"));
+    assert!(aware.get_beans_of_type(None).is_none());
+    assert!(!aware.has_bean_type("i32"));
 
     // 对应 priority()：本地实现优先级 2
     assert_eq!(aware.priority(), 2);
@@ -58,9 +55,10 @@ fn holders_fallback_to_local_defaults() {
 
     let aware = ContextAwareHolder::load_context_aware();
     assert_eq!(aware.priority(), 2);
-    // 回退的 LocalContextAware 可用：注册 bean 并取回
-    aware.register_bean("k", Arc::new(1_i32));
-    assert!(aware.has_bean("k"));
+    // 回退的 LocalContextAware 与 Java 一致，不提供本地 Bean 容器。
+    let bean = aware.register_bean("k", Arc::new(1_i32));
+    assert_eq!(*bean.downcast::<i32>().unwrap(), 1);
+    assert!(!aware.has_bean("k"));
 
     assert_eq!(
         CmpAroundAspectHolder::load_cmp_around_aspect().priority(),

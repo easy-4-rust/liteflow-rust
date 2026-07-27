@@ -3,7 +3,7 @@
 //! Condition 级 bind / NodeId 校验 / AND-OR isAccess 过滤 / execute2RespWithRid
 
 use liteflow_core::{
-    ExecuteOption, FlowBus, FlowEvent, LiteflowError, NodeComponent, cmp, listener,
+    ExecuteOption, FlowBus, FlowEvent, FlowExecutor, LiteflowError, NodeComponent, cmp, listener,
 };
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
@@ -38,6 +38,79 @@ async fn execute_with_el_direct() {
 
     let resp3 = bus.execute_with_el_data("THEN(a)", json!({"k": 1})).await;
     assert!(resp3.is_success());
+}
+
+#[tokio::test]
+async fn java_named_flow_executor_methods_preserve_option_and_context_beans() {
+    let bus = FlowBus::new();
+    bus.register(
+        "read_context",
+        cmp(|ctx| async move {
+            let message = ctx
+                .bean::<String>("message")
+                .expect("EL 执行应收到 contextBeanArray 对应的具名 Bean");
+            ctx.set_data("message_seen", json!(message.as_str()));
+            Ok(Value::Null)
+        }),
+    );
+    let executor = FlowExecutor::new(bus);
+    let context_beans = vec![(
+        "message".to_string(),
+        Arc::new("hello".to_string()) as Arc<dyn std::any::Any + Send + Sync>,
+    )];
+
+    let response = executor
+        .execute2_resp_with_el(
+            "THEN(read_context)",
+            json!({"source": "java-api"}),
+            Some("RID-EL-CONTEXT".to_string()),
+            context_beans,
+        )
+        .await;
+
+    assert!(response.is_success(), "{}", response.message);
+    assert_eq!(response.request_id, "RID-EL-CONTEXT");
+    assert_eq!(response.data("message_seen"), Some(json!("hello")));
+
+    let option = ExecuteOption::of()
+        .request_id("RID-GETTERS")
+        .conversation_id("CID-GETTERS")
+        .context_bean("message", Arc::new("value".to_string()));
+    assert_eq!(option.get_request_id(), Some("RID-GETTERS"));
+    assert_eq!(option.get_conversation_id(), Some("CID-GETTERS"));
+    assert!(!option.is_auto_conversation_id());
+    assert_eq!(option.get_context_beans().len(), 1);
+    assert!(option.get_event_listener().is_none());
+}
+
+#[tokio::test]
+async fn java_named_response_and_future_methods_execute_real_chain() {
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async move { Ok(Value::Null) }));
+    bus.add_chain("java_named", "THEN(a)").unwrap();
+    let executor = FlowExecutor::new(bus);
+
+    let response = executor
+        .execute2_resp(
+            "java_named",
+            Value::Null,
+            Some(ExecuteOption::of().request_id("RID-RESP")),
+        )
+        .await;
+    assert!(response.is_success(), "{}", response.message);
+    assert_eq!(response.request_id, "RID-RESP");
+
+    let future = executor
+        .execute2_future_with_rid("java_named", Value::Null, "RID-FUTURE", Vec::new())
+        .unwrap();
+    let future_response = future.await.unwrap();
+    assert!(future_response.is_success(), "{}", future_response.message);
+    assert_eq!(future_response.request_id, "RID-FUTURE");
+    assert_eq!(
+        executor.get_liteflow_config(),
+        executor.liteflow_config(),
+        "Java 命名 getter 应委托同一配置快照"
+    );
 }
 
 #[tokio::test]
@@ -100,6 +173,39 @@ async fn execute_with_rid_keeps_request_id() {
 
 // ---------- FlowEvent / FlowEventListener / FlowEventPublisher（2.15+） ----------
 
+#[test]
+fn flow_event_java_builder_getters_and_serde_are_aligned() {
+    let event = FlowEvent::builder()
+        .r#type("node.text")
+        .chain_id("chain")
+        .node_id("node")
+        .request_id("request")
+        .conversation_id("conversation")
+        .text("hello")
+        .last(true)
+        .data(serde_json::json!({"index": 1}))
+        .timestamp(123)
+        .build();
+
+    assert_eq!(event.get_type(), "node.text");
+    assert_eq!(event.get_chain_id(), Some("chain"));
+    assert_eq!(event.get_node_id(), Some("node"));
+    assert_eq!(event.get_request_id(), Some("request"));
+    assert_eq!(event.get_conversation_id(), Some("conversation"));
+    assert_eq!(event.get_text(), Some("hello"));
+    assert!(event.is_last());
+    assert_eq!(event.get_data(), Some(&serde_json::json!({"index": 1})));
+    assert_eq!(event.get_timestamp(), 123);
+
+    let json = serde_json::to_value(&event).expect("FlowEvent 应可序列化");
+    assert_eq!(json["type"], "node.text");
+    assert_eq!(json["chainId"], "chain");
+    assert_eq!(json["conversationId"], "conversation");
+
+    let automatic = FlowEvent::builder().r#type("automatic").build();
+    assert!(automatic.get_timestamp() > 0);
+}
+
 #[tokio::test]
 async fn flow_event_publish_to_listener() {
     let bus = FlowBus::new();
@@ -107,7 +213,8 @@ async fn flow_event_publish_to_listener() {
         "a",
         cmp(|ctx| async move {
             ctx.publish_event(
-                &FlowEvent::builder("node.text")
+                &FlowEvent::builder()
+                    .r#type("node.text")
                     .node_id("a")
                     .chain_id(ctx.chain_id())
                     .request_id(ctx.request_id())
@@ -144,7 +251,7 @@ async fn flow_event_no_listener_noop() {
         "a",
         cmp(|ctx| async move {
             // 无 listener 时静默忽略（对齐 Java publish 语义）
-            ctx.publish_event(&FlowEvent::builder("x").build());
+            ctx.publish_event(&FlowEvent::builder().r#type("x").build());
             Ok(Value::Null)
         }),
     );
@@ -279,8 +386,10 @@ async fn and_or_filters_inaccessible_items() {
     let resp = bus.execute("c_or").await;
     assert!(resp.is_success(), "{}", resp.message);
 
-    // 全部不可访问：AND 为空集 → true（allMatch 空集语义）
-    bus.add_chain("c_all_skip", "IF(AND(skip), t)").unwrap();
+    // 参数数量仍按 Java 要求至少为 2；执行期全部不可访问时，
+    // AND 的实际求值集合为空，结果为 true（allMatch 空集语义）。
+    bus.add_chain("c_all_skip", "IF(AND(skip, skip), t)")
+        .unwrap();
     let resp = bus.execute("c_all_skip").await;
     assert!(resp.is_success(), "{}", resp.message);
 }

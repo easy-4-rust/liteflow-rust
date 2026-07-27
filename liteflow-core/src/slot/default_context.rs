@@ -1,141 +1,91 @@
-//! 对应 DefaultContext + NodeComponent 的上下文访问方法集。
+//! LiteFlow 默认上下文 Bean。
+//!
+//! 对应 Java: `com.yomahub.liteflow.slot.DefaultContext`。
 
-use crate::el::NodeRef;
-use crate::slot::slot::Slot;
-use crate::slot::{DataBus, Frame};
-use serde::de::DeserializeOwned;
+use std::collections::HashMap;
+
+use dashmap::DashMap;
 use serde_json::Value;
-use std::any::Any;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-/// 传给组件的上下文
-#[derive(Clone)]
-pub struct CmpContext {
-    pub inner: Arc<Slot>,
-    pub node: NodeRef,
-    pub frame: Frame,
+use crate::exception::NullParamException;
+
+/// 提供线程安全、弱类型的默认业务上下文。
+///
+/// Java Javadoc 建议正式业务优先定义强类型上下文 Bean；本对象用于无需额外类型
+/// 定义的简单场景。Rust 使用 `serde_json::Value` 映射 Java `Object`，并以
+/// `DashMap` 对齐 `ConcurrentHashMap` 的并发读写语义。
+///
+/// 对应 Java: `com.yomahub.liteflow.slot.DefaultContext`。
+#[derive(Debug, Default)]
+pub struct DefaultContext {
+    data_map: DashMap<String, Value>,
 }
 
-impl CmpContext {
-    /// 返回当前执行 Slot 在 DataBus 中的索引。
+impl DefaultContext {
+    /// 创建空的默认上下文。
     ///
-    /// Slot 执行结束并释放后返回 None。对应 Java:
-    /// `NodeComponent#getSlotIndex`。
-    pub fn slot_index(&self) -> Option<usize> {
-        DataBus::get_slot_index(&self.inner)
-    }
-
-    pub fn request_id(&self) -> &str {
-        &self.inner.request_id
-    }
-    pub fn chain_id(&self) -> &str {
-        &self.inner.chain_id
-    }
-    pub fn node_id(&self) -> &str {
-        &self.node.id
-    }
-    pub fn tag(&self) -> Option<&str> {
-        self.node.tag.as_deref()
-    }
-    /// getCmpData(String.class)
-    pub fn cmp_data(&self) -> Option<&str> {
-        self.node.data.as_deref()
-    }
-    /// getCmpData 反序列化
-    pub fn cmp_data_as<T: DeserializeOwned>(&self) -> Option<T> {
-        self.node
-            .data
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
-    }
-    /// bindData（2.16 语义：先查 Node 级 bind，找不到再从
-    /// Condition 栈顶向下查找，正确处理 chain.bind / THEN(...).bind 场景）
-    pub fn bind_data(&self, key: &str) -> Option<&str> {
-        if let Some(v) = self
-            .node
-            .bind
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-        {
-            return Some(v);
-        }
-        self.frame.find_bind(key)
-    }
-
-    /// 返回当前 SWITCH 表达式可选择的目标节点 ID。
+    /// - 返回：不包含任何键值的线程安全上下文。
     ///
-    /// Java 组件通过 `NodeSwitchComponent#getTargetList` 从 Slot 的当前 Condition
-    /// 获取该列表；Rust 将不可变条件上下文随 `Frame` 传入组件，避免线程局部变量。
-    /// 不在 SWITCH 路由节点中调用时返回空列表。
+    /// 对应 Java: `DefaultContext#DefaultContext`。
     #[must_use]
-    pub fn switch_target_list(&self) -> Vec<String> {
-        self.frame.switch_target_list().to_vec()
+    pub fn new() -> Self {
+        Self::default()
     }
-    /// getRequestData()
-    pub fn request_data<T: DeserializeOwned>(&self) -> Option<T> {
-        self.inner
-            .input
-            .lock()
-            .ok()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+
+    /// 判断上下文是否包含指定键。
+    ///
+    /// - `key`：待查询的数据键。
+    /// - 返回：键存在时为 `true`，否则为 `false`。
+    ///
+    /// 对应 Java: `DefaultContext#hasData`。
+    #[must_use]
+    pub fn has_data(&self, key: &str) -> bool {
+        self.data_map.contains_key(key)
     }
-    /// getContextBean / getFirstContextBean
-    pub fn bean<T: Any + Send + Sync>(&self, name: &str) -> Option<Arc<T>> {
-        self.inner
-            .beans
-            .get(name)
-            .and_then(|v| v.clone().downcast::<T>().ok())
-    }
-    pub fn set_data(&self, key: impl Into<String>, value: Value) {
-        self.inner.data.insert(key.into(), value);
-    }
+
+    /// 获取指定键对应的 serde 值。
+    ///
+    /// - `key`：待查询的数据键。
+    /// - 返回：键存在时返回值快照，不存在时返回 `None`。
+    ///
+    /// Java 的泛型强制转换由调用方承担；Rust 返回拥有型 `Value`，避免并发锁守卫
+    /// 泄漏到调用方。对应 Java: `DefaultContext#getData`。
+    #[must_use]
     pub fn get_data(&self, key: &str) -> Option<Value> {
-        self.inner.data.get(key).map(|v| v.clone())
+        self.data_map.get(key).map(|entry| entry.value().clone())
     }
-    pub fn get_data_as<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        self.inner
-            .data
-            .get(key)
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+
+    /// 写入指定键的数据。
+    ///
+    /// - `key`：数据键。
+    /// - `value`：待写入的 serde 值；`Value::Null` 对应 Java `null`，会被拒绝。
+    /// - 返回：写入成功返回 `Ok(())`；空值返回 `NullParamException`。
+    ///
+    /// Java `ConcurrentHashMap` 不接受 null，本方法保留
+    /// `data can't accept null param` 的异常语义。对应 Java:
+    /// `DefaultContext#setData`。
+    pub fn set_data(&self, key: impl Into<String>, value: Value) -> Result<(), NullParamException> {
+        if value.is_null() {
+            return Err(NullParamException::new("data can't accept null param"));
+        }
+
+        // DashMap 在分片写锁内完成替换，使并发读者不会观察到中间状态。
+        self.data_map.insert(key.into(), value);
+        Ok(())
     }
-    /// getLoopIndex()
-    pub fn loop_index(&self) -> Option<usize> {
-        self.frame.loop_index()
-    }
-    pub fn loop_index_at(&self, depth: usize) -> Option<usize> {
-        self.frame.loop_index_at(depth)
-    }
-    /// getLoopObject()
-    pub fn loop_object<T: DeserializeOwned>(&self) -> Option<T> {
-        self.frame
-            .loop_object()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-    }
-    /// setIsEnd(true)
-    pub fn end_chain(&self) {
-        self.inner.ended.store(true, Ordering::Relaxed);
-    }
-    /// conversationId（2.15+）
-    pub fn conversation_id(&self) -> Option<&str> {
-        self.inner.conversation_id.as_deref()
-    }
-    /// 发布执行事件（对应 FlowEventPublisher.publish(getSlot(), event)，2.15+）
-    pub fn publish_event(&self, event: &crate::flow::flow_event::FlowEvent) {
-        crate::flow::flow_event_publisher::FlowEventPublisher::publish_ctx(&self.inner, event);
-    }
-    /// Slot attachment 访问（2.15+）
-    pub fn set_attachment<T: Any + Send + Sync>(&self, key: impl Into<String>, value: T) {
-        self.inner.set_attachment(key, value);
-    }
-    pub fn get_attachment<T: Any + Send + Sync>(&self, key: &str) -> Option<Arc<T>> {
-        self.inner.get_attachment(key)
-    }
-    pub fn has_attachment(&self, key: &str) -> bool {
-        self.inner.has_attachment(key)
-    }
-    pub fn remove_attachment(&self, key: &str) {
-        self.inner.remove_attachment(key);
+
+    /// 返回当前数据映射的拥有型快照。
+    ///
+    /// - 返回：调用时刻全部键值的 `HashMap` 快照。
+    ///
+    /// Java 返回活动的 `ConcurrentHashMap`；Rust 不向外暴露锁守卫，因此返回安全快照。
+    /// 后续 `set_data` 不会修改已经取得的快照。对应 Java:
+    /// `DefaultContext#getDataMap`。
+    #[must_use]
+    pub fn get_data_map(&self) -> HashMap<String, Value> {
+        self.data_map
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
     }
 }

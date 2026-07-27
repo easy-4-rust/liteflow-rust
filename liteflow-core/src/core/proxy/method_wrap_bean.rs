@@ -51,6 +51,15 @@ impl MethodWrapBean {
         &self.method
     }
 
+    /// 返回 Rust 静态分派方法元数据。
+    ///
+    /// 返回值承担 Java `Method` 的强类型等价职责。对应 Java:
+    /// `MethodWrapBean#getMethod`。
+    #[must_use]
+    pub fn get_method(&self) -> &LiteFlowMethodBean {
+        self.method()
+    }
+
     /// 修改 Rust 静态分派方法元数据。对应 Java: `MethodWrapBean#setMethod`。
     pub fn set_method(&mut self, method: LiteFlowMethodBean) {
         self.method = method;
@@ -60,6 +69,14 @@ impl MethodWrapBean {
     #[must_use]
     pub fn liteflow_method(&self) -> LiteFlowMethodEnum {
         self.liteflow_method
+    }
+
+    /// 返回 `@LiteflowMethod` 对应的方法枚举。
+    ///
+    /// 对应 Java: `MethodWrapBean#getLiteflowMethod`。
+    #[must_use]
+    pub fn get_liteflow_method(&self) -> LiteFlowMethodEnum {
+        self.liteflow_method()
     }
 
     /// 修改 `@LiteflowMethod#value`。对应 Java: `MethodWrapBean#setLiteflowMethod`。
@@ -86,6 +103,15 @@ impl MethodWrapBean {
         self.liteflow_retry
     }
 
+    /// 返回 `@LiteflowRetry` 的重试次数。
+    ///
+    /// 未声明时返回 `None`，对应 Java `null`。对应 Java:
+    /// `MethodWrapBean#getLiteflowRetry`。
+    #[must_use]
+    pub fn get_liteflow_retry(&self) -> Option<usize> {
+        self.liteflow_retry()
+    }
+
     /// 修改 `@LiteflowRetry` 的重试次数。
     ///
     /// 对应 Java: `MethodWrapBean#setLiteflowRetry`。
@@ -108,6 +134,15 @@ impl MethodWrapBean {
     #[must_use]
     pub fn parameter_wrap_bean_list(&self) -> &[ParameterWrapBean] {
         &self.parameter_wrap_bean_list
+    }
+
+    /// 返回声明式方法参数包装列表。
+    ///
+    /// 返回切片共享真实参数元数据。对应 Java:
+    /// `MethodWrapBean#getParameterWrapBeanList`。
+    #[must_use]
+    pub fn get_parameter_wrap_bean_list(&self) -> &[ParameterWrapBean] {
+        self.parameter_wrap_bean_list()
     }
 
     /// 修改参数包装列表。对应 Java: `MethodWrapBean#setParameterWrapBeanList`。

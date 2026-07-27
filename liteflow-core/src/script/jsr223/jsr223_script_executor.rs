@@ -67,6 +67,16 @@ impl JSR223ScriptExecutor {
         self.compiled_script_map.remove(node_id);
     }
 
+    /// 卸载指定节点的已编译脚本。
+    ///
+    /// # 参数
+    /// - `node_id`: 需要从编译缓存移除的节点 ID。
+    ///
+    /// 对应 Java: `JSR223ScriptExecutor#unLoad`。
+    pub fn un_load(&self, node_id: &str) {
+        self.unload(node_id);
+    }
+
     /// 返回排序后的已加载节点 id。对应 Java `getNodeIds`。
     #[must_use]
     pub fn node_ids(&self) -> Vec<String> {
@@ -77,6 +87,17 @@ impl JSR223ScriptExecutor {
             .collect::<Vec<_>>();
         node_ids.sort();
         node_ids
+    }
+
+    /// 返回已经加载脚本的节点 ID。
+    ///
+    /// # 返回
+    /// 为保证 Rust 调用结果稳定，返回按字典序排序的拥有型列表。
+    ///
+    /// 对应 Java: `JSR223ScriptExecutor#getNodeIds`。
+    #[must_use]
+    pub fn get_node_ids(&self) -> Vec<String> {
+        self.node_ids()
     }
 
     /// 执行已加载脚本。
@@ -104,8 +125,35 @@ impl JSR223ScriptExecutor {
         component.process(context).await
     }
 
+    /// 执行已加载的脚本。
+    ///
+    /// # 参数
+    /// - `execute_wrap`: Java `ScriptExecuteWrap` 对应的执行元数据快照。
+    /// - `context`: Rust 异步执行链持有的真实组件上下文。
+    ///
+    /// # 返回
+    /// 脚本执行结果；节点未加载或脚本失败时返回对应错误。
+    ///
+    /// Java 通过线程本地 Slot 恢复上下文；Rust 显式传入 `CmpContext`，避免跨
+    /// `await` 的线程局部状态错配。对应 Java:
+    /// `JSR223ScriptExecutor#executeScript`。
+    pub async fn execute_script(
+        &self,
+        execute_wrap: &ScriptExecuteWrap,
+        context: &CmpContext,
+    ) -> LFResult<Value> {
+        self.execute(execute_wrap, context).await
+    }
+
     /// 清空已编译脚本缓存。对应 Java `cleanScriptCache`。
     pub fn clean_script_cache(&self) {
         self.compiled_script_map.clear();
+    }
+
+    /// 清空全部已编译脚本缓存。
+    ///
+    /// 对应 Java: `JSR223ScriptExecutor#cleanCache`。
+    pub fn clean_cache(&self) {
+        self.clean_script_cache();
     }
 }

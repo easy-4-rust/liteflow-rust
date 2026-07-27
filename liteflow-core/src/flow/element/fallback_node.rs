@@ -14,8 +14,9 @@ use serde_json::Value;
 use crate::core::NodeComponent;
 use crate::enums::NodeTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
+use crate::flow::element::node::Node;
 use crate::flow::executor::NodeExecutor;
-use crate::slot::CmpContext;
+use crate::slot::{CmpContext, Ctx};
 
 /// 缺失节点的降级代理。
 ///
@@ -33,7 +34,7 @@ impl FallbackNode {
     ///
     /// 对应 Java: `FallbackNode#FallbackNode(String expectedNodeId)`，额外接收由
     /// Rust EL 构建器静态推导的节点类型。
-    pub(crate) fn new(
+    pub fn new(
         expected_node_id: impl Into<String>,
         expected_node_type: NodeTypeEnum,
         nodes: Arc<DashMap<String, Arc<dyn NodeComponent>>>,
@@ -52,9 +53,99 @@ impl FallbackNode {
         &self.expected_node_id
     }
 
+    /// 返回原节点 id 的 Java 命名入口。
+    ///
+    /// 对应 Java: `FallbackNode#getExpectedNodeId`。
+    #[must_use]
+    pub fn get_expected_node_id(&self) -> &str {
+        self.expected_node_id()
+    }
+
+    /// 修改代理等待的原节点 id。
+    ///
+    /// 后续解析会立即使用新 id 重查运行时节点表，不缓存旧解析结果。
+    /// - `expected_node_id`: 新的原节点 id。
+    ///
+    /// 对应 Java: `FallbackNode#setExpectedNodeId`。
+    pub fn set_expected_node_id(&mut self, expected_node_id: impl Into<String>) {
+        self.expected_node_id = expected_node_id.into();
+    }
+
     /// 当前位置需要的降级组件类型。
     pub fn expected_node_type(&self) -> NodeTypeEnum {
         self.expected_node_type
+    }
+
+    /// 通过一个真实 `Node` 执行最终解析到的原节点或降级组件。
+    ///
+    /// 该入口保留节点执行器、重试、切面、步骤记录、结果缓存与回滚登记；正常
+    /// FlowBus 路径仍由外层 Node 调度本组件，因此不会重复触发生命周期。
+    ///
+    /// - `context`: 当前 Slot、节点元数据与任务 Frame。
+    /// - 返回：最终节点的真实执行结果。
+    ///
+    /// 对应 Java: `FallbackNode#execute`。
+    pub async fn execute(&self, context: &CmpContext) -> LFResult<Value> {
+        let component = self.resolve(context.chain_id())?;
+        let mut node = Node::new(context.node.clone(), component);
+        node.set_curr_chain_id(context.chain_id());
+        node.execute(&Ctx::new(Arc::clone(&context.inner)), &context.frame)
+            .await
+    }
+
+    /// 返回最终节点最近一次成功执行结果。
+    ///
+    /// 未执行或尚无可解析组件时返回 `None`，对应 Java 的 `null`。
+    /// 对应 Java: `FallbackNode#getItemResultMetaValue`。
+    #[must_use]
+    pub fn get_item_result_meta_value(&self, context: &CmpContext) -> Option<Value> {
+        self.resolve_without_context()
+            .and_then(|component| component.get_item_result_meta_value(context))
+    }
+
+    /// 加载最终组件并判断当前节点是否允许执行。
+    ///
+    /// 与 Java 一样，访问判断可能先于正式执行，因此缺少降级组件时立即返回错误。
+    /// 对应 Java: `FallbackNode#isAccess`。
+    pub fn is_access(&self, context: &CmpContext) -> LFResult<bool> {
+        Ok(self.resolve(context.chain_id())?.is_access(context))
+    }
+
+    /// 返回当前动态解析到的真实组件。
+    ///
+    /// 未注册原节点且未配置对应类型的降级组件时返回 `None`。对应 Java:
+    /// `FallbackNode#getInstance`。
+    #[must_use]
+    pub fn get_instance(&self) -> Option<Arc<dyn NodeComponent>> {
+        self.resolve_without_context()
+    }
+
+    /// 返回最终组件的节点 id。
+    ///
+    /// Rust 组件初始化器直接保存节点 id；尚不能解析组件时返回 `None`，对应
+    /// Java 的 `null`。对应 Java: `FallbackNode#getId`。
+    #[must_use]
+    pub fn get_id(&self) -> Option<String> {
+        self.resolve_without_context()
+            .map(|component| component.get_node_id().to_string())
+            .filter(|node_id| !node_id.is_empty())
+    }
+
+    /// 返回当前代理本身。
+    ///
+    /// Java 明确规定代理节点不复制而直接返回 `this`；Rust 用共享引用表达同一
+    /// 对象身份。对应 Java: `FallbackNode#clone`。
+    #[must_use]
+    pub fn clone(&self) -> &Self {
+        self
+    }
+
+    /// 返回固定的 FALLBACK 节点类型。
+    ///
+    /// 对应 Java: `FallbackNode#getType`。
+    #[must_use]
+    pub fn get_type(&self) -> NodeTypeEnum {
+        NodeTypeEnum::Fallback
     }
 
     /// 先寻找执行期已经注册的原节点，否则按类型寻找降级节点。

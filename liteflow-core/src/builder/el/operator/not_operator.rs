@@ -15,9 +15,8 @@ impl BaseOperator for NotOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         OperatorHelper::require_primary(caller, self.operator_name())?;
-        Ok(El::Not(Box::new(OperatorHelper::one_expression(
-            objects,
-            self.operator_name(),
-        )?)))
+        let expression = OperatorHelper::one_expression(objects, self.operator_name())?;
+        OperatorHelper::check_obj_must_be_boolean_type_item(&expression)?;
+        Ok(El::Not(Box::new(expression)))
     }
 }

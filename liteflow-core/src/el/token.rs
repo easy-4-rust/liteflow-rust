@@ -7,6 +7,7 @@ pub(crate) enum Tok {
     Str(String),
     Num(f64),
     Bool(bool),
+    Null,
     LP,
     RP,
     Comma,

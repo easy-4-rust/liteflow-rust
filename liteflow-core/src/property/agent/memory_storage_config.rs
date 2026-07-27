@@ -48,6 +48,17 @@ impl MemoryStorageConfig {
         self.mode
     }
 
+    /// 返回记忆存储后端。
+    ///
+    /// # 返回
+    /// 当前配置使用的 JVM、文件、Redis、MySQL 或禁用模式。
+    ///
+    /// 对应 Java: `MemoryStorageConfig#getMode`。
+    #[must_use]
+    pub fn get_mode(&self) -> MemoryStorageMode {
+        self.mode()
+    }
+
     /// 设置记忆后端。对应 Java: `MemoryStorageConfig#setMode`。
     pub fn set_mode(&mut self, mode: MemoryStorageMode) {
         self.mode = mode;
@@ -57,6 +68,17 @@ impl MemoryStorageConfig {
     #[must_use]
     pub fn local_file(&self) -> &LocalFileMemoryConfig {
         &self.local_file
+    }
+
+    /// 返回本地文件记忆子配置。
+    ///
+    /// # 返回
+    /// 与 serde 反序列化及 Agent 会话工厂共享的真实配置对象。
+    ///
+    /// 对应 Java: `MemoryStorageConfig#getLocalFile`。
+    #[must_use]
+    pub fn get_local_file(&self) -> &LocalFileMemoryConfig {
+        self.local_file()
     }
 
     /// 设置本地文件配置。对应 Java: `MemoryStorageConfig#setLocalFile`。
@@ -70,6 +92,17 @@ impl MemoryStorageConfig {
         &self.redis
     }
 
+    /// 返回 Redis 记忆子配置。
+    ///
+    /// # 返回
+    /// 与 Agent 会话工厂共享的真实 Redis 配置对象。
+    ///
+    /// 对应 Java: `MemoryStorageConfig#getRedis`。
+    #[must_use]
+    pub fn get_redis(&self) -> &RedisMemoryConfig {
+        self.redis()
+    }
+
     /// 设置 Redis 配置。对应 Java: `MemoryStorageConfig#setRedis`。
     pub fn set_redis(&mut self, redis: RedisMemoryConfig) {
         self.redis = redis;
@@ -79,6 +112,17 @@ impl MemoryStorageConfig {
     #[must_use]
     pub fn mysql(&self) -> &MysqlMemoryConfig {
         &self.mysql
+    }
+
+    /// 返回 MySQL 记忆子配置。
+    ///
+    /// # 返回
+    /// 与 Agent 会话工厂共享的真实 MySQL 配置对象。
+    ///
+    /// 对应 Java: `MemoryStorageConfig#getMysql`。
+    #[must_use]
+    pub fn get_mysql(&self) -> &MysqlMemoryConfig {
+        self.mysql()
     }
 
     /// 设置 MySQL 配置。对应 Java: `MemoryStorageConfig#setMysql`。

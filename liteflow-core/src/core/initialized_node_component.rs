@@ -19,6 +19,7 @@ pub(crate) struct InitializedNodeComponent {
     inner: Arc<dyn NodeComponent>,
     node_id: String,
     node_type: NodeTypeEnum,
+    node_type_explicit: bool,
     name: String,
     default_retry_count: usize,
     default_node_executor: Option<Arc<dyn NodeExecutor>>,
@@ -30,6 +31,7 @@ impl InitializedNodeComponent {
         inner: Arc<dyn NodeComponent>,
         node_id: String,
         node_type: NodeTypeEnum,
+        node_type_explicit: bool,
         name: String,
         default_retry_count: usize,
         default_node_executor: Option<Arc<dyn NodeExecutor>>,
@@ -38,6 +40,7 @@ impl InitializedNodeComponent {
             inner,
             node_id,
             node_type,
+            node_type_explicit,
             name,
             default_retry_count,
             default_node_executor,
@@ -75,6 +78,14 @@ impl NodeComponent for InitializedNodeComponent {
         self.inner.is_continue_on_error()
     }
 
+    fn is_continue_on_error_with_context(&self, context: &CmpContext) -> bool {
+        self.inner.is_continue_on_error_with_context(context)
+    }
+
+    fn is_end(&self, context: &CmpContext) -> bool {
+        self.inner.is_end(context)
+    }
+
     fn is_rollback(&self) -> bool {
         self.inner.is_rollback()
     }
@@ -99,6 +110,10 @@ impl NodeComponent for InitializedNodeComponent {
         Some(self.node_type)
     }
 
+    fn has_explicit_node_type(&self) -> bool {
+        self.node_type_explicit
+    }
+
     fn retry_count(&self) -> usize {
         let component_retry_count = self.inner.retry_count();
         if component_retry_count == 0 {
@@ -116,5 +131,9 @@ impl NodeComponent for InitializedNodeComponent {
         self.inner
             .node_executor()
             .or_else(|| self.default_node_executor.clone())
+    }
+
+    fn unload_script(&self, node_id: &str) -> Result<bool, LiteflowError> {
+        self.inner.unload_script(node_id)
     }
 }

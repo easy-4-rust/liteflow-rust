@@ -36,6 +36,17 @@ impl InstanceInfoDto {
         self.chain_id.as_deref()
     }
 
+    /// 返回 Chain ID。
+    ///
+    /// # 返回
+    /// Java 字段尚未赋值时返回 `None`，否则返回真实字段的字符串切片。
+    ///
+    /// 对应 Java: `InstanceInfoDto#getChainId`。
+    #[must_use]
+    pub fn get_chain_id(&self) -> Option<&str> {
+        self.chain_id()
+    }
+
     /// 设置 Chain ID。对应 Java `setChainId(String)`。
     pub fn set_chain_id(&mut self, chain_id: impl Into<String>) {
         self.chain_id = Some(chain_id.into());
@@ -44,6 +55,17 @@ impl InstanceInfoDto {
     /// 返回节点 ID。对应 Java `getNodeId()`。
     pub fn node_id(&self) -> Option<&str> {
         self.node_id.as_deref()
+    }
+
+    /// 返回节点 ID。
+    ///
+    /// # 返回
+    /// Java 字段尚未赋值时返回 `None`，否则返回真实字段的字符串切片。
+    ///
+    /// 对应 Java: `InstanceInfoDto#getNodeId`。
+    #[must_use]
+    pub fn get_node_id(&self) -> Option<&str> {
+        self.node_id()
     }
 
     /// 设置节点 ID。对应 Java `setNodeId(String)`。
@@ -56,6 +78,17 @@ impl InstanceInfoDto {
         self.instance_id.as_deref()
     }
 
+    /// 返回节点实例编号。
+    ///
+    /// # 返回
+    /// Java 字段尚未赋值时返回 `None`，否则返回稳定实例编号。
+    ///
+    /// 对应 Java: `InstanceInfoDto#getInstanceId`。
+    #[must_use]
+    pub fn get_instance_id(&self) -> Option<&str> {
+        self.instance_id()
+    }
+
     /// 设置节点实例编号。对应 Java `setInstanceId(String)`。
     pub fn set_instance_id(&mut self, instance_id: impl Into<String>) {
         self.instance_id = Some(instance_id.into());
@@ -64,6 +97,17 @@ impl InstanceInfoDto {
     /// 返回同名节点在 Chain 中的出现下标。对应 Java `getIndex()`。
     pub fn index(&self) -> Option<usize> {
         self.index
+    }
+
+    /// 返回同名节点在 Chain 中的出现下标。
+    ///
+    /// # 返回
+    /// Java `Integer` 未赋值时返回 `None`，否则返回真实下标。
+    ///
+    /// 对应 Java: `InstanceInfoDto#getIndex`。
+    #[must_use]
+    pub fn get_index(&self) -> Option<usize> {
+        self.index()
     }
 
     /// 设置出现下标。对应 Java `setIndex(Integer)`。

@@ -20,7 +20,7 @@ use liteflow_core::{
     LiteflowError, LocalDefaultFlowConstant, LoopFutureObj, NodeBooleanComponent, NodeComponent,
     NodeForComponent, NodeIteratorComponent, NodeRef, NodeSwitchComponent, NodeTypeEnum,
     ParallelStrategyEnum, ParallelStrategyHelper, ParseModeEnum,
-    PostProcessScriptEngineInitLifeCycle, Rollbackable, Slot, cmp,
+    PostProcessScriptEngineInitLifeCycle, Slot, cmp,
 };
 use serde_json::{Value, json};
 
@@ -46,6 +46,15 @@ struct ScriptEngineInitHook {
 impl PostProcessScriptEngineInitLifeCycle for ScriptEngineInitHook {
     fn post_process_after_script_engine_init(&self, language: &str) {
         self.languages.lock().unwrap().push(language.to_string());
+    }
+}
+
+impl liteflow_core::LifeCycle for ScriptEngineInitHook {
+    fn register_life_cycle(
+        self: Arc<Self>,
+        life_cycle_holder: &mut liteflow_core::LifeCycleHolder,
+    ) {
+        life_cycle_holder.script_engine_init.push(self);
     }
 }
 
@@ -720,6 +729,77 @@ fn flow_executor_configuration_updates_the_core_global_getter() {
     assert_eq!(executor.liteflow_config(), updated);
     assert_eq!(LiteflowConfigGetter::get(), updated);
     LiteflowConfigGetter::clean();
+}
+
+#[tokio::test]
+async fn flow_bus_java_registry_lifecycle_uses_real_state_and_script_unload() {
+    let bus = FlowBus::new();
+    let cloned_bus = bus.clone();
+
+    // 所有克隆共享 Java initStat 对等状态。
+    assert!(bus.need_init());
+    assert!(!cloned_bus.need_init());
+    cloned_bus.clear_stat();
+    assert!(bus.need_init());
+
+    let initialized = ComponentInitializer::load_instance()
+        .init_component(
+            Arc::new(cmp(|_| async { Ok(Value::Null) })),
+            NodeTypeEnum::Common,
+            Some("托管节点"),
+            "managed",
+        )
+        .unwrap();
+    bus.add_managed_node("managed", initialized).unwrap();
+    assert!(bus.contain_node("managed"));
+    assert_eq!(bus.get_node_map().len(), 1);
+
+    let phase_one = Chain::new("phase_one", Vec::new());
+    bus.add_chain_phase1(phase_one);
+    assert!(bus.contain_chain("phase_one"));
+    assert_eq!(bus.get_chain_map().len(), 1);
+
+    bus.add_script_node(
+        "script_node",
+        Some("真实 Rhai 脚本"),
+        NodeTypeEnum::Script,
+        "40 + 2",
+        "rhai",
+    )
+    .unwrap();
+    bus.add_chain("script_chain", "THEN(script_node)").unwrap();
+    assert!(bus.execute("script_chain").await.is_success());
+    assert!(bus.unload_script_node("script_node").unwrap());
+    assert!(!bus.contain_node("script_node"));
+    assert!(!bus.unload_script_node("script_node").unwrap());
+
+    bus.clean_cache().unwrap();
+    assert!(bus.get_node_map().is_empty());
+    assert!(bus.get_chain_map().is_empty());
+}
+
+#[test]
+fn flow_bus_refreshes_el_metadata_and_exposes_fallback_snapshot() {
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let ids = bus
+        .refresh_flow_meta_data(
+            FlowParserTypeEnum::TypeElJson,
+            r#"{"flow":{"chain":[{"id":"refreshed","body":"THEN(a)"}]}}"#,
+        )
+        .unwrap();
+    assert_eq!(ids, vec!["refreshed"]);
+    assert!(bus.contain_chain("refreshed"));
+
+    bus.register_fallback(
+        "fallback",
+        NodeTypeEnum::Common,
+        cmp(|_| async { Ok(Value::Null) }),
+    )
+    .unwrap();
+    assert!(bus.get_fall_back_node(NodeTypeEnum::Common).is_some());
+    assert!(bus.remove_node("fallback"));
+    assert!(!bus.remove_node("fallback"));
 }
 
 #[tokio::test]

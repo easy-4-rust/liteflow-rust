@@ -25,8 +25,17 @@ pub struct ChainPropBean {
 
 impl ChainPropBean {
     /// 返回执行规则。对应 Java: `ChainPropBean#getCondValueStr`。
-    pub fn cond_value_str(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_cond_value_str(&self) -> Option<&str> {
         self.cond_value_str.as_deref()
+    }
+
+    /// 返回执行规则。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_cond_value_str`。
+    #[must_use]
+    pub fn cond_value_str(&self) -> Option<&str> {
+        self.get_cond_value_str()
     }
 
     /// 设置执行规则。对应 Java: `ChainPropBean#setCondValueStr`。
@@ -36,8 +45,17 @@ impl ChainPropBean {
     }
 
     /// 返回分组。对应 Java: `ChainPropBean#getGroup`。
-    pub fn group(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_group(&self) -> Option<&str> {
         self.group.as_deref()
+    }
+
+    /// 返回分组。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_group`。
+    #[must_use]
+    pub fn group(&self) -> Option<&str> {
+        self.get_group()
     }
 
     /// 设置分组。对应 Java: `ChainPropBean#setGroup`。
@@ -47,8 +65,17 @@ impl ChainPropBean {
     }
 
     /// 返回错误恢复配置。对应 Java: `ChainPropBean#getErrorResume`。
-    pub fn error_resume(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_error_resume(&self) -> Option<&str> {
         self.error_resume.as_deref()
+    }
+
+    /// 返回错误恢复配置。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_error_resume`。
+    #[must_use]
+    pub fn error_resume(&self) -> Option<&str> {
+        self.get_error_resume()
     }
 
     /// 设置错误恢复配置。对应 Java: `ChainPropBean#setErrorResume`。
@@ -58,8 +85,17 @@ impl ChainPropBean {
     }
 
     /// 返回 any 配置。对应 Java: `ChainPropBean#getAny`。
-    pub fn any(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_any(&self) -> Option<&str> {
         self.any.as_deref()
+    }
+
+    /// 返回 any 配置。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_any`。
+    #[must_use]
+    pub fn any(&self) -> Option<&str> {
+        self.get_any()
     }
 
     /// 设置 any 配置。对应 Java: `ChainPropBean#setAny`。
@@ -69,8 +105,17 @@ impl ChainPropBean {
     }
 
     /// 返回线程池类名。对应 Java: `ChainPropBean#getThreadExecutorClass`。
-    pub fn thread_executor_class(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_thread_executor_class(&self) -> Option<&str> {
         self.thread_executor_class.as_deref()
+    }
+
+    /// 返回线程池类名。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_thread_executor_class`。
+    #[must_use]
+    pub fn thread_executor_class(&self) -> Option<&str> {
+        self.get_thread_executor_class()
     }
 
     /// 设置线程池类名。对应 Java: `ChainPropBean#setThreadExecutorClass`。
@@ -80,8 +125,17 @@ impl ChainPropBean {
     }
 
     /// 返回条件类型。对应 Java: `ChainPropBean#getConditionType`。
-    pub fn condition_type(&self) -> Option<ConditionTypeEnum> {
+    #[must_use]
+    pub fn get_condition_type(&self) -> Option<ConditionTypeEnum> {
         self.condition_type
+    }
+
+    /// 返回条件类型。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_condition_type`。
+    #[must_use]
+    pub fn condition_type(&self) -> Option<ConditionTypeEnum> {
+        self.get_condition_type()
     }
 
     /// 设置条件类型。对应 Java: `ChainPropBean#setConditionType`。

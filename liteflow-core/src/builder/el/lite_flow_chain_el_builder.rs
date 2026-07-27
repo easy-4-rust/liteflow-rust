@@ -6,11 +6,13 @@
 //!
 //! 对应 Java: `com.yomahub.liteflow.builder.el.LiteFlowChainELBuilder`。
 
+use crate::builder::el::operator::base::OperatorHelper;
 use crate::builder::el::operator::boolean_literal_condition::BooleanLiteralCondition;
+use crate::common::ChainConstant;
 use crate::common::entity::ValidationResp;
 use crate::core::DeclMethodComponent;
 use crate::el::{El, NodeRef, format_el_parse_error, parse_el};
-use crate::enums::NodeTypeEnum;
+use crate::enums::{NodeTypeEnum, ParseModeEnum};
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::Executable;
 use crate::flow::element::NodeHooks;
@@ -30,7 +32,11 @@ use crate::flow::element::condition::{
 use crate::flow::element::fallback_node::FallbackNode;
 use crate::flow::element::node::Node;
 use crate::flow::flow_bus::FlowBus;
-use std::collections::HashMap;
+use crate::property::LiteflowConfigGetter;
+use crate::util::el_regex_util::normalize_el;
+use md5::{Digest, Md5};
+use std::cell::{Ref, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// LiteFlow 链路 EL 构建器。
@@ -40,9 +46,10 @@ use std::sync::Arc;
 /// `com.yomahub.liteflow.builder.el.LiteFlowChainELBuilder`。
 pub struct LiteFlowChainELBuilder {
     bus: FlowBus,
-    chain_id: std::cell::RefCell<String>,
+    chain: RefCell<Chain>,
+    chain_id: RefCell<String>,
     /// 节点出现次数计数（NodeInstanceIdManageSpi 语义）
-    occurrences: std::cell::RefCell<HashMap<String, usize>>,
+    occurrences: RefCell<HashMap<String, usize>>,
 }
 
 impl LiteFlowChainELBuilder {
@@ -53,9 +60,199 @@ impl LiteFlowChainELBuilder {
     pub fn new(bus: FlowBus) -> Self {
         Self {
             bus,
-            chain_id: std::cell::RefCell::new(String::new()),
-            occurrences: std::cell::RefCell::new(HashMap::new()),
+            chain: RefCell::new(Chain::new("", Vec::new())),
+            chain_id: RefCell::new(String::new()),
+            occurrences: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// 创建绑定指定 FlowBus 的空 Chain 构建器。
+    ///
+    /// Java 依赖静态 FlowBus；Rust 显式传入 `bus`，避免多个运行时相互污染。
+    ///
+    /// # 参数
+    /// - `bus`: 接收构建结果并提供 Node/Chain 注册表的流程总线。
+    ///
+    /// # 返回
+    /// 尚未设置 Chain ID 和 EL 的构建器。
+    /// 对应 Java: `LiteFlowChainELBuilder#createChain`。
+    #[must_use]
+    pub fn create_chain(bus: FlowBus) -> Self {
+        Self::new(bus)
+    }
+
+    /// 从已有 Chain 创建构建器。
+    ///
+    /// # 参数
+    /// - `bus`: 接收重新编译结果的流程总线。
+    /// - `chain`: 待继续设置或重新编译的 Chain。
+    ///
+    /// # 返回
+    /// 保留原 Chain 全部元数据的构建器。
+    /// 对应 Java: `LiteFlowChainELBuilder#fromChain`。
+    #[must_use]
+    pub fn from_chain(bus: FlowBus, chain: Chain) -> Self {
+        let chain_id = chain.get_chain_id().to_string();
+        Self {
+            bus,
+            chain: RefCell::new(chain),
+            chain_id: RefCell::new(chain_id),
+            occurrences: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// 使用已废弃的 Chain Name 设置 Chain ID。
+    ///
+    /// 已注册同名 Chain 时沿用其完整状态，与 Java 两阶段 Parser 预装载语义一致。
+    ///
+    /// # 参数
+    /// - `chain_name`: Chain 名称。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setChainName`。
+    #[deprecated(note = "请使用 set_chain_id")]
+    pub fn set_chain_name(&self, chain_name: impl Into<String>) -> &Self {
+        let chain_name = chain_name.into();
+        if let Some(chain) = self.bus.get_chain(&chain_name) {
+            *self.chain.borrow_mut() = (*chain).clone();
+        } else {
+            self.chain.borrow_mut().set_chain_id(chain_name.clone());
+        }
+        *self.chain_id.borrow_mut() = chain_name;
+        self
+    }
+
+    /// 设置 Chain ID。
+    ///
+    /// 已注册同名 Chain 时复制其状态并标记为未编译，使第二阶段能够重新组装依赖。
+    ///
+    /// # 参数
+    /// - `chain_id`: Chain 唯一标识。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setChainId`。
+    pub fn set_chain_id(&self, chain_id: impl Into<String>) -> &Self {
+        let chain_id = chain_id.into();
+        if let Some(chain) = self.bus.get_chain(&chain_id) {
+            let mut chain = (*chain).clone();
+            chain.set_compiled(false);
+            *self.chain.borrow_mut() = chain;
+        } else {
+            self.chain.borrow_mut().set_chain_id(chain_id.clone());
+        }
+        *self.chain_id.borrow_mut() = chain_id;
+        self
+    }
+
+    /// 设置决策路由 EL；空白内容保持现有配置不变。
+    ///
+    /// # 参数
+    /// - `route_el`: 返回布尔结果的路由表达式。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setRoute`。
+    pub fn set_route(&self, route_el: impl Into<String>) -> &Self {
+        let route_el = route_el.into();
+        if !route_el.trim().is_empty() {
+            self.chain.borrow_mut().set_route_el(route_el);
+        }
+        self
+    }
+
+    /// 设置主体 EL，并计算规范化表达式的 MD5。
+    ///
+    /// # 参数
+    /// - `el_str`: Chain 主体 EL；空白内容返回 FlowSystemException 对应错误。
+    ///
+    /// # 返回
+    /// 当前构建器，便于继续链式设置。
+    /// 对应 Java: `LiteFlowChainELBuilder#setEL`。
+    pub fn set_el(&self, el_str: impl Into<String>) -> LFResult<&Self> {
+        let el_str = el_str.into();
+        if el_str.trim().is_empty() {
+            return Err(LiteflowError::Custom(format!(
+                "no el in this chain[{}]",
+                self.chain.borrow().get_chain_id()
+            )));
+        }
+        let normalized = normalize_el(&el_str);
+        let el_md5 = format!("{:x}", Md5::digest(normalized.as_bytes()));
+        let mut chain = self.chain.borrow_mut();
+        chain.set_el(el_str);
+        chain.set_el_md5(el_md5);
+        Ok(self)
+    }
+
+    /// 设置命名空间；空白内容回退到默认命名空间。
+    ///
+    /// # 参数
+    /// - `namespace`: 路由 Chain 分组命名空间。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setNamespace`。
+    pub fn set_namespace(&self, namespace: impl Into<String>) -> &Self {
+        let namespace = namespace.into();
+        let namespace = if namespace.trim().is_empty() {
+            ChainConstant::DEFAULT_NAMESPACE.to_string()
+        } else {
+            namespace
+        };
+        self.chain.borrow_mut().set_namespace(namespace);
+        self
+    }
+
+    /// 设置 Chain 层级线程池执行器类名。
+    ///
+    /// # 参数
+    /// - `thread_pool_executor_class`: Java 执行器构建器类名或 Rust 注册键。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setThreadPoolExecutorClass`。
+    pub fn set_thread_pool_executor_class(
+        &self,
+        thread_pool_executor_class: impl Into<String>,
+    ) -> &Self {
+        self.chain
+            .borrow_mut()
+            .set_thread_pool_executor_class(thread_pool_executor_class);
+        self
+    }
+
+    /// 根据全局解析模式构建并注册 Chain。
+    ///
+    /// `PARSE_ONE_ON_FIRST_EXEC` 只预装载未编译 Chain；其他模式立即编译主体和
+    /// route，完成后再原子写入 FlowBus。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#build`。
+    pub fn build(&self) -> LFResult<()> {
+        if LiteflowConfigGetter::get().get_parse_mode() == ParseModeEnum::ParseOneOnFirstExec {
+            self.chain.borrow_mut().set_compiled(false);
+            self.bus.add_chain_phase1(self.chain.borrow().clone());
+            return Ok(());
+        }
+        self.compile_chain()
+    }
+
+    /// 编译并替换一个预装载的未编译 Chain。
+    ///
+    /// # 参数
+    /// - `bus`: Chain 所属流程总线。
+    /// - `chain`: 已含 Chain ID 与 EL 的预装载对象。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#buildUnCompileChain`。
+    pub fn build_un_compile_chain(bus: &FlowBus, chain: &Chain) -> LFResult<()> {
+        if chain.get_el().is_none_or(|el| el.trim().is_empty()) {
+            return Err(LiteflowError::Custom(format!(
+                "no el content in this unCompile chain[{}]",
+                chain.get_chain_id()
+            )));
+        }
+        Self::from_chain(bus.clone(), chain.clone()).compile_chain()
+    }
+
+    /// 返回当前构建中的 Chain 只读借用。
+    ///
+    /// # 返回
+    /// 包含已设置元数据及当前编译状态的 Chain。
+    /// 对应 Java: `LiteFlowChainELBuilder#getChain`。
+    #[must_use]
+    pub fn get_chain(&self) -> Ref<'_, Chain> {
+        self.chain.borrow()
     }
 
     /// 校验 EL 表达式是否合法。
@@ -116,11 +313,98 @@ impl LiteFlowChainELBuilder {
         body_el: El,
     ) -> LFResult<Chain> {
         *self.chain_id.borrow_mut() = chain_id.to_string();
-        let route = self.build_executable(route_el)?;
+        let route = self.build_route_executable(route_el)?;
         let body = self.build_executable(body_el)?;
         let mut chain = Chain::new(chain_id, vec![body]).with_namespace(namespace);
         chain.set_route_item(route);
         Ok(chain)
+    }
+
+    /// 编译当前 Chain，并让同一递归栈共享依赖环检测集合。
+    fn compile_chain(&self) -> LFResult<()> {
+        self.compile_chain_with_ancestors(&mut HashSet::new())
+    }
+
+    /// 先编译主体 EL 引用的未编译子 Chain，再构建当前主体与 route。
+    ///
+    /// Java 在 QLExpress 执行前扫描外部变量并递归调用 `buildUnCompileChain`；
+    /// Rust 直接遍历类型化 AST，避免字符串误判，同时保留“子 Chain 先完成”的时序。
+    fn compile_chain_with_ancestors(&self, ancestors: &mut HashSet<String>) -> LFResult<()> {
+        let (chain_id, el_str, route_el) = {
+            let chain = self.chain.borrow();
+            let chain_id = chain.get_chain_id().to_string();
+            let el_str = chain
+                .get_el()
+                .filter(|el| !el.trim().is_empty())
+                .ok_or_else(|| LiteflowError::Custom(format!("no el in this chain[{chain_id}]")))?
+                .to_string();
+            (
+                chain_id,
+                el_str,
+                chain.get_route_el().map(ToOwned::to_owned),
+            )
+        };
+
+        if !ancestors.insert(chain_id.clone()) {
+            return Err(LiteflowError::CyclicDependency(format!(
+                "cyclic chain dependency detected at chain[{chain_id}]"
+            )));
+        }
+
+        let result = (|| {
+            let body_el = parse_el(&el_str)?;
+            let mut referenced_chain_ids = Vec::new();
+            collect_referenced_chain_ids(&body_el, &self.bus, &chain_id, &mut referenced_chain_ids);
+            for referenced_chain_id in referenced_chain_ids {
+                let Some(referenced_chain) = self.bus.get_chain(&referenced_chain_id) else {
+                    continue;
+                };
+                if !referenced_chain.is_compiled() {
+                    Self::from_chain(self.bus.clone(), (*referenced_chain).clone())
+                        .compile_chain_with_ancestors(ancestors)?;
+                }
+            }
+
+            // 子 Chain 已经替换到 FlowBus 后再绑定主体，确保包装器持有编译完成的 Arc。
+            *self.chain_id.borrow_mut() = chain_id.clone();
+            self.occurrences.borrow_mut().clear();
+            let body = self.build_executable(body_el)?;
+            let route = route_el
+                .as_deref()
+                .filter(|route| !route.trim().is_empty())
+                .map(parse_el)
+                .transpose()?
+                .map(|route| self.build_route_executable(route))
+                .transpose()?;
+
+            {
+                let mut chain = self.chain.borrow_mut();
+                chain.set_condition_list(vec![body]);
+                if let Some(route) = route {
+                    chain.set_route_item(route);
+                }
+                chain.set_compiled(true);
+            }
+            self.bus.add_built_chain(self.chain.borrow().clone());
+            Ok(())
+        })();
+        ancestors.remove(&chain_id);
+        result
+    }
+
+    /// 构建 Java 允许的路由类型：布尔 Node、AND/OR 或 NOT。
+    fn build_route_executable(&self, route_el: El) -> LFResult<Arc<dyn Executable>> {
+        if !is_route_expression(&route_el) {
+            return Err(LiteflowError::RouteELInvalid(
+                "the route EL can only be a boolean node, or an AND or OR expression.".to_string(),
+            ));
+        }
+        match route_el {
+            El::Node(_) | El::Mods(_, _) => {
+                self.build_executable_as(route_el, NodeTypeEnum::Boolean)
+            }
+            other => self.build_executable(other),
+        }
     }
 
     fn build_executable(&self, el: El) -> LFResult<Arc<dyn Executable>> {
@@ -400,9 +684,14 @@ impl LiteFlowChainELBuilder {
     ) -> LFResult<Arc<dyn Executable>> {
         let id_no_method = node_ref.id.split('.').next().unwrap_or("");
         if self.bus.contains_node(&node_ref.id) || self.bus.get_decl(id_no_method).is_some() {
-            return Ok(Arc::new(self.build_node(node_ref)?));
+            let node = self.build_node(node_ref)?;
+            OperatorHelper::check_resolved_node(&node, expected_node_type)?;
+            return Ok(Arc::new(node));
         }
         if let Some(chain) = self.bus.get_chain(&node_ref.id) {
+            if expected_node_type != NodeTypeEnum::Common {
+                return Err(LiteflowError::Parse("The parameter error.".to_string()));
+            }
             // 场景3：对 Chain bind（2.16）：包装成 ChainBindWrapperCondition 持有 bind 数据
             let mut wrapper = ChainBindWrapperCondition::new(chain);
             for (k, v) in node_ref.bind {
@@ -423,6 +712,99 @@ impl LiteFlowChainELBuilder {
                 self.bus.fallback_nodes.clone(),
             ));
         Ok(Arc::new(self.finish_node(node_ref, proxy)))
+    }
+}
+
+/// 判断路由 AST 是否属于 Java 允许的布尔 Node、AND/OR 或 NOT。
+fn is_route_expression(el: &El) -> bool {
+    match el {
+        El::Node(_) | El::And(_) | El::Or(_) | El::Not(_) => true,
+        El::Mods(inner, _) => is_route_expression(inner),
+        _ => false,
+    }
+}
+
+/// 按 AST 顺序收集主体 EL 直接或嵌套引用的已注册子 Chain。
+fn collect_referenced_chain_ids(
+    el: &El,
+    bus: &FlowBus,
+    current_chain_id: &str,
+    chain_ids: &mut Vec<String>,
+) {
+    match el {
+        El::Node(node) => {
+            if node.id != current_chain_id
+                && bus.contains_chain(&node.id)
+                && !chain_ids.contains(&node.id)
+            {
+                chain_ids.push(node.id.clone());
+            }
+        }
+        El::Boolean(_) => {}
+        El::Then(items) | El::And(items) | El::Or(items) | El::When { items, .. } => {
+            for item in items {
+                collect_referenced_chain_ids(item, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::If {
+            cond,
+            then,
+            elifs,
+            els,
+        } => {
+            collect_referenced_chain_ids(cond, bus, current_chain_id, chain_ids);
+            collect_referenced_chain_ids(then, bus, current_chain_id, chain_ids);
+            for (condition, body) in elifs {
+                collect_referenced_chain_ids(condition, bus, current_chain_id, chain_ids);
+                collect_referenced_chain_ids(body, bus, current_chain_id, chain_ids);
+            }
+            if let Some(els) = els {
+                collect_referenced_chain_ids(els, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::Switch {
+            node,
+            targets,
+            default,
+        } => {
+            collect_referenced_chain_ids(node, bus, current_chain_id, chain_ids);
+            for target in targets {
+                collect_referenced_chain_ids(target, bus, current_chain_id, chain_ids);
+            }
+            if let Some(default) = default {
+                collect_referenced_chain_ids(default, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::For {
+            node, body, brk, ..
+        }
+        | El::While {
+            node, body, brk, ..
+        }
+        | El::Iter {
+            node, body, brk, ..
+        } => {
+            collect_referenced_chain_ids(node, bus, current_chain_id, chain_ids);
+            collect_referenced_chain_ids(body, bus, current_chain_id, chain_ids);
+            if let Some(brk) = brk {
+                collect_referenced_chain_ids(brk, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::ForCount { body, brk, .. } => {
+            collect_referenced_chain_ids(body, bus, current_chain_id, chain_ids);
+            if let Some(brk) = brk {
+                collect_referenced_chain_ids(brk, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::Catch { body, do_ } => {
+            collect_referenced_chain_ids(body, bus, current_chain_id, chain_ids);
+            if let Some(do_) = do_ {
+                collect_referenced_chain_ids(do_, bus, current_chain_id, chain_ids);
+            }
+        }
+        El::Not(item) | El::Pre(item) | El::Fin(item) | El::Mods(item, _) => {
+            collect_referenced_chain_ids(item, bus, current_chain_id, chain_ids);
+        }
     }
 }
 

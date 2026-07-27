@@ -31,6 +31,9 @@ impl FlowExecutor {
     /// `LiteflowConfigGetter#get` 的默认回退配置。
     pub fn new(bus: FlowBus) -> Self {
         let liteflow_config = LiteflowConfigGetter::get();
+        // Java FlowExecutor 无参构造器会调用 DataBus.init()，由当前全局配置确定
+        // Slot 池初始容量；Rust 在保存执行器配置前执行同一初始化动作。
+        DataBus::init(liteflow_config.get_slot_size());
         Self {
             bus,
             liteflow_config: Arc::new(RwLock::new(liteflow_config)),
@@ -43,6 +46,8 @@ impl FlowExecutor {
     #[must_use]
     pub fn new_with_config(bus: FlowBus, liteflow_config: LiteflowConfig) -> Self {
         LiteflowConfigGetter::set_liteflow_config(liteflow_config.clone());
+        // 对应 Java FlowExecutor(LiteflowConfig) 构造器末尾的 DataBus.init()。
+        DataBus::init(liteflow_config.get_slot_size());
         Self {
             bus,
             liteflow_config: Arc::new(RwLock::new(liteflow_config)),
@@ -53,6 +58,15 @@ impl FlowExecutor {
     #[must_use]
     pub fn liteflow_config(&self) -> LiteflowConfig {
         self.liteflow_config.read().unwrap().clone()
+    }
+
+    /// 返回当前执行器配置快照。
+    ///
+    /// 这是 Java 公共方法名的严格 snake_case 映射；`liteflow_config` 保留为
+    /// Rust 简洁别名。对应 Java: `FlowExecutor#getLiteflowConfig`。
+    #[must_use]
+    pub fn get_liteflow_config(&self) -> LiteflowConfig {
+        self.liteflow_config()
     }
 
     /// 更新执行器配置并同步全局配置获取器。
@@ -106,6 +120,23 @@ impl FlowExecutor {
         .await
     }
 
+    /// 使用执行选项执行链路并返回响应。
+    ///
+    /// - `chain_id`: Java `chainId`，目标链路标识。
+    /// - `param`: Java `param`，本次链路输入。
+    /// - `option`: Java `option`；`None` 等价于 `ExecuteOption::of()`。
+    ///
+    /// 对应 Java: `FlowExecutor#execute2Resp(String, Object, ExecuteOption)`。
+    pub async fn execute2_resp(
+        &self,
+        chain_id: &str,
+        param: Value,
+        option: Option<crate::core::execute_option::ExecuteOption>,
+    ) -> LiteflowResponse {
+        self.execute_with_option(chain_id, param, option.unwrap_or_default())
+            .await
+    }
+
     /// 异步提交一次链路执行并返回 Tokio 任务句柄。
     ///
     /// 任务由 `LiteFlowDefaultMainExecutorBuilder` 构建的有界主执行器控制并发；
@@ -117,6 +148,22 @@ impl FlowExecutor {
         option: crate::core::execute_option::ExecuteOption,
     ) -> LFResult<tokio::task::JoinHandle<LiteflowResponse>> {
         self.execute_future_with_executor(chain_id, input, option, None)
+    }
+
+    /// 异步提交链路执行。
+    ///
+    /// - `chain_id`: Java `chainId`。
+    /// - `param`: Java `param`。
+    /// - `option`: Java `option`；`None` 使用默认执行选项。
+    ///
+    /// 对应 Java: `FlowExecutor#execute2Future(String, Object, ExecuteOption)`。
+    pub fn execute2_future(
+        &self,
+        chain_id: impl Into<String>,
+        param: Value,
+        option: Option<crate::core::execute_option::ExecuteOption>,
+    ) -> LFResult<tokio::task::JoinHandle<LiteflowResponse>> {
+        self.execute_future_with_option(chain_id, param, option.unwrap_or_default())
     }
 
     /// 使用指定执行器构建器提交异步链路。
@@ -180,6 +227,46 @@ impl FlowExecutor {
         .await
     }
 
+    /// 使用指定请求 ID 执行链路。
+    ///
+    /// - `chain_id`: Java `chainId`。
+    /// - `param`: Java `param`。
+    /// - `request_id`: Java `requestId`。
+    /// - `context_beans`: Java `contextBeanArray` 的 Rust 具名对象映射。
+    ///
+    /// 对应 Java: `FlowExecutor#execute2RespWithRid`。
+    pub async fn execute2_resp_with_rid(
+        &self,
+        chain_id: &str,
+        param: Value,
+        request_id: impl Into<String>,
+        context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
+    ) -> LiteflowResponse {
+        self.execute_with_rid(chain_id, param, request_id, context_beans)
+            .await
+    }
+
+    /// 使用指定请求 ID 异步提交链路执行。
+    ///
+    /// 对应 Java: `FlowExecutor#execute2FutureWithRid`。
+    pub fn execute2_future_with_rid(
+        &self,
+        chain_id: impl Into<String>,
+        param: Value,
+        request_id: impl Into<String>,
+        context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
+    ) -> LFResult<tokio::task::JoinHandle<LiteflowResponse>> {
+        self.execute_future_with_option(
+            chain_id,
+            param,
+            crate::core::execute_option::ExecuteOption {
+                request_id: Some(request_id.into()),
+                context_beans,
+                ..Default::default()
+            },
+        )
+    }
+
     /// 执行 Flow/Chain 的 before 生命周期。
     ///
     /// 对应 Java `FlowExecutor#doExecute` 进入链路前的生命周期处理。先克隆钩子再
@@ -225,23 +312,22 @@ impl FlowExecutor {
             None => {
                 let error = LiteflowError::ChainNotFound(chain_id.to_string());
                 ctx.set_exception(&error.to_string());
-                return LiteflowResponse::new(
-                    slot,
-                    false,
-                    format!("chain not found: {chain_id}"),
-                    Some(error.to_string()),
-                );
+                return LiteflowResponse::new_main_response(slot);
             }
         };
 
         match chain.execute_mode(&ctx, ChainExecuteModeEnum::Body).await {
             Ok(_) | Err(LiteflowError::ChainEnd) => {
-                LiteflowResponse::new(slot, true, "success".into(), None)
+                // retry 成功、ignoreError 或 continueOnError 可能在中途写入过异常；
+                // 最终链路成功时必须清除主异常，否则 Java newMainResponse(slot)
+                // 会把已经恢复的执行错误地判为失败。
+                slot.remove_exception();
+                LiteflowResponse::new_main_response(slot)
             }
             Err(error) => {
                 ctx.set_exception(&error.to_string());
                 ctx.rollback().await;
-                LiteflowResponse::new(slot, false, error.to_string(), Some(error.to_string()))
+                LiteflowResponse::new_main_response(slot)
             }
         }
     }
@@ -260,12 +346,14 @@ impl FlowExecutor {
             .filter(|request_id| !request_id.trim().is_empty())
             .unwrap_or_else(IdGeneratorHolder::generate);
         let mut slot = Slot::new(request_id, chain_id, input);
-        slot.conversation_id = option.resolve_conversation_id();
+        if let Some(conversation_id) = option.resolve_conversation_id() {
+            slot.set_conversation_id(conversation_id);
+        }
         // Slot 进入 DataBus 后由租约托管；即使异步执行被取消，Drop 也会归还索引。
         let slot_lease = DataBus::lease_slot(Arc::new(slot));
         let slot = slot_lease.slot();
         for (name, bean) in option.context_beans {
-            slot.beans.insert(name, bean);
+            slot.insert_context_bean(name, bean);
         }
         let ctx = Ctx::new(slot.clone());
         if let Some(l) = &option.event_listener {
@@ -301,6 +389,30 @@ impl FlowExecutor {
         input: Value,
         request_id: Option<String>,
     ) -> LiteflowResponse {
+        self.execute2_resp_with_el(
+            el_str,
+            input,
+            request_id,
+            Vec::<(String, Arc<dyn Any + Send + Sync>)>::new(),
+        )
+        .await
+    }
+
+    /// 直接执行 EL，并传入请求 ID 与上下文 Bean。
+    ///
+    /// - `el_str`: Java `elStr`，待执行的 EL 表达式。
+    /// - `param`: Java `param`，链路输入。
+    /// - `request_id`: Java `requestId`；`None` 时自动生成。
+    /// - `context_beans`: Java `contextBeanArray` 的 Rust 具名对象映射。
+    ///
+    /// 对应 Java: `FlowExecutor#execute2RespWithEL`。
+    pub async fn execute2_resp_with_el(
+        &self,
+        el_str: &str,
+        param: Value,
+        request_id: Option<String>,
+        context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
+    ) -> LiteflowResponse {
         // 规范化 EL（对应 ElRegexUtil.normalize：单引号→双引号、去空白、末尾保留一个分号）
         let normalized = crate::util::el_regex_util::normalize_el(el_str);
         let el_md5 = format!("{:x}", Md5::digest(normalized.as_bytes()));
@@ -319,31 +431,22 @@ impl FlowExecutor {
                     .bus
                     .add_chain_anonymous(&id, &normalized, el_md5.clone())
                 {
-                    let slot = Arc::new(Slot::new(IdGeneratorHolder::generate(), &id, input));
+                    let slot = Arc::new(Slot::new(IdGeneratorHolder::generate(), &id, param));
                     return LiteflowResponse::new(slot, false, e.to_string(), Some(e.to_string()));
                 }
                 id
             }
         };
-        match request_id {
-            Some(rid) => {
-                self.execute_with_rid(
-                    &chain_id,
-                    input,
-                    rid,
-                    Vec::<(String, Arc<dyn Any + Send + Sync>)>::new(),
-                )
-                .await
-            }
-            None => {
-                self.execute_with(
-                    &chain_id,
-                    input,
-                    Vec::<(String, Arc<dyn Any + Send + Sync>)>::new(),
-                )
-                .await
-            }
-        }
+        self.execute_with_option(
+            &chain_id,
+            param,
+            crate::core::execute_option::ExecuteOption {
+                request_id,
+                context_beans,
+                ..Default::default()
+            },
+        )
+        .await
     }
 
     /// executeRouteChain(namespace, param, contextBeans)：
@@ -384,7 +487,7 @@ impl FlowExecutor {
             .chain_ids()
             .into_iter()
             .filter_map(|id| self.bus.get_chain(&id))
-            .filter(|c| c.namespace == namespace && c.route_item().is_some())
+            .filter(|c| c.get_namespace() == namespace && c.get_route_item().is_some())
             .collect();
         if route_chains.is_empty() {
             return Err(LiteflowError::RouteChainNotFound(namespace.to_string()));

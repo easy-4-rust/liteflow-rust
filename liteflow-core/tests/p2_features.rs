@@ -56,6 +56,27 @@ async fn monitor_file_manages_real_reload_delete_and_destroy_lifecycle() {
     assert!(!monitor.is_monitoring());
 }
 
+#[tokio::test]
+async fn flow_bus_clean_monitor_file_stops_registered_monitor_tasks() {
+    let directory = tempfile::tempdir().unwrap();
+    let rule_file = directory.path().join("flow.json");
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"name":"watched","condition":[{"type":"then","value":"a"}]}]}}"#,
+    )
+    .unwrap();
+
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let monitor = MonitorFile::new(bus.clone());
+    monitor.add_monitor_file_path(&rule_file).unwrap();
+    monitor.create(Duration::from_millis(10)).unwrap();
+    assert!(monitor.is_monitoring());
+
+    bus.clean_monitor_file().unwrap();
+    assert!(!monitor.is_monitoring());
+}
+
 // ---------- YML 规则 ----------
 
 #[tokio::test]
@@ -325,6 +346,17 @@ async fn monitor_time_task_runs_on_real_tokio_schedule() {
 
 struct HookLog {
     events: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl liteflow_core::LifeCycle for HookLog {
+    // 与 Java addLifeCycle 的 else-if 顺序一致：同时实现多个阶段时，
+    // ChainBuild 分支先于 FlowExecute 分支登记。
+    fn register_life_cycle(
+        self: Arc<Self>,
+        life_cycle_holder: &mut liteflow_core::LifeCycleHolder,
+    ) {
+        life_cycle_holder.chain_build.push(self);
+    }
 }
 
 impl liteflow_core::lifecycle::PostProcessChainBuildLifeCycle for HookLog {

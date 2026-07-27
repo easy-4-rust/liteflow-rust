@@ -22,6 +22,11 @@ impl BaseOperator for IfOperator {
                 "IF requires exactly two or three expressions".to_string(),
             ));
         }
+        OperatorHelper::check_obj_must_be_boolean_type_item(&items[0])?;
+        OperatorHelper::check_obj_must_be_common_type_item(&items[1])?;
+        if let Some(false_case) = items.get(2) {
+            OperatorHelper::check_obj_must_be_common_type_item(false_case)?;
+        }
         let els = if items.len() == 3 {
             Some(Box::new(items.remove(2)))
         } else {

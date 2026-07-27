@@ -4,7 +4,8 @@
 //! AST 构建或运行时执行，而不是只有文件壳。
 
 use liteflow_core::el::{El, parse_el};
-use liteflow_core::{FlowBus, LiteflowError, cmp};
+use liteflow_core::{FlowBus, LiteflowError, NodeTypeEnum, cmp};
+use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -27,15 +28,87 @@ fn when_operator_builds_parallel_ast() {
 }
 
 #[test]
-fn and_operator_keeps_single_item_compatibility() {
+fn and_operator_requires_at_least_two_items() {
     assert!(matches!(parse_el("AND(a,b)").unwrap(), El::And(items) if items.len() == 2));
-    assert!(matches!(parse_el("AND(a)").unwrap(), El::And(items) if items.len() == 1));
+    assert!(parse_el("AND(a)").is_err());
+    assert!(parse_el("AND()").is_err());
 }
 
 #[test]
-fn or_operator_keeps_single_item_compatibility() {
+fn or_operator_requires_at_least_two_items() {
     assert!(matches!(parse_el("OR(a,b)").unwrap(), El::Or(items) if items.len() == 2));
-    assert!(matches!(parse_el("OR(a)").unwrap(), El::Or(items) if items.len() == 1));
+    assert!(parse_el("OR(a)").is_err());
+    assert!(parse_el("OR()").is_err());
+}
+
+#[test]
+fn operator_helper_rejects_null_and_non_boolean_condition_items() {
+    assert!(matches!(
+        parse_el("THEN(null)"),
+        Err(LiteflowError::Parse(message)) if message == "DataNotFoundException"
+    ));
+    assert!(matches!(
+        parse_el("AND(THEN(a),b)"),
+        Err(LiteflowError::Parse(message)) if message == "The parameter error."
+    ));
+    assert!(matches!(
+        parse_el("FOR(THEN(a))"),
+        Err(LiteflowError::Parse(message))
+            if message == "The parameter error. It must be For type Node."
+    ));
+}
+
+#[test]
+fn operator_helper_checks_registered_node_types_during_chain_build() {
+    let bus = FlowBus::new();
+    bus.add_node(
+        "common",
+        None,
+        NodeTypeEnum::Common,
+        Arc::new(cmp(|_| async { Ok(Value::Null) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "boolean",
+        None,
+        NodeTypeEnum::Boolean,
+        Arc::new(cmp(|_| async { Ok(Value::Bool(true)) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "target",
+        None,
+        NodeTypeEnum::Common,
+        Arc::new(cmp(|_| async { Ok(Value::Null) })),
+    )
+    .unwrap();
+
+    assert!(bus.add_chain("valid_boolean", "IF(boolean,target)").is_ok());
+    assert!(matches!(
+        bus.add_chain("wrong_boolean", "IF(common,target)"),
+        Err(LiteflowError::Parse(message))
+            if message == "The node[common] must be boolean type Node."
+    ));
+    assert!(matches!(
+        bus.add_chain("wrong_common", "THEN(boolean)"),
+        Err(LiteflowError::Parse(message))
+            if message == "The node[boolean] must be a common type component"
+    ));
+    assert!(matches!(
+        bus.add_chain("wrong_for", "FOR(common).DO(target)"),
+        Err(LiteflowError::Parse(message))
+            if message == "The node[common] must be For type Node."
+    ));
+    assert!(matches!(
+        bus.add_chain("wrong_iterator", "ITERATOR(common).DO(target)"),
+        Err(LiteflowError::Parse(message))
+            if message == "The node[common] must be Iterator type Node."
+    ));
+    assert!(matches!(
+        bus.add_chain("wrong_switch", "SWITCH(common).TO(target)"),
+        Err(LiteflowError::Parse(message))
+            if message == "The node[common] must be Switch type Node."
+    ));
 }
 
 #[test]
@@ -243,12 +316,8 @@ fn id_tag_and_data_operators_preserve_java_scope_semantics() {
             if mods.id.as_deref() == Some("condition-1")
                 && mods.tag.as_deref() == Some("audit")
     ));
-    assert!(matches!(
-        parse_el("a.id(\"instance-a\").tag(\"blue\")").unwrap(),
-        El::Node(node)
-            if node.alias.as_deref() == Some("instance-a")
-                && node.tag.as_deref() == Some("blue")
-    ));
+    assert!(parse_el("a.id(\"instance-a\")").is_err());
+    assert!(parse_el("true.id(\"invalid\")").is_err());
     let expression = parse_el("THEN(a,IF(check,b,c)).data(\"payload\")").unwrap();
     match expression {
         El::Then(items) => {

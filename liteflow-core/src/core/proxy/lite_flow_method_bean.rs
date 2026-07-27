@@ -34,6 +34,17 @@ impl LiteFlowMethodBean {
         &self.method_name
     }
 
+    /// 返回声明式方法名。
+    ///
+    /// # 返回
+    /// `DeclComponent` 静态分派时使用的真实方法名称。
+    ///
+    /// 对应 Java: `LiteFlowMethodBean#getMethodName`。
+    #[must_use]
+    pub fn get_method_name(&self) -> &str {
+        self.method_name()
+    }
+
     /// 修改声明式方法名。对应 Java: `LiteFlowMethodBean#setMethodName`。
     pub fn set_method_name(&mut self, method_name: impl Into<String>) {
         self.method_name = method_name.into();
@@ -45,6 +56,17 @@ impl LiteFlowMethodBean {
     #[must_use]
     pub fn method(&self) -> LiteFlowMethodEnum {
         self.method
+    }
+
+    /// 返回方法的 LiteFlow 生命周期角色。
+    ///
+    /// # 返回
+    /// Rust 以 `LiteFlowMethodEnum` 表示 Java `Method` 对应的框架角色。
+    ///
+    /// 对应 Java: `LiteFlowMethodBean#getMethod`。
+    #[must_use]
+    pub fn get_method(&self) -> LiteFlowMethodEnum {
+        self.method()
     }
 
     /// 修改方法的 LiteFlow 生命周期角色。

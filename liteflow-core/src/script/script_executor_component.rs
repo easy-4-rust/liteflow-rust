@@ -7,7 +7,8 @@ use serde_json::Value;
 
 use super::{ScriptExecutor, ScriptKind};
 use crate::core::NodeComponent;
-use crate::exception::LFResult;
+use crate::exception::{LFResult, LiteflowError};
+use crate::script::ScriptExecuteWrap;
 use crate::slot::CmpContext;
 
 /// 将一个已经加载脚本的 `ScriptExecutor` 适配为对应节点类别。
@@ -56,11 +57,70 @@ impl NodeComponent for ScriptExecutorComponent {
         self.kind.check_return(&self.node_id, value)
     }
 
+    async fn before_process(&self, context: &CmpContext) -> LFResult<()> {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_before_process(&wrap, context);
+        Ok(())
+    }
+
+    async fn on_success(&self, context: &CmpContext) -> LFResult<()> {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_on_success(&wrap, context);
+        Ok(())
+    }
+
+    async fn after_process(&self, context: &CmpContext) {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_after_process(&wrap, context);
+    }
+
+    async fn on_error(&self, context: &CmpContext, error: &LiteflowError) {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_on_error(&wrap, context, error);
+    }
+
+    fn is_access(&self, context: &CmpContext) -> bool {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_is_access(&wrap, context)
+    }
+
+    fn is_continue_on_error(&self) -> bool {
+        false
+    }
+
+    fn is_continue_on_error_with_context(&self, context: &CmpContext) -> bool {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_is_continue_on_error(&wrap, context)
+    }
+
+    fn is_end(&self, context: &CmpContext) -> bool {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        context
+            .inner
+            .ended
+            .load(std::sync::atomic::Ordering::Acquire)
+            || self.executor.execute_is_end(&wrap, context)
+    }
+
+    fn is_rollback(&self) -> bool {
+        true
+    }
+
+    async fn rollback(&self, context: &CmpContext) -> LFResult<()> {
+        let wrap = ScriptExecuteWrap::from_context(context);
+        self.executor.execute_rollback(&wrap, context)
+    }
+
     fn name(&self) -> &str {
         &self.node_id
     }
 
     fn node_id(&self) -> &str {
         &self.node_id
+    }
+
+    fn unload_script(&self, node_id: &str) -> LFResult<bool> {
+        self.executor.unload(node_id)?;
+        Ok(true)
     }
 }

@@ -20,9 +20,29 @@ impl<A, B> TupleOf2<A, B> {
         &self.a
     }
 
+    /// 返回第一个值。
+    ///
+    /// - 返回：字段 `a` 的共享引用。
+    ///
+    /// 对应 Java: `TupleOf2#getA`。
+    #[must_use]
+    pub fn get_a(&self) -> &A {
+        self.a()
+    }
+
     /// 返回第二个值的引用。对应 Java: `getB`。
     pub fn b(&self) -> &B {
         &self.b
+    }
+
+    /// 返回第二个值。
+    ///
+    /// - 返回：字段 `b` 的共享引用。
+    ///
+    /// 对应 Java: `TupleOf2#getB`。
+    #[must_use]
+    pub fn get_b(&self) -> &B {
+        self.b()
     }
 
     /// 设置第一个值。对应 Java: `setA`。

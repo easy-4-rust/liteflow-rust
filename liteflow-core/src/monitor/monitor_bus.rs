@@ -1,16 +1,15 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use dashmap::DashMap;
 
 use super::comp_statistics::CompStatistics;
 use super::stat_entry::StatEntry;
+use crate::property::LiteflowConfig;
 use crate::slot::DataBus;
 use crate::util::BoundedPriorityBlockingQueue;
-
-const DEFAULT_QUEUE_LIMIT: usize = 200;
 
 /// 组件执行统计总线。
 ///
@@ -22,14 +21,19 @@ pub struct MonitorBus {
     stats: DashMap<String, StatEntry>,
     statistics_map: DashMap<String, Arc<BoundedPriorityBlockingQueue<CompStatistics>>>,
     queue_limit: AtomicUsize,
+    liteflow_config: RwLock<LiteflowConfig>,
+    scheduler_abort_handle: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl Default for MonitorBus {
     fn default() -> Self {
+        let liteflow_config = LiteflowConfig::default();
         Self {
             stats: DashMap::new(),
             statistics_map: DashMap::new(),
-            queue_limit: AtomicUsize::new(DEFAULT_QUEUE_LIMIT),
+            queue_limit: AtomicUsize::new(liteflow_config.get_queue_limit()),
+            liteflow_config: RwLock::new(liteflow_config),
+            scheduler_abort_handle: Mutex::new(None),
         }
     }
 }
@@ -188,11 +192,90 @@ impl MonitorBus {
             .collect()
     }
 
+    /// 返回每个组件当前保留的有序样本快照。
+    ///
+    /// Java 返回并发 Map 的活动视图；Rust 为避免把内部并发容器和可变队列暴露给
+    /// 调用方，返回同一真实数据在调用时刻的拥有型快照。
+    ///
+    /// # 返回
+    /// 组件类型名到有界统计样本列表的映射。
+    ///
+    /// 对应 Java: `MonitorBus#getStatisticsMap`。
+    #[must_use]
+    pub fn get_statistics_map(&self) -> HashMap<String, Vec<CompStatistics>> {
+        self.statistics_map()
+    }
+
+    /// 返回监控总线当前使用的 LiteFlow 配置快照。
+    ///
+    /// # 返回
+    /// 包含样本上限、初始延迟、输出周期和日志开关的配置副本。
+    ///
+    /// 对应 Java: `MonitorBus#getLiteflowConfig`。
+    #[must_use]
+    pub fn get_liteflow_config(&self) -> LiteflowConfig {
+        self.liteflow_config
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// 替换监控总线使用的 LiteFlow 配置。
+    ///
+    /// # 参数
+    /// - `liteflow_config`: 新的核心配置对象。
+    ///
+    /// 样本上限会立即影响之后新建的组件队列；已有队列继续保持原有容量，与 Java
+    /// 直接替换配置字段后的行为一致。对应 Java:
+    /// `MonitorBus#setLiteflowConfig`。
+    pub fn set_liteflow_config(&self, liteflow_config: LiteflowConfig) {
+        self.queue_limit
+            .store(liteflow_config.get_queue_limit(), Ordering::Relaxed);
+        *self
+            .liteflow_config
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = liteflow_config;
+    }
+
+    /// 关闭由宿主登记的周期统计调度器。
+    ///
+    /// Rust 的 Tokio 任务使用 `AbortHandle` 取消；未启动调度器时调用是幂等操作。
+    /// 对应 Java: `MonitorBus#closeScheduler`。
+    pub fn close_scheduler(&self) {
+        if let Some(abort_handle) = self
+            .scheduler_abort_handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            abort_handle.abort();
+        }
+    }
+
+    /// 登记宿主创建的周期监控任务，使 `close_scheduler` 能统一关闭它。
+    ///
+    /// Java 在构造器中直接创建 `ScheduledExecutorService`；Rust 的 Tokio runtime
+    /// 由 Vernal 或其他宿主管理，因此任务由宿主启动后把取消句柄交回监控总线。
+    #[doc(hidden)]
+    pub fn register_scheduler(&self, abort_handle: tokio::task::AbortHandle) {
+        let mut scheduler = self
+            .scheduler_abort_handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(previous) = scheduler.replace(abort_handle) {
+            previous.abort();
+        }
+    }
+
     /// 设置新建组件样本队列的容量。
     ///
     /// 已存在队列保持原容量，与 Java 替换配置后只影响后续新队列的行为一致。
     pub fn set_queue_limit(&self, queue_limit: usize) {
         self.queue_limit.store(queue_limit, Ordering::Relaxed);
+        self.liteflow_config
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .set_queue_limit(queue_limit);
     }
 
     /// 返回当前新建队列使用的容量。

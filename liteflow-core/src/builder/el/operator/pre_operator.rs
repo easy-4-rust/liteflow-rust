@@ -15,10 +15,10 @@ impl BaseOperator for PreOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         OperatorHelper::require_primary(caller, self.operator_name())?;
-        Ok(El::Pre(Box::new(El::Then(OperatorHelper::expressions(
-            objects,
-            self.operator_name(),
-            1,
-        )?))))
+        let expressions = OperatorHelper::expressions(objects, self.operator_name(), 1)?;
+        for expression in &expressions {
+            OperatorHelper::check_obj_must_be_common_type_item(expression)?;
+        }
+        Ok(El::Pre(Box::new(El::Then(expressions))))
     }
 }

@@ -74,6 +74,15 @@ impl AgentConfig {
         &self.workspace
     }
 
+    /// 返回工作区配置。
+    ///
+    /// 返回值控制会话根目录、自动创建、过期清理和文件大小上限。对应 Java:
+    /// `AgentConfig#getWorkspace`。
+    #[must_use]
+    pub fn get_workspace(&self) -> &WorkspaceConfig {
+        self.workspace()
+    }
+
     /// 设置工作区配置。对应 Java: `AgentConfig#setWorkspace`。
     pub fn set_workspace(&mut self, workspace: WorkspaceConfig) {
         self.workspace = workspace;
@@ -83,6 +92,15 @@ impl AgentConfig {
     #[must_use]
     pub fn session(&self) -> &SessionConfig {
         &self.session
+    }
+
+    /// 返回 Agent 会话生命周期配置。
+    ///
+    /// 返回值供会话管理器读取空闲超时、清理周期、并发上限和记忆持久化方式。
+    /// 对应 Java: `AgentConfig#getSession`。
+    #[must_use]
+    pub fn get_session(&self) -> &SessionConfig {
+        self.session()
     }
 
     /// 设置会话配置。对应 Java: `AgentConfig#setSession`。
@@ -96,6 +114,15 @@ impl AgentConfig {
         &self.shell
     }
 
+    /// 返回 Shell 工具安全配置。
+    ///
+    /// 返回值决定命令过滤模式、执行超时和输出截断。对应 Java:
+    /// `AgentConfig#getShell`。
+    #[must_use]
+    pub fn get_shell(&self) -> &ShellConfig {
+        self.shell()
+    }
+
     /// 设置 Shell 配置。对应 Java: `AgentConfig#setShell`。
     pub fn set_shell(&mut self, shell: ShellConfig) {
         self.shell = shell;
@@ -105,6 +132,15 @@ impl AgentConfig {
     #[must_use]
     pub fn defaults(&self) -> &DefaultsConfig {
         &self.defaults
+    }
+
+    /// 返回 ReAct Agent 全局默认值。
+    ///
+    /// 组件未显式配置最大迭代次数时使用此对象。对应 Java:
+    /// `AgentConfig#getDefaults`。
+    #[must_use]
+    pub fn get_defaults(&self) -> &DefaultsConfig {
+        self.defaults()
     }
 
     /// 设置全局默认值。对应 Java: `AgentConfig#setDefaults`。
@@ -118,6 +154,15 @@ impl AgentConfig {
         &self.logging
     }
 
+    /// 返回 ReAct 内部事件日志配置。
+    ///
+    /// 返回值控制 reason、act、error 等事件是否输出。对应 Java:
+    /// `AgentConfig#getLogging`。
+    #[must_use]
+    pub fn get_logging(&self) -> &LoggingConfig {
+        self.logging()
+    }
+
     /// 设置日志配置。对应 Java: `AgentConfig#setLogging`。
     pub fn set_logging(&mut self, logging: LoggingConfig) {
         self.logging = logging;
@@ -127,6 +172,15 @@ impl AgentConfig {
     #[must_use]
     pub fn skills(&self) -> &SkillsConfig {
         &self.skills
+    }
+
+    /// 返回 AgentScope Skills 加载配置。
+    ///
+    /// 返回值控制技能目录、启用状态和严格解析模式。对应 Java:
+    /// `AgentConfig#getSkills`。
+    #[must_use]
+    pub fn get_skills(&self) -> &SkillsConfig {
+        self.skills()
     }
 
     /// 设置 Skills 配置。对应 Java: `AgentConfig#setSkills`。
@@ -140,6 +194,15 @@ impl AgentConfig {
         &self.openai
     }
 
+    /// 返回 OpenAI 头等平台凭证。
+    ///
+    /// 返回值由 OpenAI ProviderSpec 解析使用。对应 Java:
+    /// `AgentConfig#getOpenai`。
+    #[must_use]
+    pub fn get_openai(&self) -> &PlatformCredential {
+        self.openai()
+    }
+
     /// 设置 OpenAI 凭证。对应 Java: `AgentConfig#setOpenai`。
     pub fn set_openai(&mut self, openai: PlatformCredential) {
         self.openai = openai;
@@ -149,6 +212,15 @@ impl AgentConfig {
     #[must_use]
     pub fn anthropic(&self) -> &PlatformCredential {
         &self.anthropic
+    }
+
+    /// 返回 Anthropic 头等平台凭证。
+    ///
+    /// 返回值由 Anthropic ProviderSpec 解析使用。对应 Java:
+    /// `AgentConfig#getAnthropic`。
+    #[must_use]
+    pub fn get_anthropic(&self) -> &PlatformCredential {
+        self.anthropic()
     }
 
     /// 设置 Anthropic 凭证。对应 Java: `AgentConfig#setAnthropic`。
@@ -162,6 +234,15 @@ impl AgentConfig {
         &self.gemini
     }
 
+    /// 返回 Gemini 头等平台凭证。
+    ///
+    /// 返回值由 Gemini ProviderSpec 解析使用。对应 Java:
+    /// `AgentConfig#getGemini`。
+    #[must_use]
+    pub fn get_gemini(&self) -> &PlatformCredential {
+        self.gemini()
+    }
+
     /// 设置 Gemini 凭证。对应 Java: `AgentConfig#setGemini`。
     pub fn set_gemini(&mut self, gemini: PlatformCredential) {
         self.gemini = gemini;
@@ -173,6 +254,15 @@ impl AgentConfig {
         &self.dashscope
     }
 
+    /// 返回 DashScope 头等平台凭证。
+    ///
+    /// 返回值由阿里云百炼 ProviderSpec 解析使用。对应 Java:
+    /// `AgentConfig#getDashscope`。
+    #[must_use]
+    pub fn get_dashscope(&self) -> &PlatformCredential {
+        self.dashscope()
+    }
+
     /// 设置 DashScope 凭证。对应 Java: `AgentConfig#setDashscope`。
     pub fn set_dashscope(&mut self, dashscope: PlatformCredential) {
         self.dashscope = dashscope;
@@ -182,6 +272,15 @@ impl AgentConfig {
     #[must_use]
     pub fn openai_compatible(&self) -> &HashMap<String, PlatformCredential> {
         &self.openai_compatible
+    }
+
+    /// 返回 OpenAI 兼容平台凭证集合。
+    ///
+    /// Map 的 key 是用户定义的平台名，例如 `deepseek`；返回借用避免复制凭证。
+    /// 对应 Java: `AgentConfig#getOpenaiCompatible`。
+    #[must_use]
+    pub fn get_openai_compatible(&self) -> &HashMap<String, PlatformCredential> {
+        self.openai_compatible()
     }
 
     /// 设置 OpenAI 兼容平台凭证。对应 Java: `AgentConfig#setOpenaiCompatible`。
@@ -196,6 +295,15 @@ impl AgentConfig {
     #[must_use]
     pub fn anthropic_compatible(&self) -> &HashMap<String, PlatformCredential> {
         &self.anthropic_compatible
+    }
+
+    /// 返回 Anthropic 兼容平台凭证集合。
+    ///
+    /// Map 的 key 由带 `compatibleConfigKey` 的 ProviderSpec 查询。对应 Java:
+    /// `AgentConfig#getAnthropicCompatible`。
+    #[must_use]
+    pub fn get_anthropic_compatible(&self) -> &HashMap<String, PlatformCredential> {
+        self.anthropic_compatible()
     }
 
     /// 设置 Anthropic 兼容平台凭证。对应 Java: `AgentConfig#setAnthropicCompatible`。

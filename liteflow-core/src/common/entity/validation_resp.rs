@@ -42,6 +42,16 @@ impl ValidationResp {
         self.cause.as_ref()
     }
 
+    /// 返回失败时保留的异常。
+    ///
+    /// - 返回：失败结果返回原始 `LiteflowError` 引用，成功结果返回 `None`。
+    ///
+    /// 对应 Java: `ValidationResp#getCause`。
+    #[must_use]
+    pub fn get_cause(&self) -> Option<&LiteflowError> {
+        self.cause()
+    }
+
     /// 修改失败原因。对应 Java `setCause(Exception)`。
     pub fn set_cause(&mut self, cause: Option<LiteflowError>) {
         self.cause = cause;

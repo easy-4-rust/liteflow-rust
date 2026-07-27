@@ -42,6 +42,16 @@ impl SkillsConfig {
         &self.path
     }
 
+    /// 返回 Skills 根目录。
+    ///
+    /// - 返回：技能加载器实际使用的目录；默认值为 `./skills`。
+    ///
+    /// 对应 Java: `SkillsConfig#getPath`。
+    #[must_use]
+    pub fn get_path(&self) -> &str {
+        self.path()
+    }
+
     /// 设置 Skills 根目录。对应 Java: `SkillsConfig#setPath`。
     pub fn set_path(&mut self, path: impl Into<String>) {
         self.path = path.into();

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
 use crate::exception::{LFResult, LiteflowError};
@@ -15,8 +15,8 @@ use crate::parser::{load_json_file, load_xml_file, load_yml_file};
 /// 对应 Java: `com.yomahub.liteflow.monitor.MonitorFile`。
 pub struct MonitorFile {
     flow_bus: FlowBus,
-    paths: RwLock<HashSet<PathBuf>>,
-    monitors: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    paths: Arc<RwLock<HashSet<PathBuf>>>,
+    monitors: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl MonitorFile {
@@ -26,10 +26,34 @@ impl MonitorFile {
     /// `FlowExecutorHolder` 间接取得同一运行时。
     #[must_use]
     pub fn new(flow_bus: FlowBus) -> Self {
+        let paths = Arc::new(RwLock::new(HashSet::new()));
+        let monitors = Arc::new(Mutex::new(Vec::<tokio::task::JoinHandle<()>>::new()));
+        let weak_paths = Arc::downgrade(&paths);
+        let weak_monitors = Arc::downgrade(&monitors);
+
+        // 只登记弱清理动作，避免 FlowBus 与 MonitorFile 相互强引用。
+        flow_bus.register_monitor_file_cleaner(Arc::new(move || {
+            if let Some(monitors) = weak_monitors.upgrade() {
+                let mut monitors = monitors
+                    .lock()
+                    .map_err(|_| monitor_error("monitor task lock poisoned"))?;
+                for monitor in monitors.drain(..) {
+                    monitor.abort();
+                }
+            }
+            if let Some(paths) = weak_paths.upgrade() {
+                paths
+                    .write()
+                    .map_err(|_| monitor_error("monitor path lock poisoned"))?
+                    .clear();
+            }
+            Ok(())
+        }));
+
         Self {
             flow_bus,
-            paths: RwLock::new(HashSet::new()),
-            monitors: Mutex::new(Vec::new()),
+            paths,
+            monitors,
         }
     }
 
@@ -158,7 +182,7 @@ impl MonitorFile {
 
 impl Drop for MonitorFile {
     fn drop(&mut self) {
-        if let Ok(monitors) = self.monitors.get_mut() {
+        if let Ok(mut monitors) = self.monitors.lock() {
             for monitor in monitors.drain(..) {
                 monitor.abort();
             }

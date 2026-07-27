@@ -87,7 +87,7 @@ impl LiteflowMetaOperator {
     #[must_use]
     pub fn get_nodes_from_chain(chain: &Chain) -> Vec<NodeRef> {
         chain
-            .el()
+            .get_el()
             .and_then(|el| parse_el(el).ok())
             .map(|el| {
                 let mut nodes = Vec::new();

@@ -153,6 +153,10 @@ impl Parser<'_> {
                 self.next();
                 Ok(Arg::Bool(b))
             }
+            Some(Tok::Null) => {
+                self.next();
+                Ok(Arg::Null)
+            }
             Some(Tok::Ident(_)) => {
                 // 子表达式（关键字或节点引用，均可带方法链）
                 Ok(Arg::Expr(self.parse_expr()?))

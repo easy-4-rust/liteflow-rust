@@ -66,6 +66,29 @@ impl ComponentInitializer {
         name: Option<&str>,
         node_id: &str,
     ) -> LFResult<Arc<dyn NodeComponent>> {
+        self.init_component_with_type_source(node_component, node_type, true, name, node_id)
+    }
+
+    /// 初始化由 Rust 闭包便利入口注册、节点类型需要从 EL 位置推断的组件。
+    pub(crate) fn init_inferred_component(
+        &self,
+        node_component: Arc<dyn NodeComponent>,
+        node_type: NodeTypeEnum,
+        name: Option<&str>,
+        node_id: &str,
+    ) -> LFResult<Arc<dyn NodeComponent>> {
+        self.init_component_with_type_source(node_component, node_type, false, name, node_id)
+    }
+
+    /// 共用不可变委托初始化，并记录节点类型是显式声明还是位置推断。
+    fn init_component_with_type_source(
+        &self,
+        node_component: Arc<dyn NodeComponent>,
+        node_type: NodeTypeEnum,
+        node_type_explicit: bool,
+        name: Option<&str>,
+        node_id: &str,
+    ) -> LFResult<Arc<dyn NodeComponent>> {
         let node_id = node_id.trim();
         if node_id.is_empty() {
             return Err(LiteflowError::NodeBuild("[id is blank]".to_string()));
@@ -78,6 +101,7 @@ impl ComponentInitializer {
             node_component,
             node_id.to_string(),
             node_type,
+            node_type_explicit,
             name,
             self.default_retry_count,
             self.default_node_executor.clone(),

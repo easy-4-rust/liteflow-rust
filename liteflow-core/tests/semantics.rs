@@ -104,6 +104,7 @@ async fn when_timeout() {
     let resp = bus.execute("c1").await;
     assert!(!resp.is_success());
     assert!(resp.message.contains("timeout"));
+    assert_eq!(resp.get_timeout_items(), ["slow"]);
 }
 
 #[tokio::test]
@@ -521,7 +522,7 @@ async fn request_data_and_bean() {
 }
 
 #[tokio::test]
-async fn node_tag_data_alias() {
+async fn node_tag_and_data() {
     let bus = FlowBus::new();
     bus.register(
         "a",
@@ -531,13 +532,13 @@ async fn node_tag_data_alias() {
             Ok(Value::Null)
         }),
     );
-    bus.add_chain("c1", r#"THEN(a.tag("t1").data("hello").id("a1"))"#)
+    bus.add_chain("c1", r#"THEN(a.tag("t1").data("hello"))"#)
         .unwrap();
     let resp = bus.execute("c1").await;
     assert!(resp.is_success());
     assert_eq!(resp.data("tag"), Some(json!("t1")));
     assert_eq!(resp.data("data"), Some(json!("hello")));
-    assert_eq!(resp.steps[0].node_id, "a1");
+    assert_eq!(resp.steps[0].node_id, "a");
 }
 
 #[tokio::test]

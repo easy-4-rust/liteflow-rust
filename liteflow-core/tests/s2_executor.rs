@@ -11,7 +11,6 @@
 use liteflow_core::NodeComponent;
 use liteflow_core::el::NodeRef;
 use liteflow_core::exception::LiteflowError;
-use liteflow_core::flow::element::executable::Executable;
 use liteflow_core::flow::element::node::Node;
 use liteflow_core::flow::executor::{DefaultNodeExecutor, NodeExecutor, NodeExecutorHelper};
 use liteflow_core::flow::parallel::{CompletableFutureTimeout, WhenFutureObj, complete_on_timeout};
@@ -33,6 +32,23 @@ struct FlakyCmp {
     retry_for_node_exec: bool,
     /// 是否固定抛 ChainEnd
     chain_end: bool,
+}
+
+/// `process` 成功但 `on_success` 失败的组件，用于验证 Java 写结果时序。
+struct OnSuccessFailureCmp {
+    calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for OnSuccessFailureCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::Bool(true))
+    }
+
+    async fn on_success(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
+        Err(LiteflowError::Custom("on_success failed".to_string()))
+    }
 }
 
 #[async_trait::async_trait]
@@ -65,6 +81,190 @@ fn ctx_frame() -> (Ctx, Frame) {
 
 fn node_of(cmp: FlakyCmp) -> Node {
     Node::new(NodeRef::new("a"), Arc::new(cmp))
+}
+
+/// 验证 Java Node 元数据访问方法、bind 覆盖以及 clone 隔离语义。
+#[test]
+fn node_java_named_metadata_and_copy_are_isolated() {
+    let cmp = FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: 1,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    };
+    let mut node = node_of(cmp);
+    node.set_id("node-a");
+    node.set_node_instance_id("node-a-0");
+    node.set_tag("blue");
+    node.set_name("订单校验");
+    node.set_type(liteflow_core::NodeTypeEnum::Common);
+    node.set_clazz("example.OrderCheckComponent");
+    node.set_cmp_data(r#"{"strict":true}"#);
+    node.set_curr_chain_id("order-chain");
+    node.set_script("return true");
+    node.set_language("qlexpress");
+    node.set_compiled(true);
+    node.put_bind_data("tenant", "a");
+    node.put_bind_data("tenant", "b");
+
+    assert_eq!(node.get_id(), "node-a");
+    assert_eq!(node.get_node_instance_id(), Some("node-a-0"));
+    assert_eq!(node.get_tag(), Some("blue"));
+    assert_eq!(node.get_name(), "订单校验");
+    assert_eq!(node.get_type(), Some(liteflow_core::NodeTypeEnum::Common));
+    assert_eq!(node.get_clazz(), Some("example.OrderCheckComponent"));
+    assert_eq!(node.get_cmp_data(), Some(r#"{"strict":true}"#));
+    assert_eq!(node.get_curr_chain_id(), Some("order-chain"));
+    assert_eq!(node.get_script(), Some("return true"));
+    assert_eq!(node.get_language(), Some("qlexpress"));
+    assert!(node.is_compiled());
+    assert_eq!(
+        node.get_execute_type(),
+        liteflow_core::ExecuteableTypeEnum::Node
+    );
+    assert_eq!(node.get_bind_data("tenant"), Some("b"));
+
+    let mut copied = node.copy();
+    copied.put_bind_data("tenant", "copy");
+    copied.set_tag("copy");
+    assert_eq!(node.get_bind_data("tenant"), Some("b"));
+    assert_eq!(node.get_tag(), Some("blue"));
+    assert_eq!(copied.get_bind_data("tenant"), Some("copy"));
+    assert_eq!(copied.get_tag(), Some("copy"));
+}
+
+/// 验证 Node 的 Java ThreadLocal 兼容状态在父子 Frame 间保持隔离。
+#[test]
+fn node_task_local_state_is_isolated_and_removable() {
+    let cmp = FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: 1,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    };
+    let node = node_of(cmp);
+    let (ctx, mut parent) = ctx_frame();
+
+    node.set_access_result(&mut parent, true);
+    node.set_is_continue_on_error_result(&mut parent, true);
+    node.set_loop_index(&mut parent, 7, 2);
+    node.set_curr_loop_object(&mut parent, 7, serde_json::json!({"id": "parent"}));
+    node.set_step_data(&mut parent, serde_json::json!({"trace": "parent"}));
+    node.set_is_end(&ctx, true);
+
+    let mut child = parent.clone();
+    node.set_access_result(&mut child, false);
+    node.set_loop_index(&mut child, 7, 9);
+    node.set_step_data(&mut child, serde_json::json!({"trace": "child"}));
+
+    assert!(node.get_access_result(&parent));
+    assert!(node.get_is_continue_on_error_result(&parent));
+    assert_eq!(node.get_loop_index(&parent), Some(2));
+    assert_eq!(
+        node.get_curr_loop_object(&parent),
+        Some(&serde_json::json!({"id": "parent"}))
+    );
+    assert_eq!(
+        node.get_step_data(&parent),
+        Some(serde_json::json!({"trace": "parent"}))
+    );
+    assert_eq!(node.get_loop_index(&child), Some(9));
+    assert_eq!(
+        node.get_step_data(&child),
+        Some(serde_json::json!({"trace": "child"}))
+    );
+    assert!(node.get_is_end(&ctx));
+
+    node.remove_access_result(&mut child);
+    node.remove_is_continue_on_error_result(&mut child);
+    node.remove_curr_loop_object(&mut child);
+    node.remove_step_data(&mut child);
+    node.remove_is_end(&ctx);
+
+    assert!(!node.get_access_result(&child));
+    assert!(!node.get_is_continue_on_error_result(&child));
+    assert!(node.get_loop_index(&child).is_none());
+    assert!(node.get_step_data(&child).is_none());
+    assert!(!node.get_is_end(&ctx));
+    assert!(node.get_access_result(&parent));
+    assert_eq!(node.get_loop_index(&parent), Some(2));
+}
+
+/// 验证结果读取只访问单次执行缓存，父子任务写入互不覆盖。
+#[tokio::test]
+async fn node_item_result_cache_is_single_execution_and_task_isolated() {
+    let cmp = FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: 1,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    };
+    let node = node_of(cmp);
+    let (ctx, parent) = ctx_frame();
+
+    assert!(matches!(
+        node.execute(&ctx, &parent).await,
+        Ok(Value::Number(number)) if number.as_u64() == Some(1)
+    ));
+    assert_eq!(
+        node.get_item_result_meta_value(&parent),
+        Some(Value::from(1))
+    );
+    assert_eq!(
+        node.get_item_result_meta_value(&parent),
+        Some(Value::from(1))
+    );
+    assert_eq!(
+        ctx.inner.steps.lock().expect("步骤锁不应中毒").len(),
+        1,
+        "重复读取缓存不得再次执行组件"
+    );
+
+    let child = parent.clone();
+    assert!(matches!(
+        node.execute(&ctx, &child).await,
+        Ok(Value::Number(number)) if number.as_u64() == Some(2)
+    ));
+    assert_eq!(
+        node.get_item_result_meta_value(&child),
+        Some(Value::from(2))
+    );
+    assert_eq!(
+        node.get_item_result_meta_value(&parent),
+        Some(Value::from(1)),
+        "子任务新结果不得覆盖父任务快照"
+    );
+
+    node.remove_item_result_meta_value(&child);
+    assert_eq!(node.get_item_result_meta_value(&child), None);
+    assert_eq!(
+        node.get_item_result_meta_value(&parent),
+        Some(Value::from(1))
+    );
+}
+
+/// 验证 Java 时序：process 产出结果后，即使 onSuccess 失败仍可读取结果。
+#[tokio::test]
+async fn node_item_result_is_cached_before_on_success() {
+    let node = Node::new(
+        NodeRef::new("boolean"),
+        Arc::new(OnSuccessFailureCmp {
+            calls: AtomicUsize::new(0),
+        }),
+    );
+    let (ctx, frame) = ctx_frame();
+
+    assert!(matches!(
+        node.execute(&ctx, &frame).await,
+        Err(LiteflowError::NodeExec { msg, .. }) if msg == "on_success failed"
+    ));
+    assert_eq!(
+        node.get_item_result_meta_value(&frame),
+        Some(Value::Bool(true))
+    );
 }
 
 /// 重试第 3 次成功：retry_count=3，第 3 次调用才成功 → Ok，总调用 3 次
@@ -171,15 +371,15 @@ async fn helper_caches_default_executor_singleton() {
 #[test]
 fn when_future_obj_variants() {
     let ok = WhenFutureObj::success("a");
-    assert!(ok.is_success() && !ok.is_timeout() && ok.ex.is_none());
-    assert_eq!(ok.executor_name, "a");
+    assert!(ok.is_success() && !ok.is_timeout() && ok.get_ex().is_none());
+    assert_eq!(ok.get_executor_id(), "a");
 
     let fail = WhenFutureObj::fail("b", LiteflowError::Custom("x".into()));
-    assert!(!fail.is_success() && !fail.is_timeout() && fail.ex.is_some());
+    assert!(!fail.is_success() && !fail.is_timeout() && fail.get_ex().is_some());
 
     let timeout = WhenFutureObj::time_out("c");
     assert!(!timeout.is_success() && timeout.is_timeout());
-    assert!(matches!(timeout.ex, Some(LiteflowError::WhenTimeout)));
+    assert!(matches!(timeout.get_ex(), Some(LiteflowError::WhenTimeout)));
 }
 
 /// flow.parallel：complete_on_timeout 在超时后兜底为默认值，及时完成时返回原结果

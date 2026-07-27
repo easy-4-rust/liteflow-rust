@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 
-use crate::lifecycle::PostProcessChainExecuteLifeCycle;
+use crate::lifecycle::{LifeCycle, LifeCycleHolder, PostProcessChainExecuteLifeCycle};
 
 fn lifecycle_instance() -> &'static OnceLock<Arc<ChainCacheLifeCycle>> {
     static INSTANCE: OnceLock<Arc<ChainCacheLifeCycle>> = OnceLock::new();
@@ -115,6 +115,16 @@ impl ChainCacheLifeCycle {
         if self.cleaned.insert(chain_id.to_string()) {
             (self.clean_chain)(chain_id);
         }
+    }
+}
+
+impl LifeCycle for ChainCacheLifeCycle {
+    /// 把链路缓存生命周期登记到 Chain Execute 阶段。
+    ///
+    /// 对应 Java `LifeCycleHolder#addLifeCycle` 对
+    /// `PostProcessChainExecuteLifeCycle` 的类型分支。
+    fn register_life_cycle(self: Arc<Self>, life_cycle_holder: &mut LifeCycleHolder) {
+        life_cycle_holder.chain_execute.push(self);
     }
 }
 

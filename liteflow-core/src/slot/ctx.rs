@@ -6,7 +6,7 @@
 use crate::core::NodeComponent;
 use crate::enums::CmpStepTypeEnum;
 use crate::flow::entity::cmp_step::CmpStep;
-use crate::slot::default_context::CmpContext;
+use crate::slot::cmp_context::CmpContext;
 use crate::slot::slot::Slot;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -24,9 +24,7 @@ impl Ctx {
         Self { inner }
     }
     pub fn record_step(&self, step: CmpStep) {
-        if let Ok(mut s) = self.inner.steps.lock() {
-            s.push(step);
-        }
+        self.inner.add_step(step);
     }
     /// 登记失败时需要逆序补偿的节点执行记录。
     ///
@@ -58,7 +56,7 @@ impl Ctx {
         let mut rolled_back = HashSet::new();
 
         for (node_instance_id, component, node, frame) in items.into_iter().rev() {
-            if !rolled_back.insert(node_instance_id) {
+            if !rolled_back.insert(node_instance_id.clone()) {
                 continue;
             }
 
@@ -67,17 +65,19 @@ impl Ctx {
                 node,
                 frame,
             };
-            let mut step =
-                CmpStep::new(context.node.display().to_string(), CmpStepTypeEnum::Single);
-            step.node_name = component.name().to_string();
+            let mut step = CmpStep::new(
+                context.node.display().to_string(),
+                component.name(),
+                CmpStepTypeEnum::Single,
+            );
+            step.node_instance_id = Some(node_instance_id);
             step.tag = context.node.tag.clone();
+            step.set_instance(component.clone());
             match component.rollback(&context).await {
                 Ok(()) => step.finish_rollback(true, None),
                 Err(error) => step.finish_rollback(false, Some(error.to_string())),
             }
-            if let Ok(mut rollback_steps) = self.inner.rollback_steps.lock() {
-                rollback_steps.push(step);
-            }
+            self.inner.add_rollback_step(step);
         }
     }
     pub fn set_exception(&self, e: &str) {

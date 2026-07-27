@@ -29,8 +29,17 @@ pub struct NodePropBean {
 
 impl NodePropBean {
     /// 返回节点 id。对应 Java: `NodePropBean#getId`。
-    pub fn id(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_id(&self) -> Option<&str> {
         self.id.as_deref()
+    }
+
+    /// 返回节点 id。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_id`。
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.get_id()
     }
 
     /// 设置节点 id。对应 Java: `NodePropBean#setId`。
@@ -40,8 +49,17 @@ impl NodePropBean {
     }
 
     /// 返回节点名称。对应 Java: `NodePropBean#getName`。
-    pub fn name(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// 返回节点名称。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_name`。
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.get_name()
     }
 
     /// 设置节点名称。对应 Java: `NodePropBean#setName`。
@@ -51,8 +69,17 @@ impl NodePropBean {
     }
 
     /// 返回类名。对应 Java: `NodePropBean#getClazz`。
-    pub fn clazz(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_clazz(&self) -> Option<&str> {
         self.clazz.as_deref()
+    }
+
+    /// 返回类名。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_clazz`。
+    #[must_use]
+    pub fn clazz(&self) -> Option<&str> {
+        self.get_clazz()
     }
 
     /// 设置类名。对应 Java: `NodePropBean#setClazz`。
@@ -62,8 +89,17 @@ impl NodePropBean {
     }
 
     /// 返回脚本。对应 Java: `NodePropBean#getScript`。
-    pub fn script(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_script(&self) -> Option<&str> {
         self.script.as_deref()
+    }
+
+    /// 返回脚本。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_script`。
+    #[must_use]
+    pub fn script(&self) -> Option<&str> {
+        self.get_script()
     }
 
     /// 设置脚本。对应 Java: `NodePropBean#setScript`。
@@ -73,8 +109,17 @@ impl NodePropBean {
     }
 
     /// 返回类型 code。对应 Java: `NodePropBean#getType`。
-    pub fn node_type(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_type(&self) -> Option<&str> {
         self.node_type.as_deref()
+    }
+
+    /// 返回类型 code。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_type`。
+    #[must_use]
+    pub fn node_type(&self) -> Option<&str> {
+        self.get_type()
     }
 
     /// 设置类型 code。对应 Java: `NodePropBean#setType`。
@@ -84,8 +129,17 @@ impl NodePropBean {
     }
 
     /// 返回脚本文件路径。对应 Java: `NodePropBean#getFile`。
-    pub fn file(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_file(&self) -> Option<&str> {
         self.file.as_deref()
+    }
+
+    /// 返回脚本文件路径。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_file`。
+    #[must_use]
+    pub fn file(&self) -> Option<&str> {
+        self.get_file()
     }
 
     /// 设置脚本文件路径。对应 Java: `NodePropBean#setFile`。
@@ -95,8 +149,17 @@ impl NodePropBean {
     }
 
     /// 返回脚本语言。对应 Java: `NodePropBean#getLanguage`。
-    pub fn language(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_language(&self) -> Option<&str> {
         self.language.as_deref()
+    }
+
+    /// 返回脚本语言。
+    ///
+    /// Rust 历史便捷入口；Java 对等名称请使用 `get_language`。
+    #[must_use]
+    pub fn language(&self) -> Option<&str> {
+        self.get_language()
     }
 
     /// 设置脚本语言。对应 Java: `NodePropBean#setLanguage`。

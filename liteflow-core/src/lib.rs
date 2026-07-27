@@ -70,6 +70,7 @@ pub use enums::{
 };
 pub use exception::{LFResult, LiteflowError};
 pub use flow::element::condition::abstract_condition::AbstractCondition;
+pub use flow::element::condition::loop_condition::{LoopCondition, LoopParallelSupplier};
 pub use flow::element::{Condition, Rollbackable};
 pub use flow::entity::InstanceInfoDto;
 pub use flow::entity::cmp_step::CmpStep;
@@ -88,7 +89,7 @@ pub use property::{LiteflowConfig, LiteflowConfigGetter, TimeUnit};
 pub use script::{ScriptIteratorComponent, ScriptKind};
 /// 供 `liteflow-derive` 生成代码使用，调用方无需重复声明 serde_json 依赖。
 pub use serde_json;
-pub use slot::{CmpContext, Ctx, DataBus, Frame, Slot};
+pub use slot::{CmpContext, Ctx, DataBus, DefaultContext, Frame, Slot};
 pub use spi::{
     CmpAroundAspectHolder, ContextAware, ContextAwareHolder, ContextCmpInit, DeclComponentParser,
     DeclComponentParserHolder, LiteflowComponentSupport, LocalDeclComponentParser,

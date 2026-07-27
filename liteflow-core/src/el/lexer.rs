@@ -124,6 +124,7 @@ pub(crate) fn lex(source: &str) -> LFResult<Vec<SpannedTok>> {
                 match word.as_str() {
                     "true" => tokens.push((Tok::Bool(true), index)),
                     "false" => tokens.push((Tok::Bool(false), index)),
+                    "null" => tokens.push((Tok::Null, index)),
                     _ => tokens.push((Tok::Ident(word), index)),
                 }
                 index = end;

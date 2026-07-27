@@ -6,7 +6,6 @@ pub mod entity;
 pub mod executor;
 pub mod flow_bus;
 pub mod flow_event;
-mod flow_event_builder;
 pub mod flow_event_listener;
 pub mod flow_event_publisher;
 pub mod id;
@@ -16,8 +15,7 @@ pub mod parallel;
 
 pub use executor::{DefaultNodeExecutor, NodeExecutor, NodeExecutorHelper};
 pub use flow_bus::FlowBus;
-pub use flow_event::FlowEvent;
-pub use flow_event_builder::FlowEventBuilder;
+pub use flow_event::{FlowEvent, FlowEventBuilder};
 pub use flow_event_listener::{FlowEventListener, listener};
 pub use flow_event_publisher::FlowEventPublisher;
 pub use id::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGenerator};

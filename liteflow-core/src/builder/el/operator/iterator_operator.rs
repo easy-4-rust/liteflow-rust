@@ -15,11 +15,10 @@ impl BaseOperator for IteratorOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         OperatorHelper::require_primary(caller, self.operator_name())?;
+        let node = OperatorHelper::one_expression(objects, self.operator_name())?;
+        OperatorHelper::check_obj_must_be_iterator_type_item(&node)?;
         Ok(El::Iter {
-            node: Box::new(OperatorHelper::one_expression(
-                objects,
-                self.operator_name(),
-            )?),
+            node: Box::new(node),
             parallel: None,
             body: Box::new(El::Then(Vec::new())),
             brk: None,

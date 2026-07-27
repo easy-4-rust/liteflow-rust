@@ -43,6 +43,17 @@ impl SessionConfig {
         self.idle_timeout
     }
 
+    /// 返回 Agent 实例的空闲超时时间。
+    ///
+    /// # 返回
+    /// 会话管理器淘汰长期未访问实例时使用的时长。
+    ///
+    /// 对应 Java: `SessionConfig#getIdleTimeout`。
+    #[must_use]
+    pub fn get_idle_timeout(&self) -> Duration {
+        self.idle_timeout()
+    }
+
     /// 设置会话空闲超时。对应 Java: `SessionConfig#setIdleTimeout`。
     pub fn set_idle_timeout(&mut self, idle_timeout: Duration) {
         self.idle_timeout = idle_timeout;
@@ -52,6 +63,17 @@ impl SessionConfig {
     #[must_use]
     pub fn cleanup_interval(&self) -> Duration {
         self.cleanup_interval
+    }
+
+    /// 返回会话清理周期。
+    ///
+    /// # 返回
+    /// Rust 惰性清理器检查过期会话时使用的间隔。
+    ///
+    /// 对应 Java: `SessionConfig#getCleanupInterval`。
+    #[must_use]
+    pub fn get_cleanup_interval(&self) -> Duration {
+        self.cleanup_interval()
     }
 
     /// 设置后台清理周期。对应 Java: `SessionConfig#setCleanupInterval`。
@@ -65,6 +87,17 @@ impl SessionConfig {
         self.max_sessions
     }
 
+    /// 返回进程内 Agent 会话数量上限。
+    ///
+    /// # 返回
+    /// LRU 淘汰逻辑使用的最大会话数。
+    ///
+    /// 对应 Java: `SessionConfig#getMaxSessions`。
+    #[must_use]
+    pub fn get_max_sessions(&self) -> usize {
+        self.max_sessions()
+    }
+
     /// 设置最大会话数。对应 Java: `SessionConfig#setMaxSessions`。
     pub fn set_max_sessions(&mut self, max_sessions: usize) {
         self.max_sessions = max_sessions;
@@ -74,6 +107,17 @@ impl SessionConfig {
     #[must_use]
     pub fn memory(&self) -> &MemoryStorageConfig {
         &self.memory
+    }
+
+    /// 返回会话记忆持久化配置。
+    ///
+    /// # 返回
+    /// 决定记忆加载、保存开关及后端类型的真实配置对象。
+    ///
+    /// 对应 Java: `SessionConfig#getMemory`。
+    #[must_use]
+    pub fn get_memory(&self) -> &MemoryStorageConfig {
+        self.memory()
     }
 
     /// 设置记忆持久化配置。对应 Java: `SessionConfig#setMemory`。

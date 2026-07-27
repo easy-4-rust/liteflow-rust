@@ -37,6 +37,17 @@ impl ParameterWrapBean {
         &self.parameter_type
     }
 
+    /// 返回参数类型名称。
+    ///
+    /// # 返回
+    /// `liteflow-derive` 生成的强类型代理用于诊断的真实类型名。
+    ///
+    /// 对应 Java: `ParameterWrapBean#getParameterType`。
+    #[must_use]
+    pub fn get_parameter_type(&self) -> &str {
+        self.parameter_type()
+    }
+
     /// 修改 Rust 参数类型名称。对应 Java: `ParameterWrapBean#setParameterType`。
     pub fn set_parameter_type(&mut self, parameter_type: impl Into<String>) {
         self.parameter_type = parameter_type.into();
@@ -50,6 +61,17 @@ impl ParameterWrapBean {
         self.fact.as_deref()
     }
 
+    /// 返回事实 Bean 名称。
+    ///
+    /// # 返回
+    /// 未标注 `@LiteflowFact` 时返回 `None`，否则返回注解指定的 Bean 名称。
+    ///
+    /// 对应 Java: `ParameterWrapBean#getFact`。
+    #[must_use]
+    pub fn get_fact(&self) -> Option<&str> {
+        self.fact()
+    }
+
     /// 修改事实 Bean 名称。对应 Java: `ParameterWrapBean#setFact`。
     pub fn set_fact(&mut self, fact: Option<impl Into<String>>) {
         self.fact = fact.map(Into::into);
@@ -59,6 +81,17 @@ impl ParameterWrapBean {
     #[must_use]
     pub fn index(&self) -> usize {
         self.index
+    }
+
+    /// 返回参数在原声明式方法中的位置。
+    ///
+    /// # 返回
+    /// 过程宏和代理校验共同使用的零基参数下标。
+    ///
+    /// 对应 Java: `ParameterWrapBean#getIndex`。
+    #[must_use]
+    pub fn get_index(&self) -> usize {
+        self.index()
     }
 
     /// 修改参数位置。对应 Java: `ParameterWrapBean#setIndex`。

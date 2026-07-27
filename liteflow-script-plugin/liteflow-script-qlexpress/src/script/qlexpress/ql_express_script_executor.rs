@@ -94,6 +94,16 @@ impl QlExpressScriptExecutor {
 }
 
 impl ScriptExecutor for QlExpressScriptExecutor {
+    /// 使用发布版 QLExpress Rust 编译器生成真实指令缓存，但不写入节点缓存。
+    ///
+    /// 参数 `script` 是待编译的 QLExpress 源代码。对应 Java:
+    /// `ScriptExecutor#compile`。
+    fn compile(&self, script: &str) -> LFResult<()> {
+        QlExpressScriptExecutor::compile(self, script)
+            .map(|_| ())
+            .map_err(|error| script_error("", error))
+    }
+
     /// 编译并缓存节点脚本。
     ///
     /// `node_id` 是缓存键，`script` 是原始 QLExpress 文本；语法错误直接返回
@@ -759,7 +769,8 @@ fn ql_bridge_error(message: impl Into<String>) -> QLException {
 
 #[cfg(test)]
 mod tests {
-    use super::{member_receiver_names, normalize_liteflow_calls};
+    use super::{QlExpressScriptExecutor, member_receiver_names, normalize_liteflow_calls};
+    use liteflow_core::script::ScriptExecutor;
 
     #[test]
     fn normalizes_only_executable_liteflow_calls() {
@@ -784,5 +795,18 @@ mod tests {
             ),
             vec!["order".to_string(), "ql_math".to_string()]
         );
+    }
+
+    #[test]
+    fn java_compile_and_cache_aliases_use_the_published_qlexpress_runtime() {
+        let executor = QlExpressScriptExecutor::new();
+
+        <QlExpressScriptExecutor as ScriptExecutor>::compile(&executor, "1 + 2").unwrap();
+        assert!(<QlExpressScriptExecutor as ScriptExecutor>::compile(&executor, "1 +").is_err());
+
+        executor.load("ql-node", "40 + 2").unwrap();
+        assert_eq!(executor.get_node_ids().unwrap(), vec!["ql-node"]);
+        executor.un_load("ql-node").unwrap();
+        assert!(executor.get_node_ids().unwrap().is_empty());
     }
 }

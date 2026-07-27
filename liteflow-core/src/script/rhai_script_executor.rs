@@ -1,7 +1,7 @@
 //! Rhai 脚本执行器。
 //!
 //! 注入到脚本作用域的变量对齐 Java `ScriptExecuteWrap`：
-//! `input`、`data`、`node_id`、`tag`、`loop_index` 与 `loop_object`。
+//! `input`、`data`、`node_id`、`tag`、`loop_index`、`loop_object` 与 `_meta`。
 
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -25,7 +25,8 @@ struct ScriptBeanBindings {
 
 /// 基于 Rhai 的脚本执行器，按节点 id 缓存强类型 AST。
 ///
-/// 这是 Rust 生态对 Java `ScriptExecutor`/QLExpress 执行器生态位的具体实现。
+/// 这是 LiteFlow 内置的 Rhai 脚本实现；Java QLExpress 插件已由独立
+/// `liteflow-script-qlexpress` crate 接入真实 `qlexpress` Rust 运行时。
 pub struct RhaiScriptExecutor {
     engine: Engine,
     compiled_script_map: RwLock<HashMap<String, AST>>,
@@ -188,19 +189,12 @@ impl RhaiScriptExecutor {
     fn evaluate(&self, node_id: &str, ast: &AST, ctx: &CmpContext) -> LFResult<Value> {
         let mut scope = Scope::new();
 
-        // requestData 映射为 input；锁异常时沿用当前框架的空输入退化语义。
-        let input = ctx
-            .inner
-            .input
-            .lock()
-            .map(|value| value.clone())
-            .unwrap_or(Value::Null);
-        scope.push("input", json_to_dynamic(&input));
-        let cmp_data = ctx
-            .cmp_data_as::<Value>()
-            .or_else(|| ctx.cmp_data().map(|value| Value::String(value.to_string())))
-            .unwrap_or(Value::Null);
-        scope.push("cmp_data", json_to_dynamic(&cmp_data));
+        // 所有 serde 可表达的上下文 Bean 和 Java `_meta` 字段统一由
+        // ScriptExecutor#bindParam 构建，Rhai 不再维护一份容易漂移的私有映射。
+        for (name, value) in <Self as ScriptExecutor>::bind_param(self, ctx) {
+            scope.push_dynamic(name, json_to_dynamic(&value));
+        }
+
         // Java JSR223 会把本次执行的 context bean 与进程级 ScriptBean 一起绑定。
         // Rust 将 Slot 中的 ScriptBeanProxy 做成调用快照，优先级高于全局注册表，
         // 避免并发请求之间通过临时全局状态相互污染。
@@ -228,29 +222,6 @@ impl RhaiScriptExecutor {
             data_map.insert(entry.key().clone().into(), json_to_dynamic(entry.value()));
         }
         scope.push("data", Dynamic::from(data_map));
-        scope.push("node_id", Dynamic::from(ctx.node.id.clone()));
-        scope.push(
-            "tag",
-            ctx.node
-                .tag
-                .clone()
-                .map(Dynamic::from)
-                .unwrap_or(Dynamic::UNIT),
-        );
-        scope.push(
-            "loop_index",
-            ctx.frame
-                .loop_index()
-                .map(|index| Dynamic::from(index as i64))
-                .unwrap_or(Dynamic::UNIT),
-        );
-        scope.push(
-            "loop_object",
-            ctx.frame
-                .loop_object()
-                .map(json_to_dynamic)
-                .unwrap_or(Dynamic::UNIT),
-        );
 
         let result = self
             .engine
@@ -274,6 +245,13 @@ impl RhaiScriptExecutor {
 }
 
 impl ScriptExecutor for RhaiScriptExecutor {
+    /// 使用 Rhai 编译器生成 AST，但不修改节点缓存。
+    ///
+    /// 参数 `script` 是待编译源代码。对应 Java: `ScriptExecutor#compile`。
+    fn compile(&self, script: &str) -> LFResult<()> {
+        RhaiScriptExecutor::compile(self, "", script).map(|_| ())
+    }
+
     fn load(&self, node_id: &str, script: &str) -> LFResult<()> {
         let ast = self.compile(node_id, script)?;
         self.compiled_script_map

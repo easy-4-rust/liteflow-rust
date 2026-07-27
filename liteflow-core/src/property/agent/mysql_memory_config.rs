@@ -25,6 +25,14 @@ impl MysqlMemoryConfig {
         self.data_source_bean_name.as_deref()
     }
 
+    /// 返回宿主容器中的数据源 Bean 名称。
+    ///
+    /// 对应 Java: `MysqlMemoryConfig#getDataSourceBeanName`。
+    #[must_use]
+    pub fn get_data_source_bean_name(&self) -> Option<&str> {
+        self.data_source_bean_name()
+    }
+
     /// 设置数据源 Bean 名称。对应 Java: `MysqlMemoryConfig#setDataSourceBeanName`。
     pub fn set_data_source_bean_name(&mut self, data_source_bean_name: Option<String>) {
         self.data_source_bean_name = data_source_bean_name;
@@ -36,6 +44,14 @@ impl MysqlMemoryConfig {
         self.database_name.as_deref()
     }
 
+    /// 返回会话存储使用的数据库名。
+    ///
+    /// 对应 Java: `MysqlMemoryConfig#getDatabaseName`。
+    #[must_use]
+    pub fn get_database_name(&self) -> Option<&str> {
+        self.database_name()
+    }
+
     /// 设置数据库名。对应 Java: `MysqlMemoryConfig#setDatabaseName`。
     pub fn set_database_name(&mut self, database_name: Option<String>) {
         self.database_name = database_name;
@@ -45,6 +61,14 @@ impl MysqlMemoryConfig {
     #[must_use]
     pub fn table_name(&self) -> Option<&str> {
         self.table_name.as_deref()
+    }
+
+    /// 返回会话存储使用的表名。
+    ///
+    /// 对应 Java: `MysqlMemoryConfig#getTableName`。
+    #[must_use]
+    pub fn get_table_name(&self) -> Option<&str> {
+        self.table_name()
     }
 
     /// 设置表名。对应 Java: `MysqlMemoryConfig#setTableName`。

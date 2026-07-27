@@ -20,6 +20,20 @@ pub trait Executable: Send + Sync {
         ExecuteableTypeEnum::Condition
     }
 
+    /// 按当前对象的结构遍历顺序收集其包含的全部 Node ID。
+    ///
+    /// Node 返回自身；Condition 与 Chain 分别覆盖为递归遍历。默认实现仍兼容
+    /// 测试或扩展代码中仅通过 `execute_type` 声明为 Node 的轻量对象。
+    /// 对应 Java: `Condition#getAllNodeInCondition` 的 Node 分支。
+    #[must_use]
+    fn collect_node_ids(&self) -> Vec<String> {
+        if self.execute_type() == ExecuteableTypeEnum::Node && !self.id().is_empty() {
+            vec![self.id().to_string()]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// getId()（节点返回 id，条件返回类型名）
     fn id(&self) -> &str {
         ""

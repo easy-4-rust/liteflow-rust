@@ -23,6 +23,17 @@ impl DefaultsConfig {
         self.max_iterations
     }
 
+    /// 返回 ReAct 流程的默认最大迭代次数。
+    ///
+    /// - 返回：组件未显式覆盖时使用的 reason → act 循环上限。
+    ///
+    /// 该上限用于防止 LLM 陷入无限调用。对应 Java:
+    /// `DefaultsConfig#getMaxIterations`。
+    #[must_use]
+    pub fn get_max_iterations(&self) -> usize {
+        self.max_iterations()
+    }
+
     /// 设置默认最大迭代次数。对应 Java: `DefaultsConfig#setMaxIterations`。
     pub fn set_max_iterations(&mut self, max_iterations: usize) {
         self.max_iterations = max_iterations;

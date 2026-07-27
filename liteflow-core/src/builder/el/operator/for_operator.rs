@@ -16,13 +16,18 @@ impl BaseOperator for ForOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         OperatorHelper::require_primary(caller, self.operator_name())?;
+        OperatorHelper::check_args_not_null(&objects)?;
+        OperatorHelper::check_object_size_eq_one(&objects)?;
         match objects.as_slice() {
-            [Arg::Expr(node)] => Ok(El::For {
-                node: Box::new(node.clone()),
-                parallel: None,
-                body: Box::new(El::Then(Vec::new())),
-                brk: None,
-            }),
+            [Arg::Expr(node)] => {
+                OperatorHelper::check_obj_must_be_for_type_item(node)?;
+                Ok(El::For {
+                    node: Box::new(node.clone()),
+                    parallel: None,
+                    body: Box::new(El::Then(Vec::new())),
+                    brk: None,
+                })
+            }
             [Arg::Num(count)] if *count >= 0.0 && count.fract() == 0.0 => Ok(El::ForCount {
                 count: *count as usize,
                 parallel: None,

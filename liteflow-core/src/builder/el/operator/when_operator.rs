@@ -15,8 +15,12 @@ impl BaseOperator for WhenOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         OperatorHelper::require_primary(caller, self.operator_name())?;
+        let items = OperatorHelper::expressions(objects, self.operator_name(), 1)?;
+        for item in &items {
+            OperatorHelper::check_obj_must_be_common_type_item(item)?;
+        }
         Ok(El::When {
-            items: OperatorHelper::expressions(objects, self.operator_name(), 1)?,
+            items,
             opts: WhenOpts::default(),
         })
     }

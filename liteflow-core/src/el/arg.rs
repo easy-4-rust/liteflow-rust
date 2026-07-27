@@ -9,4 +9,6 @@ pub(crate) enum Arg {
     Str(String),
     Num(f64),
     Bool(bool),
+    /// QLExpress 的 `null` 参数；由 OperatorHelper 转换为 DataNotFoundException 语义。
+    Null,
 }

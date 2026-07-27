@@ -91,6 +91,15 @@ impl ShellConfig {
         self.mode
     }
 
+    /// 返回命令过滤模式。
+    ///
+    /// 返回值决定首 token 按白名单、黑名单或关闭策略检查。对应 Java:
+    /// `ShellConfig#getMode`。
+    #[must_use]
+    pub fn get_mode(&self) -> ShellMode {
+        self.mode()
+    }
+
     /// 设置命令过滤模式。对应 Java: `ShellConfig#setMode`。
     pub fn set_mode(&mut self, mode: ShellMode) {
         self.mode = mode;
@@ -100,6 +109,14 @@ impl ShellConfig {
     #[must_use]
     pub fn whitelist(&self) -> &[String] {
         &self.whitelist
+    }
+
+    /// 返回白名单模式允许的命令首 token 列表。
+    ///
+    /// 对应 Java: `ShellConfig#getWhitelist`。
+    #[must_use]
+    pub fn get_whitelist(&self) -> &[String] {
+        self.whitelist()
     }
 
     /// 设置白名单。对应 Java: `ShellConfig#setWhitelist`。
@@ -113,6 +130,14 @@ impl ShellConfig {
         &self.blacklist
     }
 
+    /// 返回黑名单模式拒绝的命令首 token 列表。
+    ///
+    /// 对应 Java: `ShellConfig#getBlacklist`。
+    #[must_use]
+    pub fn get_blacklist(&self) -> &[String] {
+        self.blacklist()
+    }
+
     /// 设置黑名单。对应 Java: `ShellConfig#setBlacklist`。
     pub fn set_blacklist(&mut self, blacklist: Vec<String>) {
         self.blacklist = blacklist;
@@ -124,6 +149,15 @@ impl ShellConfig {
         self.timeout
     }
 
+    /// 返回单条命令最大执行时长。
+    ///
+    /// 超时后 ManagedShellCommandTool 会终止子进程。对应 Java:
+    /// `ShellConfig#getTimeout`。
+    #[must_use]
+    pub fn get_timeout(&self) -> Duration {
+        self.timeout()
+    }
+
     /// 设置命令超时。对应 Java: `ShellConfig#setTimeout`。
     pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout;
@@ -133,6 +167,15 @@ impl ShellConfig {
     #[must_use]
     pub fn max_output_bytes(&self) -> u64 {
         self.max_output_bytes
+    }
+
+    /// 返回单次命令最大输出字节数。
+    ///
+    /// 达到上限后 stdout 会被截断。对应 Java:
+    /// `ShellConfig#getMaxOutputBytes`。
+    #[must_use]
+    pub fn get_max_output_bytes(&self) -> u64 {
+        self.max_output_bytes()
     }
 
     /// 设置最大输出字节数。对应 Java: `ShellConfig#setMaxOutputBytes`。

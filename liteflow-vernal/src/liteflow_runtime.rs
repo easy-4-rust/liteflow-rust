@@ -299,6 +299,11 @@ impl LiteflowRuntime {
                 Duration::from_millis(self.config.delay),
                 Duration::from_millis(self.config.period),
             );
+        // 把 Tokio 任务的取消句柄交回 MonitorBus，使 Java `closeScheduler` 对等入口
+        // 与 Vernal 容器 stop 都能关闭同一个真实调度任务。
+        self.flow_bus
+            .monitor()
+            .register_scheduler(monitor_task.abort_handle());
         *task_guard = Some(monitor_task);
     }
 }

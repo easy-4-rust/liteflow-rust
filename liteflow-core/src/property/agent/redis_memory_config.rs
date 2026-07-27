@@ -49,6 +49,14 @@ impl RedisMemoryConfig {
         self.bean_name.as_deref()
     }
 
+    /// 返回宿主容器中的 Redis 客户端 Bean 名称。
+    ///
+    /// 对应 Java: `RedisMemoryConfig#getBeanName`。
+    #[must_use]
+    pub fn get_bean_name(&self) -> Option<&str> {
+        self.bean_name()
+    }
+
     /// 设置 Redis 客户端 Bean 名称。对应 Java: `RedisMemoryConfig#setBeanName`。
     pub fn set_bean_name(&mut self, bean_name: Option<String>) {
         self.bean_name = bean_name;
@@ -60,6 +68,14 @@ impl RedisMemoryConfig {
         self.client_type
     }
 
+    /// 返回 Redis 客户端类型。
+    ///
+    /// 对应 Java: `RedisMemoryConfig#getClientType`。
+    #[must_use]
+    pub fn get_client_type(&self) -> RedisClientType {
+        self.client_type()
+    }
+
     /// 设置客户端类型。对应 Java: `RedisMemoryConfig#setClientType`。
     pub fn set_client_type(&mut self, client_type: RedisClientType) {
         self.client_type = client_type;
@@ -69,6 +85,14 @@ impl RedisMemoryConfig {
     #[must_use]
     pub fn key_prefix(&self) -> &str {
         &self.key_prefix
+    }
+
+    /// 返回会话 key 前缀。
+    ///
+    /// 对应 Java: `RedisMemoryConfig#getKeyPrefix`。
+    #[must_use]
+    pub fn get_key_prefix(&self) -> &str {
+        self.key_prefix()
     }
 
     /// 设置会话 key 前缀。对应 Java: `RedisMemoryConfig#setKeyPrefix`。

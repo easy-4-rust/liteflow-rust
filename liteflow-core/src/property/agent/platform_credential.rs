@@ -26,6 +26,14 @@ impl PlatformCredential {
         self.api_key.as_deref()
     }
 
+    /// 返回模型平台 API Key。
+    ///
+    /// 对应 Java: `PlatformCredential#getApiKey`。
+    #[must_use]
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.api_key()
+    }
+
     /// 设置 API Key。对应 Java: `PlatformCredential#setApiKey`。
     pub fn set_api_key(&mut self, api_key: Option<String>) {
         self.api_key = api_key;
@@ -37,6 +45,14 @@ impl PlatformCredential {
         self.base_url.as_deref()
     }
 
+    /// 返回模型平台基础地址。
+    ///
+    /// 对应 Java: `PlatformCredential#getBaseUrl`。
+    #[must_use]
+    pub fn get_base_url(&self) -> Option<&str> {
+        self.base_url()
+    }
+
     /// 设置基础地址。对应 Java: `PlatformCredential#setBaseUrl`。
     pub fn set_base_url(&mut self, base_url: Option<String>) {
         self.base_url = base_url;
@@ -46,6 +62,17 @@ impl PlatformCredential {
     #[must_use]
     pub fn extra(&self) -> &HashMap<String, String> {
         &self.extra
+    }
+
+    /// 返回模型平台扩展参数。
+    ///
+    /// # 返回
+    /// Provider 构建阶段读取的真实扩展参数映射。
+    ///
+    /// 对应 Java: `PlatformCredential#getExtra`。
+    #[must_use]
+    pub fn get_extra(&self) -> &HashMap<String, String> {
+        self.extra()
     }
 
     /// 设置扩展参数。对应 Java: `PlatformCredential#setExtra`。

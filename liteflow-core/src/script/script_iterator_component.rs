@@ -32,4 +32,9 @@ impl NodeComponent for ScriptIteratorComponent {
     fn name(&self) -> &str {
         self.script_component.node_id()
     }
+
+    fn unload_script(&self, _node_id: &str) -> LFResult<bool> {
+        self.script_component.unload()?;
+        Ok(true)
+    }
 }

@@ -8,6 +8,7 @@ use crate::core::decl_component::DeclComponent;
 use crate::core::node_component::NodeComponent;
 use crate::core::proxy::{DeclWarpBean, LiteFlowProxyUtil};
 use crate::el::{El, parse_el};
+use crate::enums::{FlowParserTypeEnum, NodeTypeEnum};
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::chain::Chain;
 use crate::flow::element::fallback_node::normalize_fallback_type;
@@ -18,11 +19,16 @@ use crate::lifecycle::{
     PostProcessScriptEngineInitLifeCycle,
 };
 use crate::monitor::MonitorBus;
-use crate::script::{ScriptExecutorFactory, ScriptKind, build_rhai_component};
+use crate::parser::el::{JsonFlowElParser, XmlFlowElParser, YmlFlowElParser};
+use crate::script::{ScriptKind, build_rhai_component};
 use crate::spi::DeclComponentParserHolder;
 use dashmap::DashMap;
 use md5::{Digest, Md5};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+type MonitorFileCleaner = Arc<dyn Fn() -> LFResult<()> + Send + Sync>;
 
 /// 流程总线
 #[derive(Clone)]
@@ -45,6 +51,12 @@ pub struct FlowBus {
     pub(crate) script_nodes: Arc<DashMap<String, (String, ScriptKind)>>,
     /// 实例编号 SPI
     pub(crate) instance_id_spi_holder: NodeInstanceIdManageSpiHolder,
+    /// 当前总线是否已经领取过首次初始化资格。
+    ///
+    /// 对应 Java `FlowBus.initStat`；放入 `Arc` 后所有 `FlowBus::clone` 共享状态。
+    init_stat: Arc<AtomicBool>,
+    /// 当前总线创建的文件监听器弱清理动作。
+    monitor_file_cleaners: Arc<std::sync::RwLock<Vec<MonitorFileCleaner>>>,
 }
 
 impl Default for FlowBus {
@@ -66,6 +78,8 @@ impl FlowBus {
             lifecycle: Arc::new(std::sync::RwLock::new(LifeCycleHolder::default())),
             script_nodes: Arc::new(DashMap::new()),
             instance_id_spi_holder: NodeInstanceIdManageSpiHolder::default(),
+            init_stat: Arc::new(AtomicBool::new(false)),
+            monitor_file_cleaners: Arc::new(std::sync::RwLock::new(Vec::new())),
         }
     }
 
@@ -78,6 +92,14 @@ impl FlowBus {
     /// 监控总线（对应 MonitorBus）
     pub fn monitor(&self) -> &Arc<MonitorBus> {
         &self.monitor
+    }
+
+    /// 登记绑定到当前总线的文件监听清理动作。
+    pub(crate) fn register_monitor_file_cleaner(&self, cleaner: MonitorFileCleaner) {
+        self.monitor_file_cleaners
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(cleaner);
     }
     pub fn register_node_build_hook(&self, h: Arc<dyn PostProcessNodeBuildLifeCycle>) {
         self.lifecycle.write().unwrap().node_build.push(h);
@@ -209,13 +231,54 @@ impl FlowBus {
     ) -> LFResult<()> {
         let id = node_id.into();
         check_node_id(&id)?;
-        let cmp = ComponentInitializer::load_instance().init_component(
+        let cmp = ComponentInitializer::load_instance().init_inferred_component(
             cmp,
             crate::enums::NodeTypeEnum::Common,
             None,
             &id,
         )?;
         self.nodes.insert(id, cmp);
+        Ok(())
+    }
+
+    /// 添加由宿主管理的节点组件。
+    ///
+    /// Rust 没有 Java 运行期类反射，因此组件必须通过 `node_type()` 暴露其类型；
+    /// `liteflow-derive` 和已初始化组件都会提供该元数据。参数 `node_id` 与
+    /// `node_component` 对应 Java 同名参数。对应 Java: `FlowBus#addManagedNode`。
+    pub fn add_managed_node(
+        &self,
+        node_id: impl Into<String>,
+        node_component: Arc<dyn NodeComponent>,
+    ) -> LFResult<()> {
+        let node_id = node_id.into();
+        let node_type = node_component.node_type().ok_or_else(|| {
+            LiteflowError::NodeBuild(format!("node type is null for node[{node_id}]"))
+        })?;
+        self.add_node(node_id, None, node_type, node_component)
+    }
+
+    /// 按显式节点类型初始化并注册组件。
+    ///
+    /// Rust 用组件实例替代 Java 的 `Class<?> cmpClazz` 反射构造。参数
+    /// `node_id`、`name`、`node_type` 与 Java 语义一一对应。
+    /// 对应 Java: `FlowBus#addNode`。
+    pub fn add_node(
+        &self,
+        node_id: impl Into<String>,
+        name: Option<&str>,
+        node_type: NodeTypeEnum,
+        node_component: Arc<dyn NodeComponent>,
+    ) -> LFResult<()> {
+        let node_id = node_id.into();
+        check_node_id(&node_id)?;
+        let component = ComponentInitializer::load_instance().init_component(
+            node_component,
+            node_type,
+            name,
+            &node_id,
+        )?;
+        self.nodes.insert(node_id, component);
         Ok(())
     }
 
@@ -238,6 +301,32 @@ impl FlowBus {
     pub fn contains_node(&self, node_id: &str) -> bool {
         self.nodes.contains_key(node_id)
     }
+
+    /// 判断节点是否存在。对应 Java: `FlowBus#containNode`。
+    #[must_use]
+    pub fn contain_node(&self, node_id: &str) -> bool {
+        self.contains_node(node_id)
+    }
+
+    /// 返回节点注册表的线程安全快照。
+    ///
+    /// Java 返回全局可变 Map；Rust 返回克隆后的 `Arc` 快照，避免调用方绕过
+    /// 初始化和生命周期逻辑修改 `DashMap`。对应 Java: `FlowBus#getNodeMap`。
+    #[must_use]
+    pub fn get_node_map(&self) -> HashMap<String, Arc<dyn NodeComponent>> {
+        self.nodes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    /// 移除节点注册但不主动卸载脚本缓存。
+    ///
+    /// 返回是否确实移除了节点。对应 Java: `FlowBus#removeNode`。
+    pub fn remove_node(&self, node_id: &str) -> bool {
+        self.nodes.remove(node_id).is_some()
+    }
+
     pub(crate) fn get_node(&self, node_id: &str) -> Option<Arc<dyn NodeComponent>> {
         self.nodes.get(node_id).map(|r| r.clone())
     }
@@ -249,7 +338,8 @@ impl FlowBus {
         let id = chain_id.into();
         let ast = parse_el(el)?;
         let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
-        chain.set_el(el, format!("{:x}", Md5::digest(el.as_bytes())));
+        chain.set_el(el);
+        chain.set_el_md5(format!("{:x}", Md5::digest(el.as_bytes())));
         self.add_built_chain(chain);
         Ok(())
     }
@@ -265,10 +355,18 @@ impl FlowBus {
         Ok(())
     }
 
+    /// 第一阶段预装载已经创建的链，不触发生命周期与 EL MD5 登记。
+    ///
+    /// 对应 Java: `FlowBus#addChainPhase1`。
+    pub fn add_chain_phase1(&self, chain: Chain) {
+        self.chains
+            .insert(chain.get_chain_id().to_string(), Arc::new(chain));
+    }
+
     /// 由已构建的 Chain 直接装配（parser 包用）
     pub fn add_built_chain(&self, chain: Chain) {
         let id = chain.id.clone();
-        if let Some(md5) = chain.el_md5().map(|s| s.to_string()) {
+        if let Some(md5) = chain.get_el_md5().map(ToOwned::to_owned) {
             self.el_md5_map.insert(md5, id.clone());
         }
         self.chains.insert(id.clone(), Arc::new(chain));
@@ -288,7 +386,8 @@ impl FlowBus {
         let ast = parse_el(normalized_el.trim_end_matches(';'))?;
         let id = chain_id.to_string();
         let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
-        chain.set_el(normalized_el.to_string(), el_md5.clone());
+        chain.set_el(normalized_el);
+        chain.set_el_md5(el_md5.clone());
         self.chains.insert(id.clone(), Arc::new(chain));
         self.el_md5_map.insert(el_md5, id.clone());
         for h in &self.lifecycle.read().unwrap().chain_build {
@@ -309,7 +408,8 @@ impl FlowBus {
         }
         let ast = parse_el(el)?;
         let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(chain_id, ast)?;
-        chain.set_el(el, format!("{:x}", Md5::digest(el.as_bytes())));
+        chain.set_el(el);
+        chain.set_el_md5(format!("{:x}", Md5::digest(el.as_bytes())));
         self.add_built_chain(chain);
         Ok(())
     }
@@ -317,7 +417,7 @@ impl FlowBus {
     pub fn remove_chain(&self, chain_id: &str) {
         if let Some((_, chain)) = self.chains.remove(chain_id) {
             // 2.16：移除 chain 时同步清理 elMd5 索引
-            if let Some(md5) = chain.el_md5() {
+            if let Some(md5) = chain.get_el_md5() {
                 self.el_md5_map.remove(md5);
             }
         }
@@ -338,7 +438,8 @@ impl FlowBus {
                 return;
             };
             if let Some((_, chain)) = chains.remove(chain_id) {
-                if let (Some(el_md5), Some(el_md5_map)) = (chain.el_md5(), el_md5_map.upgrade()) {
+                if let (Some(el_md5), Some(el_md5_map)) = (chain.get_el_md5(), el_md5_map.upgrade())
+                {
                     el_md5_map.remove(el_md5);
                 }
             }
@@ -347,6 +448,33 @@ impl FlowBus {
 
     pub fn contains_chain(&self, chain_id: &str) -> bool {
         self.chains.contains_key(chain_id)
+    }
+
+    /// 判断链是否存在。对应 Java: `FlowBus#containChain`。
+    #[must_use]
+    pub fn contain_chain(&self, chain_id: &str) -> bool {
+        self.contains_chain(chain_id)
+    }
+
+    /// 原子领取首次初始化资格。
+    ///
+    /// 仅第一次调用返回 `true`；`clear_stat` 后可再次领取。
+    /// 对应 Java: `FlowBus#needInit`。
+    pub fn need_init(&self) -> bool {
+        self.init_stat
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// 返回链注册表的线程安全快照。
+    ///
+    /// 对应 Java: `FlowBus#getChainMap`。
+    #[must_use]
+    pub fn get_chain_map(&self) -> HashMap<String, Arc<Chain>> {
+        self.chains
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
     }
     pub fn chain_ids(&self) -> Vec<String> {
         self.chains.iter().map(|r| r.key().clone()).collect()
@@ -373,22 +501,182 @@ impl FlowBus {
         kind: ScriptKind,
         script: &str,
     ) -> LFResult<()> {
+        self.register_script_typed_named(node_id, None, language, kind, script)
+    }
+
+    fn register_script_typed_named(
+        &self,
+        node_id: impl Into<String>,
+        name: Option<&str>,
+        language: &str,
+        kind: ScriptKind,
+        script: &str,
+    ) -> LFResult<()> {
         let id = node_id.into();
-        match language {
+        let component = match language {
             "rhai" => {
                 let component = build_rhai_component(&id, kind, script)?;
                 self.run_script_engine_init_hooks(language);
-                self.register_arc(id.clone(), component);
+                component
             }
             other => {
-                let component = ScriptExecutorFactory::build(other, &id, kind, script)?;
+                let component =
+                    crate::script::ScriptExecutorFactory::build(other, &id, kind, script)?;
                 self.run_script_engine_init_hooks(other);
-                self.register_arc(id.clone(), component);
+                component
             }
-        }
+        };
+        let node_type = node_type_for_script_kind(kind);
+        let component = ComponentInitializer::load_instance()
+            .init_component(component, node_type, name, &id)?;
+        self.nodes.insert(id.clone(), component);
         self.script_nodes
             .insert(id.clone(), (language.to_string(), kind));
         Ok(())
+    }
+
+    /// 添加并编译脚本节点。
+    ///
+    /// `PARSE_ONE_ON_FIRST_EXEC` 的延迟构建由 Rust `RuleDefinitionPlan` 在更外层
+    /// 处理；一旦调用本方法，就与 Java 非延迟分支一样完成真实编译和原子注册。
+    /// 对应 Java: `FlowBus#addScriptNode`。
+    pub fn add_script_node(
+        &self,
+        node_id: impl Into<String>,
+        name: Option<&str>,
+        node_type: NodeTypeEnum,
+        script: &str,
+        language: &str,
+    ) -> LFResult<()> {
+        let kind = script_kind_for_node_type(node_type)?;
+        self.register_script_typed_named(node_id, name, language, kind, script)
+    }
+
+    /// 添加并立即编译脚本节点。对应 Java: `FlowBus#addScriptNodeAndCompile`。
+    pub fn add_script_node_and_compile(
+        &self,
+        node_id: impl Into<String>,
+        name: Option<&str>,
+        node_type: NodeTypeEnum,
+        script: &str,
+        language: &str,
+    ) -> LFResult<()> {
+        self.add_script_node(node_id, name, node_type, script, language)
+    }
+
+    /// 编译并替换一个脚本节点。
+    ///
+    /// Rust 不保留 Java 可变 `Node` 半成品，故显式接收其五项元数据。
+    /// 对应 Java: `FlowBus#compileScriptNode`。
+    pub fn compile_script_node(
+        &self,
+        node_id: impl Into<String>,
+        name: Option<&str>,
+        node_type: NodeTypeEnum,
+        script: &str,
+        language: &str,
+    ) -> LFResult<()> {
+        self.add_script_node_and_compile(node_id, name, node_type, script, language)
+    }
+
+    /// 返回指定类型的降级组件。
+    ///
+    /// 对应 Java: `FlowBus#getFallBackNode`。
+    #[must_use]
+    pub fn get_fall_back_node(&self, node_type: NodeTypeEnum) -> Option<Arc<dyn NodeComponent>> {
+        self.fallback_nodes
+            .get(normalize_fallback_type(node_type).get_code())
+            .map(|entry| entry.clone())
+    }
+
+    /// 卸载脚本编译产物并移除节点。
+    ///
+    /// 非脚本节点或不存在的节点返回 `Ok(false)`。对应 Java:
+    /// `FlowBus#unloadScriptNode`。
+    pub fn unload_script_node(&self, node_id: &str) -> LFResult<bool> {
+        let Some(component) = self.get_node(node_id) else {
+            return Ok(false);
+        };
+        if !self.script_nodes.contains_key(node_id) {
+            return Ok(false);
+        }
+        if !component.unload_script(node_id)? {
+            return Ok(false);
+        }
+        self.nodes.remove(node_id);
+        self.script_nodes.remove(node_id);
+        Ok(true)
+    }
+
+    /// 卸载当前总线内全部脚本编译缓存。
+    ///
+    /// Rust 插件构建器是应用配置而非 Java ServiceLoader 实例缓存，因此保留语言
+    /// 注册，只清理真实组件编译产物。对应 Java: `FlowBus#cleanScriptCache`。
+    pub fn clean_script_cache(&self) -> LFResult<()> {
+        let node_ids = self
+            .script_nodes
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect::<Vec<_>>();
+        for node_id in node_ids {
+            let _ = self.unload_script_node(&node_id)?;
+        }
+        Ok(())
+    }
+
+    /// 清空当前总线拥有的链、节点、降级组件和 EL 索引。
+    ///
+    /// 清理前先停止文件监听并卸载脚本编译产物。对应 Java:
+    /// `FlowBus#cleanCache`。
+    pub fn clean_cache(&self) -> LFResult<()> {
+        self.clean_monitor_file()?;
+        self.clean_script_cache()?;
+        self.chains.clear();
+        self.nodes.clear();
+        self.fallback_nodes.clear();
+        self.el_md5_map.clear();
+        Ok(())
+    }
+
+    /// 停止并清空绑定到当前总线的全部文件监听器。
+    ///
+    /// 清理器真实终止 Tokio 任务并删除路径状态；已经析构的监听器由弱引用安全
+    /// 跳过。对应 Java: `FlowBus#cleanMonitorFile`。
+    pub fn clean_monitor_file(&self) -> LFResult<()> {
+        let cleaners = {
+            let mut guard = self
+                .monitor_file_cleaners
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *guard)
+        };
+        for cleaner in cleaners {
+            cleaner()?;
+        }
+        Ok(())
+    }
+
+    /// 使用指定 EL 规则格式刷新当前总线元数据。
+    ///
+    /// 返回成功装载的链 id；Java `void` API 的副作用保持不变，同时让 Rust 调用方
+    /// 可观测刷新结果。对应 Java: `FlowBus#refreshFlowMetaData`。
+    pub fn refresh_flow_meta_data(
+        &self,
+        parser_type: FlowParserTypeEnum,
+        content: &str,
+    ) -> LFResult<Vec<String>> {
+        let contents = [content.to_string()];
+        match parser_type {
+            FlowParserTypeEnum::TypeElXml => XmlFlowElParser::new(self.clone()).parse(&contents),
+            FlowParserTypeEnum::TypeElJson => JsonFlowElParser::new(self.clone()).parse(&contents),
+            FlowParserTypeEnum::TypeElYml => YmlFlowElParser::new(self.clone()).parse(&contents),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    /// 重置首次初始化状态。对应 Java: `FlowBus#clearStat`。
+    pub fn clear_stat(&self) {
+        self.init_stat.store(false, Ordering::Release);
     }
 
     /// 以原语言和节点类别热刷新脚本。
@@ -410,7 +698,7 @@ impl FlowBus {
             .filter_map(|entry| {
                 entry
                     .value()
-                    .el()
+                    .get_el()
                     .map(|el| (entry.key().clone(), el.to_string()))
             })
             .collect::<Vec<_>>();
@@ -450,6 +738,33 @@ impl FlowBus {
     /// EL 语法校验（validate）
     pub fn validate_el(el: &str) -> LFResult<()> {
         parse_el(el).map(|_| ())
+    }
+}
+
+fn script_kind_for_node_type(node_type: NodeTypeEnum) -> LFResult<ScriptKind> {
+    match node_type {
+        NodeTypeEnum::Script => Ok(ScriptKind::Common),
+        NodeTypeEnum::BooleanScript | NodeTypeEnum::IfScript => Ok(ScriptKind::Boolean),
+        NodeTypeEnum::SwitchScript => Ok(ScriptKind::Switch),
+        NodeTypeEnum::ForScript | NodeTypeEnum::WhileScript | NodeTypeEnum::BreakScript => {
+            Ok(ScriptKind::For)
+        }
+        other => Err(LiteflowError::NodeTypeError {
+            node: String::new(),
+            expect: "script node type".to_string(),
+            actual: other.get_code().to_string(),
+        }),
+    }
+}
+
+fn node_type_for_script_kind(kind: ScriptKind) -> NodeTypeEnum {
+    match kind {
+        ScriptKind::Common => NodeTypeEnum::Script,
+        ScriptKind::Boolean => NodeTypeEnum::BooleanScript,
+        ScriptKind::Switch => NodeTypeEnum::SwitchScript,
+        ScriptKind::For => NodeTypeEnum::ForScript,
+        // Java v2.16 没有 ITERATOR_SCRIPT 枚举；Rust 扩展仍以迭代节点行为执行。
+        ScriptKind::Iterator => NodeTypeEnum::Iterator,
     }
 }
 

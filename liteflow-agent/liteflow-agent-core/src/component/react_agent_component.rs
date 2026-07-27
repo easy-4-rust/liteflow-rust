@@ -113,7 +113,8 @@ impl ReActAgentComponent {
         if !self.definition.config().publish_events {
             return;
         }
-        let mut event = FlowEvent::builder(event_type)
+        let mut event = FlowEvent::builder()
+            .r#type(event_type)
             .chain_id(context.chain_id())
             .node_id(context.node_id())
             .request_id(context.request_id())

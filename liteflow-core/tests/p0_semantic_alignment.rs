@@ -227,6 +227,15 @@ impl PostProcessFlowExecuteLifeCycle for FlowHook {
     }
 }
 
+impl liteflow_core::LifeCycle for FlowHook {
+    fn register_life_cycle(
+        self: Arc<Self>,
+        life_cycle_holder: &mut liteflow_core::LifeCycleHolder,
+    ) {
+        life_cycle_holder.flow_execute.push(self);
+    }
+}
+
 #[tokio::test]
 async fn after_lifecycle_runs_when_chain_is_missing() {
     let bus = FlowBus::new();

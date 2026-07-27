@@ -14,6 +14,9 @@ impl BaseOperator for ElifOperator {
     }
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
+        // Java 的 Object[] 还包含第一个 caller；Rust 已把 caller 拆成独立参数，
+        // 因此这里的两个显式参数与 Java 总数三个语义等价。
+        OperatorHelper::check_object_size_eq_two(&objects)?;
         let mut expressions = OperatorHelper::expressions(objects, self.operator_name(), 2)?;
         if expressions.len() != 2 {
             return Err(LiteflowError::Parse(

@@ -43,6 +43,17 @@ impl WorkspaceConfig {
         self.root.as_deref()
     }
 
+    /// 返回工作区根目录。
+    ///
+    /// # 返回
+    /// 未配置工作区时返回 `None`，否则返回会话管理器实际使用的根目录。
+    ///
+    /// 对应 Java: `WorkspaceConfig#getRoot`。
+    #[must_use]
+    pub fn get_root(&self) -> Option<&str> {
+        self.root()
+    }
+
     /// 设置工作区根目录。对应 Java: `WorkspaceConfig#setRoot`。
     pub fn set_root(&mut self, root: Option<String>) {
         self.root = root;
@@ -87,6 +98,14 @@ impl WorkspaceConfig {
         self.max_file_bytes
     }
 
+    /// 返回单个工作区文件允许读写的最大字节数。
+    ///
+    /// 对应 Java: `WorkspaceConfig#getMaxFileBytes`。
+    #[must_use]
+    pub fn get_max_file_bytes(&self) -> u64 {
+        self.max_file_bytes()
+    }
+
     /// 设置单文件大小上限。对应 Java: `WorkspaceConfig#setMaxFileBytes`。
     pub fn set_max_file_bytes(&mut self, max_file_bytes: u64) {
         self.max_file_bytes = max_file_bytes;
@@ -96,6 +115,14 @@ impl WorkspaceConfig {
     #[must_use]
     pub fn max_list_size(&self) -> usize {
         self.max_list_size
+    }
+
+    /// 返回一次目录列表允许返回的最大条目数。
+    ///
+    /// 对应 Java: `WorkspaceConfig#getMaxListSize`。
+    #[must_use]
+    pub fn get_max_list_size(&self) -> usize {
+        self.max_list_size()
     }
 
     /// 设置目录列表条目上限。对应 Java: `WorkspaceConfig#setMaxListSize`。
