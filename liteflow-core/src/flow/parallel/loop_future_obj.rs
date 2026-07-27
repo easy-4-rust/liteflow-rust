@@ -45,20 +45,39 @@ impl LoopFutureObj {
     /// 返回失败异常；成功结果返回 None。
     ///
     /// 对应 Java: `LoopFutureObj#getEx`。
-    pub fn ex(&self) -> Option<&LiteflowError> {
+    #[must_use]
+    pub fn get_ex(&self) -> Option<&LiteflowError> {
         self.ex.as_ref()
+    }
+
+    /// 返回失败异常；成功结果返回 None。
+    ///
+    /// 这是既有 Rust API，委托 Java 命名入口读取同一字段。
+    #[must_use]
+    pub fn ex(&self) -> Option<&LiteflowError> {
+        self.get_ex()
     }
 
     /// 返回循环体执行项名称。
     ///
     /// 对应 Java: `LoopFutureObj#getExecutorName`。
-    pub fn executor_name(&self) -> &str {
+    #[must_use]
+    pub fn get_executor_name(&self) -> &str {
         &self.executor_name
+    }
+
+    /// 返回循环体执行项名称。
+    ///
+    /// 这是既有 Rust API，委托 Java 命名入口读取同一字段。
+    #[must_use]
+    pub fn executor_name(&self) -> &str {
+        self.get_executor_name()
     }
 
     /// 返回子项是否执行成功。
     ///
     /// 对应 Java: `LoopFutureObj#isSuccess`。
+    #[must_use]
     pub fn is_success(&self) -> bool {
         self.success
     }

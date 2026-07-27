@@ -31,21 +31,17 @@ pub trait NodeInstanceIdManageSpi: Send + Sync + 'static {
     /// 读取实例编号文件，第一行为 EL MD5，后续行为 DTO JSON 数组。
     ///
     /// 对应 Java: `NodeInstanceIdManageSpi#readInstanceIdFile`。
-    fn read_instance_id_file(&self, _chain_id: &str) -> LFResult<Vec<String>> {
-        Ok(Vec::new())
-    }
+    fn read_instance_id_file(&self, chain_id: &str) -> LFResult<Vec<String>>;
 
     /// 写入实例编号文件。
     ///
     /// 对应 Java: `NodeInstanceIdManageSpi#writeInstanceIdFile`。
     fn write_instance_id_file(
         &self,
-        _instance_id_list: &[InstanceInfoDto],
-        _el_md5: &str,
-        _chain_id: &str,
-    ) -> LFResult<()> {
-        Ok(())
-    }
+        instance_id_list: &[InstanceInfoDto],
+        el_md5: &str,
+        chain_id: &str,
+    ) -> LFResult<()>;
 
     /// 根据实例 id 返回出现位置，未命中返回 `-1`。
     ///

@@ -102,7 +102,11 @@ async fn script_type_error_checked() {
 async fn script_unsupported_language() {
     let bus = FlowBus::new();
     let err = bus.register_script("g1", "groovy", "1+1").unwrap_err();
-    assert!(matches!(err, LiteflowError::Script { .. }));
+    assert!(matches!(
+        err,
+        LiteflowError::Custom(message)
+            if message.contains("unsupported script language: groovy")
+    ));
 }
 
 #[tokio::test]

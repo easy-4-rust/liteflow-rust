@@ -30,8 +30,21 @@ pub fn fast_simple_uuid() -> String {
 pub struct DefaultRequestIdGenerator;
 
 impl DefaultRequestIdGenerator {
+    /// 创建默认 Request ID 生成器。
+    #[must_use]
     pub fn new() -> Self {
         Self
+    }
+
+    /// 生成 32 位无短横线十六进制唯一 ID。
+    ///
+    /// # 返回
+    /// 与 Java `IdUtil.fastSimpleUUID()` 格式一致的 Request ID。
+    ///
+    /// 对应 Java: `DefaultRequestIdGenerator#generate`。
+    #[must_use]
+    pub fn generate(&self) -> String {
+        <Self as RequestIdGenerator>::generate(self)
     }
 }
 

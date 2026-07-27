@@ -38,6 +38,33 @@ impl DefaultNodeInstanceIdManageSpiImpl {
         &self.base_path
     }
 
+    /// 读取指定 Chain 的 EL 摘要与实例编号 JSON。
+    ///
+    /// 参数 `chain_id` 对应 Java 同名参数；空白或文件不存在时返回空集合。
+    /// 对应 Java: `DefaultNodeInstanceIdManageSpiImpl#readInstanceIdFile`。
+    pub fn read_instance_id_file(&self, chain_id: &str) -> LFResult<Vec<String>> {
+        <Self as NodeInstanceIdManageSpi>::read_instance_id_file(self, chain_id)
+    }
+
+    /// 按 Java 两行格式写入节点实例编号文件。
+    ///
+    /// 第一行为 `el_md5`，第二行为 `instance_id_list` 的 serde JSON；参数名称与
+    /// Java 一致。对应 Java:
+    /// `DefaultNodeInstanceIdManageSpiImpl#writeInstanceIdFile`。
+    pub fn write_instance_id_file(
+        &self,
+        instance_id_list: &[InstanceInfoDto],
+        el_md5: &str,
+        chain_id: &str,
+    ) -> LFResult<()> {
+        <Self as NodeInstanceIdManageSpi>::write_instance_id_file(
+            self,
+            instance_id_list,
+            el_md5,
+            chain_id,
+        )
+    }
+
     fn chain_path(&self, chain_id: &str) -> PathBuf {
         self.base_path.join(chain_id)
     }

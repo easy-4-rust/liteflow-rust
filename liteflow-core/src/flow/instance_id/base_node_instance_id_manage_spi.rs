@@ -19,6 +19,35 @@ use super::NodeInstanceIdManageSpi;
 pub struct BaseNodeInstanceIdManageSpi;
 
 impl BaseNodeInstanceIdManageSpi {
+    /// 按 Chain 的 EL 摘要恢复或重新生成全部节点实例编号。
+    ///
+    /// 文件不存在或首行摘要与当前 `el_md5` 不一致时，生成新的实例信息并持久化；
+    /// 摘要一致时解析文件并按 `chain_id + node_id + index` 恢复到节点。参数
+    /// `nodes` 是 Java `Condition#getAllNodeInCondition` 的显式 Rust 映射。
+    ///
+    /// # 返回
+    /// 读写或 JSON 解析成功返回 `Ok(())`，底层 SPI 错误原样传播。
+    ///
+    /// 对应 Java: `BaseNodeInstanceIdManageSpi#setNodesInstanceId`。
+    pub fn set_nodes_instance_id(
+        spi: &dyn NodeInstanceIdManageSpi,
+        nodes: &mut [Node],
+        el_md5: &str,
+        chain_id: &str,
+    ) -> LFResult<()> {
+        let lines = spi.read_instance_id_file(chain_id)?;
+        if lines.first().is_some_and(|saved_md5| saved_md5 == el_md5) {
+            // 摘要一致时必须复用持久化编号，保证进程重启后的节点定位稳定。
+            let infos = Self::parse_instance_infos(&lines)?;
+            Self::restore_instance_ids(nodes, chain_id, &infos);
+            return Ok(());
+        }
+
+        // 新 Chain 或 EL 已变化时重新编号，并以 Java 的两行文件格式写回。
+        let infos = Self::assign_instance_ids(spi, nodes, chain_id);
+        spi.write_instance_id_file(&infos, el_md5, chain_id)
+    }
+
     /// 解析实例编号文件第二行开始的 JSON 数组。
     pub fn parse_instance_infos(lines: &[String]) -> LFResult<Vec<InstanceInfoDto>> {
         let mut result = Vec::new();

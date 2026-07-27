@@ -19,11 +19,26 @@ impl ScriptSpiException {
         }
     }
     /// 返回异常消息。
+    ///
+    /// # 返回
+    /// 当前异常持有的原始消息。对应 Java: `ScriptSpiException#getMessage`。
     #[must_use]
-    pub fn message(&self) -> &str {
+    pub fn get_message(&self) -> &str {
         &self.message
     }
+
+    /// 返回异常消息。
+    ///
+    /// 这是既有 Rust API，委托 Java 命名入口读取同一字段。
+    #[must_use]
+    pub fn message(&self) -> &str {
+        self.get_message()
+    }
+
     /// 修改异常消息。
+    ///
+    /// 参数 `message` 对应 Java 同名参数。对应 Java:
+    /// `ScriptSpiException#setMessage`。
     pub fn set_message(&mut self, message: impl Into<String>) {
         self.message = message.into();
     }
@@ -37,9 +52,6 @@ impl fmt::Display for ScriptSpiException {
 impl std::error::Error for ScriptSpiException {}
 impl From<ScriptSpiException> for LiteflowError {
     fn from(error: ScriptSpiException) -> Self {
-        Self::Script {
-            node: String::new(),
-            msg: error.message,
-        }
+        Self::Custom(error.message)
     }
 }

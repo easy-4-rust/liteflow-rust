@@ -31,6 +31,15 @@ impl NodeInstanceIdManageSpi for FixedInstanceIdSpi {
     fn read_instance_id_file(&self, _chain_id: &str) -> LFResult<Vec<String>> {
         Ok(self.lines.clone())
     }
+
+    fn write_instance_id_file(
+        &self,
+        _instance_id_list: &[liteflow_core::InstanceInfoDto],
+        _el_md5: &str,
+        _chain_id: &str,
+    ) -> LFResult<()> {
+        Ok(())
+    }
 }
 
 struct FactoryComponent;

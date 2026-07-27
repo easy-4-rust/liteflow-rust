@@ -57,9 +57,7 @@ impl JSR223ScriptExecutor {
         } else {
             ScriptExecutorFactory::build(&self.language, node_id, self.kind, script)
         }
-        .map_err(|error| {
-            ScriptLoadException::new(node_id, format!("load script failed: {error}")).into()
-        })
+        .map_err(|error| ScriptLoadException::new(format!("load script failed: {error}")).into())
     }
 
     /// 卸载节点脚本。对应 Java `unLoad`。
@@ -114,13 +112,10 @@ impl JSR223ScriptExecutor {
             .get(execute_wrap.node_id())
             .map(|entry| entry.clone())
             .ok_or_else(|| {
-                ScriptLoadException::new(
-                    execute_wrap.node_id(),
-                    format!(
-                        "script node[{}] has not been loaded",
-                        execute_wrap.node_id()
-                    ),
-                )
+                ScriptLoadException::new(format!(
+                    "script node[{}] has not been loaded",
+                    execute_wrap.node_id()
+                ))
             })?;
         component.process(context).await
     }

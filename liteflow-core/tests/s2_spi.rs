@@ -18,7 +18,10 @@ use liteflow_core::spi::local::{
 };
 use liteflow_core::spi::path_content_parser::PathContentParser;
 use liteflow_core::spi::spi_priority::SpiPriority;
-use liteflow_core::{DefaultRequestIdGenerator, IdGeneratorHolder, RequestIdGenerator};
+use liteflow_core::{
+    DefaultRequestIdGenerator, IdGeneratorHolder, LiteflowConfig, LiteflowConfigGetter,
+    RequestIdGenerator,
+};
 
 /// 串行化 holder 全局状态相关测试
 static HOLDER_LOCK: Mutex<()> = Mutex::new(());
@@ -152,8 +155,33 @@ fn id_generator_holder_default_and_custom() {
     }
     IdGeneratorHolder::register(Arc::new(Fixed));
     assert_eq!(IdGeneratorHolder::generate(), "fixed-id");
+    assert!(std::ptr::eq(
+        IdGeneratorHolder::get_instance(),
+        IdGeneratorHolder::get_instance()
+    ));
+    assert_eq!(
+        IdGeneratorHolder::get_request_id_generator()
+            .expect("自定义生成器应保存在共享 holder")
+            .generate(),
+        "fixed-id"
+    );
+
+    // Rust 以显式类名注册表替代 Java 反射，init 必须读取真实 LiteflowConfig。
+    let mut config = LiteflowConfig::default();
+    config.set_request_id_generator_class("test.FixedRequestIdGenerator");
+    LiteflowConfigGetter::set_liteflow_config(config);
+    IdGeneratorHolder::register_named("test.FixedRequestIdGenerator", Arc::new(Fixed));
+    IdGeneratorHolder::clean();
+    IdGeneratorHolder::init().unwrap();
+    assert_eq!(
+        IdGeneratorHolder::get_request_id_generator()
+            .expect("配置类名应解析为已注册生成器")
+            .generate(),
+        "fixed-id"
+    );
 
     // clean 后回退默认生成器
+    LiteflowConfigGetter::clean();
     IdGeneratorHolder::clean();
     let id3 = IdGeneratorHolder::generate();
     assert_eq!(id3.len(), 32);

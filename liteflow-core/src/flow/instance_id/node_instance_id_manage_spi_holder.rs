@@ -1,6 +1,6 @@
 //! 节点实例编号 SPI 持有器。
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use super::{DefaultNodeInstanceIdManageSpiImpl, NodeInstanceIdManageSpi};
 
@@ -17,6 +17,33 @@ pub struct NodeInstanceIdManageSpiHolder {
 }
 
 impl NodeInstanceIdManageSpiHolder {
+    /// 初始化进程级 SPI 持有器为默认文件实现。
+    ///
+    /// Rust 扩展可随后通过 `set_node_instance_id_manage_spi` 显式替换，承担 Java
+    /// `ServiceLoader` 的可测试映射。对应 Java:
+    /// `NodeInstanceIdManageSpiHolder#init`。
+    pub fn init() {
+        Self::get_instance().set_node_instance_id_manage_spi(Arc::new(
+            DefaultNodeInstanceIdManageSpiImpl::default(),
+        ));
+    }
+
+    /// 返回进程级节点实例编号 SPI 持有器。
+    ///
+    /// # 返回
+    /// 与 Java 静态 `INSTANCE` 对应的共享持有器。
+    ///
+    /// 对应 Java: `NodeInstanceIdManageSpiHolder#getInstance`。
+    #[must_use]
+    pub fn get_instance() -> &'static Self {
+        static INSTANCE: OnceLock<NodeInstanceIdManageSpiHolder> = OnceLock::new();
+        INSTANCE.get_or_init(|| {
+            NodeInstanceIdManageSpiHolder::new(Arc::new(
+                DefaultNodeInstanceIdManageSpiImpl::default(),
+            ))
+        })
+    }
+
     /// 使用指定 SPI 创建持有器。
     #[must_use]
     pub fn new(instance: Arc<dyn NodeInstanceIdManageSpi>) -> Self {

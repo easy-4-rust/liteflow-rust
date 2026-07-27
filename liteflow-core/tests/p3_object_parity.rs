@@ -62,6 +62,19 @@ impl NodeInstanceIdManageSpi for PrefixInstanceIdSpi {
     fn gen_instance_id(&self, chain_id: &str, node_id: &str, occurrence: usize) -> String {
         format!("{chain_id}:{node_id}:{occurrence}")
     }
+
+    fn read_instance_id_file(&self, _chain_id: &str) -> liteflow_core::LFResult<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    fn write_instance_id_file(
+        &self,
+        _instance_id_list: &[liteflow_core::InstanceInfoDto],
+        _el_md5: &str,
+        _chain_id: &str,
+    ) -> liteflow_core::LFResult<()> {
+        Ok(())
+    }
 }
 
 #[liteflow_core::async_trait]
@@ -211,6 +224,8 @@ fn chain_el_builder_validation_reports_precise_syntax_and_missing_node_errors() 
 fn loop_future_obj_preserves_executor_and_error_state() {
     let success = LoopFutureObj::success("loop-body");
     assert!(success.is_success());
+    assert_eq!(success.get_executor_name(), "loop-body");
+    assert!(success.get_ex().is_none());
     assert_eq!(success.executor_name(), "loop-body");
     assert!(success.ex().is_none());
 
@@ -218,6 +233,10 @@ fn loop_future_obj_preserves_executor_and_error_state() {
     assert!(!failure.is_success());
     assert_eq!(
         failure.ex().unwrap().to_string(),
+        "when execute error: boom"
+    );
+    assert_eq!(
+        failure.get_ex().unwrap().to_string(),
         "when execute error: boom"
     );
     failure.set_executor_name("renamed-body");
@@ -575,16 +594,17 @@ fn instance_id_base_default_file_and_holder_execute_real_contract() {
         ),
     ];
     let current = holder.get_node_instance_id_manage_spi();
-    let infos =
-        BaseNodeInstanceIdManageSpi::assign_instance_ids(current.as_ref(), &mut nodes, "chain1");
-    current
-        .write_instance_id_file(&infos, "el-md5", "chain1")
-        .unwrap();
+    BaseNodeInstanceIdManageSpi::set_nodes_instance_id(
+        current.as_ref(),
+        &mut nodes,
+        "el-md5",
+        "chain1",
+    )
+    .unwrap();
+    let lines = default_spi.read_instance_id_file("chain1").unwrap();
+    let infos = BaseNodeInstanceIdManageSpi::parse_instance_infos(&lines).unwrap();
 
-    assert_eq!(
-        current.read_instance_id_file("chain1").unwrap()[0],
-        "el-md5"
-    );
+    assert_eq!(lines[0], "el-md5");
     let second_a = infos[1].instance_id().unwrap();
     assert_eq!(
         current.get_node_location_by_id("chain1", second_a).unwrap(),
@@ -618,7 +638,15 @@ fn instance_id_base_default_file_and_holder_execute_real_contract() {
             Arc::new(cmp(|_| async { Ok(Value::Null) })),
         ),
     ];
-    BaseNodeInstanceIdManageSpi::restore_instance_ids(&mut restored, "chain1", &infos);
+    // 相同摘要必须从真实文件恢复旧编号，不能依赖当前进程的生成器缓存。
+    let restarted_spi = DefaultNodeInstanceIdManageSpiImpl::with_base_path(directory.path());
+    BaseNodeInstanceIdManageSpi::set_nodes_instance_id(
+        &restarted_spi,
+        &mut restored,
+        "el-md5",
+        "chain1",
+    )
+    .unwrap();
     assert_eq!(restored[1].node_instance_id(), Some(second_a));
 
     holder.set_node_instance_id_manage_spi(Arc::new(PrefixInstanceIdSpi));
@@ -627,6 +655,14 @@ fn instance_id_base_default_file_and_holder_execute_real_contract() {
             .get_node_instance_id_manage_spi()
             .gen_instance_id("chain2", "node", 3),
         "chain2:node:3"
+    );
+
+    NodeInstanceIdManageSpiHolder::init();
+    assert!(
+        !NodeInstanceIdManageSpiHolder::get_instance()
+            .get_node_instance_id_manage_spi()
+            .gen_instance_id("global-chain", "node", 0)
+            .is_empty()
     );
 }
 

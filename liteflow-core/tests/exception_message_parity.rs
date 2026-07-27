@@ -22,6 +22,7 @@ use liteflow_core::exception::{
     SwitchTargetCannotBePreOrFinallyException, SwitchTypeErrorException,
     ThreadExecutorServiceCreateException, WhenExecuteException, WhenTimeoutException,
 };
+use liteflow_core::script::exception::{ScriptLoadException, ScriptSpiException};
 
 macro_rules! assert_message_round_trip {
     ($exception_type:ty) => {{
@@ -101,6 +102,8 @@ fn core_exception_messages_share_one_real_mutable_state_with_display_and_convers
     assert_message_round_trip!(ThreadExecutorServiceCreateException);
     assert_message_round_trip!(WhenExecuteException);
     assert_message_round_trip!(WhenTimeoutException);
+    assert_message_round_trip!(ScriptLoadException);
+    assert_message_round_trip!(ScriptSpiException);
 }
 
 #[test]
