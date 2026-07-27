@@ -102,15 +102,17 @@ async fn chain_execute_records_only_real_failures() {
     ));
     assert_eq!(failure_slot.get_exception(), Some("boom".to_string()));
 
-    let chain_end: Arc<dyn Executable> =
-        Arc::new(FixedExecutable::new("end", Err(LiteflowError::ChainEnd)));
+    let chain_end: Arc<dyn Executable> = Arc::new(FixedExecutable::new(
+        "end",
+        Err(LiteflowError::ChainEnd("chain end".to_string())),
+    ));
     let chain = Chain::new("main", vec![chain_end]);
     let end_slot = Arc::new(Slot::new("request-2".to_string(), "main", json!(null)));
     let end_ctx = Ctx::new(end_slot.clone());
 
     assert!(matches!(
         chain.execute(&end_ctx).await,
-        Err(LiteflowError::ChainEnd)
+        Err(LiteflowError::ChainEnd(_))
     ));
     assert_eq!(end_slot.get_exception(), None);
 }

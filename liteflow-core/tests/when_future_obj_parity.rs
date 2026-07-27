@@ -34,5 +34,9 @@ fn java_named_accessors_mutate_the_same_parallel_result_state() {
     assert!(!timeout.is_success());
     assert!(timeout.is_timeout());
     assert_eq!(timeout.get_executor_id(), "node-c");
-    assert!(matches!(timeout.get_ex(), Some(LiteflowError::WhenTimeout)));
+    assert!(matches!(
+        timeout.get_ex(),
+        Some(LiteflowError::WhenTimeout(message))
+            if message == "Timed out when executing the component[node-c]"
+    ));
 }

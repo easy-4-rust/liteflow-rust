@@ -1,5 +1,5 @@
-//! S2-C 挂接测试：exception 包中此前缺少 LiteflowError 变体的 34 个异常 struct
-//! 均可通过 From 转换为 LiteflowError，且 Display 与 struct 原始 message 一致。
+//! S2-C 挂接测试：exception 包中此前缺少 LiteflowError 变体的异常 struct
+//! 均可通过 From 转换为 LiteflowError，并保留各自 Java 构造与消息语义。
 
 use liteflow_core::LiteflowError;
 use liteflow_core::exception::and_or_condition_exception::AndOrConditionException;
@@ -69,7 +69,6 @@ fn s2_newly_wired_exceptions_convert_to_liteflow_error() {
     assert_from!(ErrorSupportPathException);
     assert_from!(FallbackCmpNotFoundException);
     assert_from!(FlowExecutorNotInitException);
-    assert_from!(MissMavenDependencyException);
     assert_from!(MonitorFileInitErrorException);
     assert_from!(MultipleParsersException);
     assert_from!(NoAvailableSlotException);
@@ -89,6 +88,12 @@ fn s2_newly_wired_exceptions_convert_to_liteflow_error() {
     assert_from!(RequestIdGeneratorException);
     assert_from!(RouteELInvalidException);
     assert_from!(ThreadExecutorServiceCreateException);
+
+    // 该对象在 Java 中不是 message-only 构造器，而是接收 Maven 坐标后生成提示。
+    let exception = MissMavenDependencyException::new("com.example", "demo");
+    let expected_message = exception.to_string();
+    let error = LiteflowError::from(exception);
+    assert_eq!(error.to_string(), expected_message);
 }
 
 /// 回归抽查：已有 From 实现的 3 个异常 struct 转换行为不受新增变体影响。

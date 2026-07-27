@@ -108,7 +108,9 @@ impl RetryCondition {
         for retry_time in 0..=self.retry_times {
             match self.inner.execute(ctx, frame).await {
                 Ok(value) => return Ok(value),
-                Err(LiteflowError::ChainEnd) => return Err(LiteflowError::ChainEnd),
+                Err(LiteflowError::ChainEnd(message)) => {
+                    return Err(LiteflowError::ChainEnd(message));
+                }
                 Err(error)
                     if self.matches_retry_filter(&error) && retry_time < self.retry_times =>
                 {

@@ -20,6 +20,23 @@ impl NullNodeTypeException {
             message: message.into(),
         }
     }
+
+    /// 返回异常信息。
+    ///
+    /// # 返回
+    /// 当前异常持有的原始消息。对应 Java: `NullNodeTypeException#getMessage`。
+    #[must_use]
+    pub fn get_message(&self) -> &str {
+        &self.message
+    }
+
+    /// 修改异常信息。
+    ///
+    /// 参数 `message` 对应 Java 同名参数。对应 Java:
+    /// `NullNodeTypeException#setMessage`。
+    pub fn set_message(&mut self, message: impl Into<String>) {
+        self.message = message.into();
+    }
 }
 
 impl fmt::Display for NullNodeTypeException {

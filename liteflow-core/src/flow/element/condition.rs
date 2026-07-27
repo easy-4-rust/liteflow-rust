@@ -368,7 +368,7 @@ where
     frame.push_condition(Arc::new(condition.clone()));
     let result = body.await;
     if let Err(error) = &result {
-        if !matches!(error, LiteflowError::ChainEnd) {
+        if !matches!(error, LiteflowError::ChainEnd(_)) {
             ctx.set_exception(&error.to_string());
         }
     }

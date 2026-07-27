@@ -43,10 +43,9 @@ impl ScriptBeanManager {
     /// 调用已注册 Bean 的方法。
     pub fn invoke(bean_name: &str, method_name: &str, arguments: &[Value]) -> LFResult<Value> {
         let bean = Self::get_script_bean(bean_name).ok_or_else(|| {
-            ScriptBeanMethodInvokeException::new(
-                "",
-                format!("script bean[{bean_name}] is not registered"),
-            )
+            ScriptBeanMethodInvokeException::new(format!(
+                "script bean[{bean_name}] is not registered"
+            ))
         })?;
         bean.invoke(method_name, arguments)
     }

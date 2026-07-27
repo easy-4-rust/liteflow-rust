@@ -23,7 +23,7 @@ impl Executable for IgnoreErrorCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         match self.inner.execute(ctx, frame).await {
             Ok(v) => Ok(v),
-            Err(LiteflowError::ChainEnd) => Err(LiteflowError::ChainEnd),
+            Err(LiteflowError::ChainEnd(message)) => Err(LiteflowError::ChainEnd(message)),
             Err(e) => {
                 ctx.set_exception(&e.to_string());
                 Ok(Value::Null)

@@ -1,44 +1,52 @@
 //! 对应 Java 类：com.yomahub.liteflow.exception.SwitchTypeErrorException
 //!
-//! SWITCH 节点返回类型错误（应返回字符串目标）
+//! SWITCH 节点返回类型错误
 
 use std::fmt;
 
 use super::lite_flow_exception::LiteflowError;
 
-/// 对应 SwitchTypeErrorException：SWITCH 节点返回类型错误（应返回字符串目标）
+/// SWITCH 节点返回类型错误时使用的可变消息异常。
+///
+/// 对应 Java: `com.yomahub.liteflow.exception.SwitchTypeErrorException`。
 #[derive(Debug, Clone)]
 pub struct SwitchTypeErrorException {
-    /// 节点 ID
-    pub node: String,
-    /// 期望返回类型
-    pub expect: String,
-    /// 实际返回类型
-    pub actual: String,
+    /// 异常信息
+    pub message: String,
 }
 
 impl SwitchTypeErrorException {
-    /// 创建异常（对应 Java 的构造器）
-    pub fn new(
-        node: impl Into<String>,
-        expect: impl Into<String>,
-        actual: impl Into<String>,
-    ) -> Self {
+    /// 使用指定消息创建异常。
+    ///
+    /// 参数 `message` 对应 Java 同名构造参数。对应 Java:
+    /// `SwitchTypeErrorException#SwitchTypeErrorException(String)`。
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
-            node: node.into(),
-            expect: expect.into(),
-            actual: actual.into(),
+            message: message.into(),
         }
+    }
+
+    /// 返回异常信息。
+    ///
+    /// # 返回
+    /// 当前异常持有的原始消息。对应 Java: `SwitchTypeErrorException#getMessage`。
+    #[must_use]
+    pub fn get_message(&self) -> &str {
+        &self.message
+    }
+
+    /// 修改异常信息。
+    ///
+    /// 参数 `message` 对应 Java 同名参数。对应 Java:
+    /// `SwitchTypeErrorException#setMessage`。
+    pub fn set_message(&mut self, message: impl Into<String>) {
+        self.message = message.into();
     }
 }
 
 impl fmt::Display for SwitchTypeErrorException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "node[{}] should return {}, but got {}",
-            self.node, self.expect, self.actual
-        )
+        write!(f, "{}", self.message)
     }
 }
 
@@ -46,10 +54,7 @@ impl std::error::Error for SwitchTypeErrorException {}
 
 impl From<SwitchTypeErrorException> for LiteflowError {
     fn from(e: SwitchTypeErrorException) -> Self {
-        LiteflowError::NodeTypeError {
-            node: e.node,
-            expect: e.expect,
-            actual: e.actual,
-        }
+        // Java 允许调用者传入任意消息，统一错误转换必须逐字保留该诊断文本。
+        LiteflowError::Custom(e.message)
     }
 }

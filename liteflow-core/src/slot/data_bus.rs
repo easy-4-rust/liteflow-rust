@@ -10,7 +10,11 @@ use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use serde_json::Value;
+
 use super::{Slot, slot_lease::SlotLease};
+use crate::core::ContextBeanFactory;
+use crate::flow::id::IdGeneratorHolder;
 
 const DEFAULT_SLOT_SIZE: usize = 1_024;
 
@@ -82,6 +86,38 @@ impl DataBus {
         };
         state.slots.insert(slot_index, slot);
         slot_index
+    }
+
+    /// 根据上下文 Bean 类型工厂创建 Slot 并返回索引。
+    ///
+    /// 每个工厂只在当前分配过程中调用一次；生成的 Bean 随 Slot 生命周期保存。
+    /// 参数 `context_bean_classes` 对应 Java `contextClazzList`。
+    /// 对应 Java: `DataBus#offerSlotByClass`。
+    pub fn offer_slot_by_class(context_bean_classes: &[ContextBeanFactory]) -> usize {
+        let context_beans = context_bean_classes
+            .iter()
+            .map(|(context_name, context_bean_factory)| {
+                (context_name.clone(), context_bean_factory())
+            })
+            .collect();
+        Self::offer_slot_by_bean(context_beans)
+    }
+
+    /// 根据上下文 Bean 实例创建 Slot 并返回索引。
+    ///
+    /// Rust 以 `(名称, Bean)` 显式表达 Java `@ContextBean` 别名或默认类名。
+    /// 参数 `context_list` 对应 Java `contextList`。对应 Java:
+    /// `DataBus#offerSlotByBean`。
+    pub fn offer_slot_by_bean(context_list: Vec<(String, Arc<dyn Any + Send + Sync>)>) -> usize {
+        let slot = Arc::new(Slot::new(
+            IdGeneratorHolder::generate(),
+            String::new(),
+            Value::Null,
+        ));
+        for (context_name, context_bean) in context_list {
+            slot.insert_context_bean(context_name, context_bean);
+        }
+        Self::offer_slot(slot)
     }
 
     /// 按索引获取共享 Slot。

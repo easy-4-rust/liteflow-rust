@@ -61,13 +61,10 @@ impl ScriptBeanProxy {
         self.methods
             .get(method_name)
             .ok_or_else(|| -> LiteflowError {
-                ScriptBeanMethodInvokeException::new(
-                    "",
-                    format!(
-                        "method[{method_name}] is not exposed by script bean[{}]",
-                        self.bean_name
-                    ),
-                )
+                ScriptBeanMethodInvokeException::new(format!(
+                    "method[{method_name}] is not exposed by script bean[{}]",
+                    self.bean_name
+                ))
                 .into()
             })?
             .invoke(arguments)

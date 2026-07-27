@@ -90,7 +90,7 @@ impl Executable for CatchCondition {
         super::execute_condition_with_lifecycle(self, ctx, frame, async {
             match self.catch_item.execute(ctx, frame).await {
                 Ok(v) => Ok(v),
-                Err(LiteflowError::ChainEnd) => Err(LiteflowError::ChainEnd),
+                Err(LiteflowError::ChainEnd(message)) => Err(LiteflowError::ChainEnd(message)),
                 Err(e) => {
                     ctx.set_exception(&e.to_string());
                     match &self.do_item {

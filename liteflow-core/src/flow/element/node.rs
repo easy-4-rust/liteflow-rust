@@ -586,7 +586,7 @@ impl Node {
     /// 重试语义由 flow.executor.NodeExecutor 承担，本方法不含重试。
     pub async fn execute_once(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         if ctx.is_ended() {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         let cctx = CmpContext {
             inner: ctx.inner.clone(),
@@ -652,7 +652,7 @@ impl Node {
                 for aspect in &self.hooks.aspects {
                     aspect.on_error(&cctx, error).await;
                 }
-                if !matches!(error, LiteflowError::ChainEnd) {
+                if !matches!(error, LiteflowError::ChainEnd(_)) {
                     ctx.set_exception(&error.to_string());
                 }
             }
@@ -684,13 +684,16 @@ impl Node {
                 ctx.record_step(step);
                 // setIsEnd(true) 语义
                 if ctx.is_ended() {
-                    return Err(LiteflowError::ChainEnd);
+                    return Err(LiteflowError::ChainEnd(format!(
+                        "[{}] lead the chain to end",
+                        self.display_name()
+                    )));
                 }
                 Ok(v)
             }
-            Err(LiteflowError::ChainEnd) => {
+            Err(LiteflowError::ChainEnd(message)) => {
                 step.set_step_data(cctx.get_step_data().unwrap_or(serde_json::Value::Null));
-                step.finish(false, Some(LiteflowError::ChainEnd.to_string()));
+                step.finish(false, Some(message.clone()));
                 if let Some(m) = &self.hooks.monitor {
                     m.record(
                         self.display_name(),
@@ -699,7 +702,7 @@ impl Node {
                     );
                 }
                 ctx.record_step(step);
-                Err(LiteflowError::ChainEnd)
+                Err(LiteflowError::ChainEnd(message))
             }
             Err(e) => {
                 let error_kind = format!("{e:?}")
@@ -718,7 +721,10 @@ impl Node {
                 }
                 ctx.record_step(step);
                 if ctx.is_ended() {
-                    return Err(LiteflowError::ChainEnd);
+                    return Err(LiteflowError::ChainEnd(format!(
+                        "[{}] lead the chain to end",
+                        self.display_name()
+                    )));
                 }
                 if cctx.frame.get_node_continue_on_error_result(self.get_id())
                     || self.instance.is_continue_on_error_with_context(&cctx)

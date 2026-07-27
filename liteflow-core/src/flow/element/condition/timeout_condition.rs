@@ -29,7 +29,7 @@ impl Executable for TimeoutCondition {
         .await
         {
             Ok(r) => r,
-            Err(_) => Err(LiteflowError::WhenTimeout),
+            Err(_) => Err(LiteflowError::WhenTimeout("when timeout".to_string())),
         }
     }
 

@@ -56,7 +56,7 @@ impl NodeComponent for FlakyCmp {
     async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         if self.chain_end {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         if n >= self.succeed_on {
             Ok(Value::from(n))
@@ -299,7 +299,7 @@ async fn chain_end_is_not_retried() {
     let node = node_of(cmp);
     let (ctx, frame) = ctx_frame();
     let r = node.execute(&ctx, &frame).await;
-    assert!(matches!(r, Err(LiteflowError::ChainEnd)), "got: {r:?}");
+    assert!(matches!(r, Err(LiteflowError::ChainEnd(_))), "got: {r:?}");
     let steps = ctx.inner.steps.lock().unwrap().len();
     assert_eq!(steps, 1, "ChainEnd must not be retried");
 }
@@ -379,7 +379,11 @@ fn when_future_obj_variants() {
 
     let timeout = WhenFutureObj::time_out("c");
     assert!(!timeout.is_success() && timeout.is_timeout());
-    assert!(matches!(timeout.get_ex(), Some(LiteflowError::WhenTimeout)));
+    assert!(matches!(
+        timeout.get_ex(),
+        Some(LiteflowError::WhenTimeout(message))
+            if message == "Timed out when executing the component[c]"
+    ));
 }
 
 /// flow.parallel：complete_on_timeout 在超时后兜底为默认值，及时完成时返回原结果
@@ -403,7 +407,10 @@ async fn complete_on_timeout_semantics() {
     // timeoutAfter → checked exception 映射为 Result 错误。
     let timeout_error =
         CompletableFutureTimeout::timeout_after::<()>(Duration::from_millis(1)).await;
-    assert!(matches!(timeout_error, Err(LiteflowError::WhenTimeout)));
+    assert!(matches!(
+        timeout_error,
+        Err(LiteflowError::WhenTimeout(message)) if message == "when timeout"
+    ));
 
     // Tokio 所有权语义：超时后原 Future 被 drop，不会遗留后台任务。
     struct DropProbe(Arc<AtomicUsize>);

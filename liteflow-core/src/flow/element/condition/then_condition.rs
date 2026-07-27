@@ -114,7 +114,7 @@ impl Executable for ThenCondition {
                 }
             }
             match err {
-                Some(LiteflowError::ChainEnd) => Err(LiteflowError::ChainEnd),
+                Some(LiteflowError::ChainEnd(message)) => Err(LiteflowError::ChainEnd(message)),
                 Some(e) => {
                     ctx.set_exception(&e.to_string());
                     Err(e)

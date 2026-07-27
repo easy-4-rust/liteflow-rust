@@ -297,7 +297,7 @@ impl Executable for WhenCondition {
                         for executor_item in timeout_item_ids {
                             ctx.inner.add_timeout_item(executor_item);
                         }
-                        Err(LiteflowError::WhenTimeout)
+                        Err(LiteflowError::WhenTimeout("when timeout".to_string()))
                     }
                 },
                 None => fut.await,

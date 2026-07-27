@@ -296,7 +296,7 @@ impl Chain {
         for condition in &self.condition_list {
             if let Err(error) = condition.execute(ctx, &frame).await {
                 // ChainEnd 是正常的主动结束信号，不写入异常槽。
-                if !matches!(error, LiteflowError::ChainEnd) {
+                if !matches!(error, LiteflowError::ChainEnd(_)) {
                     ctx.set_exception(&error.to_string());
                 }
                 return Err(error);

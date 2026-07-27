@@ -31,7 +31,7 @@ impl ParallelStrategyExecutor for AnyOfParallelExecutor {
             return Ok(Value::Null); // 任一成功即返回，其余分支随 JoinSet drop 取消
         }
         if out.chain_end {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         if !out.oks.is_empty() || opts.ignore_error {
             return Ok(Value::Null);

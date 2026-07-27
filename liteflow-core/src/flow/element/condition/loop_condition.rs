@@ -195,7 +195,9 @@ pub async fn handle_future_list(mut set: JoinSet<LoopFutureObj>) -> LFResult<Val
         match joined {
             Ok(result) if result.is_success() => {}
             Ok(result) => match result.ex().cloned() {
-                Some(LiteflowError::ChainEnd) => return Err(LiteflowError::ChainEnd),
+                Some(LiteflowError::ChainEnd(message)) => {
+                    return Err(LiteflowError::ChainEnd(message));
+                }
                 Some(error) => return Err(LiteflowError::WhenExecute(error.to_string())),
                 None => {
                     return Err(LiteflowError::WhenExecute(format!(

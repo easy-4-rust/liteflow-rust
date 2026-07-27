@@ -196,7 +196,7 @@ async fn java_named_dynamic_controls_enter_the_real_node_execution_path() {
 
     assert!(matches!(
         end_node.execute(&end_ctx, &end_frame).await,
-        Err(LiteflowError::ChainEnd)
+        Err(LiteflowError::ChainEnd(_))
     ));
 }
 

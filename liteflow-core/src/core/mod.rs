@@ -24,7 +24,7 @@ mod script_switch_component;
 pub use component_initializer::ComponentInitializer;
 pub use decl_component::DeclComponent;
 pub use decl_method_component::DeclMethodComponent;
-pub use execute_option::{ExecuteOption, gen_conversation_id};
+pub use execute_option::{ContextBeanFactory, ExecuteOption, gen_conversation_id};
 pub use flow_executor::FlowExecutor;
 pub use flow_executor_holder::FlowExecutorHolder;
 pub use flow_init_hook::FlowInitHook;

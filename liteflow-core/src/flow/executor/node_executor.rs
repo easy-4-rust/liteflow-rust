@@ -33,7 +33,9 @@ pub trait NodeExecutor: Send + Sync + 'static {
             match result {
                 Ok(v) => return Ok(v),
                 // ChainEndException 无需重试，直接上抛
-                Err(LiteflowError::ChainEnd) => return Err(LiteflowError::ChainEnd),
+                Err(LiteflowError::ChainEnd(message)) => {
+                    return Err(LiteflowError::ChainEnd(message));
+                }
                 Err(e) => {
                     // 两种情况不重试：
                     // 1) 抛出的异常不在组件声明的 retry_for 范围内

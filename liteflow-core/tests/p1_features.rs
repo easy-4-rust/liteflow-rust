@@ -260,7 +260,8 @@ async fn route_chain_no_match_error() {
         .execute_route_chain(Some("ns"), Value::Null)
         .await
         .unwrap_err();
-    assert!(matches!(err, LiteflowError::NoMatchedRouteChain));
+    assert_eq!(err.to_string(), "there is no matched route chain");
+    assert!(matches!(err, LiteflowError::NoMatchedRouteChain(_)));
     // namespace 无 route 链路
     let err = bus
         .execute_route_chain(Some("other"), Value::Null)

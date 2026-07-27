@@ -35,7 +35,7 @@ impl ParallelStrategyExecutor for SpecifyParallelExecutor {
             return Ok(Value::Null);
         }
         if out.chain_end {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         if let Some(e) = out.must_err {
             return Err(LiteflowError::WhenExecute(e.to_string()));

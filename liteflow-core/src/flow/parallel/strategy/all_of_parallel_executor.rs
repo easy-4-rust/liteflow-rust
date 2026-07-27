@@ -29,7 +29,7 @@ impl ParallelStrategyExecutor for AllOfParallelExecutor {
         let set = spawn_all(items, &ctx, &frame, &opts.executor_service);
         let (out, _) = collect(set, &opts.must_idx, |out| out.oks.len() >= n).await;
         if out.chain_end {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         if opts.ignore_error {
             return Ok(Value::Null);

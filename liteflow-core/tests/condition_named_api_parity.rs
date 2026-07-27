@@ -64,7 +64,7 @@ impl Executable for StackProbe {
         match self.outcome {
             StackProbeOutcome::Success => Ok(Value::Null),
             StackProbeOutcome::Failure => Err(LiteflowError::Custom(format!("{} failed", self.id))),
-            StackProbeOutcome::ChainEnd => Err(LiteflowError::ChainEnd),
+            StackProbeOutcome::ChainEnd => Err(LiteflowError::ChainEnd("chain end".to_string())),
         }
     }
 
@@ -367,7 +367,7 @@ async fn condition_execute_lifecycle_pushes_records_errors_and_always_pops() {
     }));
     assert!(matches!(
         chain_end.execute(&chain_end_ctx, &chain_end_frame).await,
-        Err(LiteflowError::ChainEnd)
+        Err(LiteflowError::ChainEnd(_))
     ));
     assert_eq!(chain_end_ctx.inner.get_exception(), None);
     assert!(

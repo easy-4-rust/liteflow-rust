@@ -26,14 +26,14 @@ pub enum LiteflowError {
         kind: String,
     },
     /// ChainEndException（正常终止，不算失败）
-    #[error("chain end")]
-    ChainEnd,
+    #[error("{0}")]
+    ChainEnd(String),
     /// WhenExecuteException
     #[error("when execute error: {0}")]
     WhenExecute(String),
     /// WhenTimeoutException
-    #[error("when timeout")]
-    WhenTimeout,
+    #[error("{0}")]
+    WhenTimeout(String),
     /// NoSwitchTargetNodeException
     #[error("no switch target node found, target str is [{0}]")]
     NoSwitchTarget(String),
@@ -41,14 +41,14 @@ pub enum LiteflowError {
     #[error("no if-true node found for the component[{0}]")]
     NoIfTrueNode(String),
     /// NoForNodeException
-    #[error("no for-node found")]
-    NoForNode,
+    #[error("{0}")]
+    NoForNode(String),
     /// NoWhileNodeException
-    #[error("no while-node found")]
-    NoWhileNode,
+    #[error("{0}")]
+    NoWhileNode(String),
     /// NoIteratorNodeException
-    #[error("no iterator-node found")]
-    NoIteratorNode,
+    #[error("{0}")]
+    NoIteratorNode(String),
     /// IfTargetCannotBePreOrFinallyException / SwitchTargetCannotBePreOrFinallyException
     #[error("target node cannot be pre or finally: {0}")]
     TargetCannotBePreOrFinally(String),
@@ -72,8 +72,8 @@ pub enum LiteflowError {
     #[error("no route found for namespace[{0}]")]
     RouteChainNotFound(String),
     /// NoMatchedRouteChainException
-    #[error("there is no matched route chain")]
-    NoMatchedRouteChain,
+    #[error("{0}")]
+    NoMatchedRouteChain(String),
     /// ScriptLoadException / 脚本执行错误
     #[error("script error in node[{node}]: {msg}")]
     Script { node: String, msg: String },

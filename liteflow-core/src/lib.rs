@@ -56,7 +56,7 @@ pub mod util;
 pub use async_trait::async_trait;
 pub use builder::{ChainPropBean, LiteFlowNodeBuilder, NodePropBean};
 pub use common::{ChainConstant, LocalDefaultFlowConstant};
-pub use core::execute_option::{ExecuteOption, gen_conversation_id};
+pub use core::execute_option::{ContextBeanFactory, ExecuteOption, gen_conversation_id};
 pub use core::{
     ComponentInitializer, FlowExecutor, FlowExecutorHolder, FlowInitHook, FnComponent,
     NodeBooleanComponent, NodeComponent, NodeForComponent, NodeIteratorComponent,

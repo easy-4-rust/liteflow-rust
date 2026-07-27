@@ -6,6 +6,15 @@ use crate::util::ConversationIdGenerator;
 use std::any::Any;
 use std::sync::Arc;
 
+/// 上下文 Bean 的延迟构造函数。
+///
+/// Java 保存 `Class<?>` 并在分配 Slot 时反射实例化；Rust 保存线程安全工厂，
+/// 在相同执行阶段调用，避免依赖运行期反射。
+pub type ContextBeanFactory = (
+    String,
+    Arc<dyn Fn() -> Arc<dyn Any + Send + Sync> + Send + Sync>,
+);
+
 /// 生成默认会话 ID。
 ///
 /// 保留既有函数入口并委托独立的 `ConversationIdGenerator` 对象。
@@ -28,6 +37,8 @@ pub struct ExecuteOption {
     pub auto_conversation_id: bool,
     /// contextBean 列表
     pub context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
+    /// contextBean Class 对应的延迟构造函数列表
+    pub context_bean_classes: Vec<ContextBeanFactory>,
     /// 本次执行的事件监听器
     pub event_listener: Option<Arc<dyn FlowEventListener>>,
 }
@@ -80,6 +91,22 @@ impl ExecuteOption {
         self
     }
 
+    /// 添加一个由默认构造器创建的上下文 Bean 类型。
+    ///
+    /// Rust 没有 Java `Class<?>` 反射构造能力，因此用 `T: Default` 表达可实例化
+    /// 类型，并在链路真正执行时调用构造器。Bean 名称按 Java 默认规则取简单类型名
+    /// 并把首字母转为小写。对应 Java: `ExecuteOption#contextClass`。
+    #[must_use]
+    pub fn context_class<T>(mut self) -> Self
+    where
+        T: Any + Default + Send + Sync + 'static,
+    {
+        let context_name = default_context_name::<T>();
+        self.context_bean_classes
+            .push((context_name, Arc::new(|| Arc::new(T::default()))));
+        self
+    }
+
     /// 设置本次执行的事件监听器。对应 Java: `ExecuteOption#eventListener`。
     #[must_use]
     pub fn event_listener(mut self, listener: Arc<dyn FlowEventListener>) -> Self {
@@ -114,6 +141,15 @@ impl ExecuteOption {
         &self.context_beans
     }
 
+    /// 返回上下文 Bean 类型的延迟构造函数。
+    ///
+    /// 返回值对应 Java 的 `Class<?>[]`，调用工厂即可在 Slot 分配阶段创建对象。
+    /// 对应 Java: `ExecuteOption#getContextBeanClasses`。
+    #[must_use]
+    pub fn get_context_bean_classes(&self) -> &[ContextBeanFactory] {
+        &self.context_bean_classes
+    }
+
     /// 返回事件监听器。对应 Java: `ExecuteOption#getEventListener`。
     #[must_use]
     pub fn get_event_listener(&self) -> Option<&Arc<dyn FlowEventListener>> {
@@ -129,5 +165,17 @@ impl ExecuteOption {
         } else {
             None
         }
+    }
+}
+
+fn default_context_name<T: 'static>() -> String {
+    let simple_name = std::any::type_name::<T>()
+        .rsplit("::")
+        .next()
+        .unwrap_or_default();
+    let mut characters = simple_name.chars();
+    match characters.next() {
+        Some(first) => first.to_lowercase().chain(characters).collect(),
+        None => String::new(),
     }
 }

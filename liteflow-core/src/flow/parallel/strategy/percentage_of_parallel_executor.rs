@@ -37,7 +37,7 @@ impl ParallelStrategyExecutor for PercentageOfParallelExecutor {
             return Ok(Value::Null);
         }
         if out.chain_end {
-            return Err(LiteflowError::ChainEnd);
+            return Err(LiteflowError::ChainEnd("chain end".to_string()));
         }
         if out.oks.len() >= need || opts.ignore_error {
             return Ok(Value::Null);

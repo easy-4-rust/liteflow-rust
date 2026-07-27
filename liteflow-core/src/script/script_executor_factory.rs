@@ -25,6 +25,16 @@ fn registry() -> &'static DashMap<String, ScriptComponentBuilder> {
 pub struct ScriptExecutorFactory;
 
 impl ScriptExecutorFactory {
+    /// 返回进程级脚本执行器工厂。
+    ///
+    /// 工厂本身无可变字段，语言注册表由线程安全全局容器持有。对应 Java:
+    /// `ScriptExecutorFactory#loadInstance`。
+    #[must_use]
+    pub fn load_instance() -> &'static Self {
+        static INSTANCE: ScriptExecutorFactory = ScriptExecutorFactory;
+        &INSTANCE
+    }
+
     /// 注册语言构建器。对应 Java ServiceLoader 发现并缓存 ScriptExecutor。
     pub fn register(language: impl Into<String>, builder: ScriptComponentBuilder) -> LFResult<()> {
         let language = language.into();
@@ -55,20 +65,40 @@ impl ScriptExecutorFactory {
         kind: ScriptKind,
         script: &str,
     ) -> LFResult<Arc<dyn NodeComponent>> {
-        let builder = registry()
+        let builder = Self::load_instance().get_script_executor(language)?;
+        builder(node_id, kind, script)
+    }
+
+    /// 返回指定语言已经注册的真实脚本组件构建器。
+    ///
+    /// Java 返回缓存的 `ScriptExecutor`；Rust 插件以构建器作为执行器注册句柄，
+    /// 它会创建并加载真实 `ScriptExecutorComponent`。空语言没有隐式默认实现，
+    /// 未注册时返回 `ScriptSpiException`。对应 Java:
+    /// `ScriptExecutorFactory#getScriptExecutor`。
+    pub fn get_script_executor(&self, language: &str) -> LFResult<ScriptComponentBuilder> {
+        let language = language.trim();
+        registry()
             .get(language)
             .map(|entry| *entry)
             .ok_or_else(|| {
                 ScriptSpiException::new(format!(
                     "unsupported script language: {language}; register it through liteflow-script-plugin"
                 ))
-            })?;
-        builder(node_id, kind, script)
+                .into()
+            })
     }
 
     /// 清空插件缓存。对应 Java `cleanScriptCache`。
     pub fn clean() {
         registry().clear();
+    }
+
+    /// 清空全部脚本执行器注册缓存。
+    ///
+    /// 清理后插件需要重新注册才能构建脚本组件。对应 Java:
+    /// `ScriptExecutorFactory#cleanScriptCache`。
+    pub fn clean_script_cache(&self) {
+        Self::clean();
     }
 
     /// 已注册语言列表。

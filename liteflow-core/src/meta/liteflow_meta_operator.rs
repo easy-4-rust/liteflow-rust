@@ -127,6 +127,50 @@ impl LiteflowMetaOperator {
             .nth(index)
     }
 
+    /// 通过节点实例 ID 返回 Chain 中的具体节点引用。
+    ///
+    /// 只有实例 ID SPI 已生成并保存映射时才能命中；未命中返回 `Ok(None)`。
+    /// 参数 `chain_id`、`node_instance_id` 对应 Java 同名参数。
+    /// 对应 Java: `LiteflowMetaOperator#getNode(String, String)`。
+    pub fn get_node(&self, chain_id: &str, node_instance_id: &str) -> LFResult<Option<NodeRef>> {
+        let mut visited_node_ids = std::collections::HashSet::new();
+        for node in self.get_nodes(chain_id) {
+            if !visited_node_ids.insert(node.id.clone()) {
+                continue;
+            }
+            let instance_ids = self.get_node_instance_ids(chain_id, &node.id)?;
+            if let Some(index) = instance_ids
+                .iter()
+                .position(|instance_id| instance_id == node_instance_id)
+            {
+                return Ok(self.get_node_by_index(chain_id, &node.id, index));
+            }
+        }
+        Ok(None)
+    }
+
+    /// 返回节点实例 ID 在 Chain 中从零开始的位置。
+    ///
+    /// 未命中时返回 `-1`。参数 `chain_id`、`node_instance_id` 对应 Java 同名参数。
+    /// 对应 Java: `LiteflowMetaOperator#getNodeIndex`。
+    pub fn get_node_index(&self, chain_id: &str, node_instance_id: &str) -> LFResult<isize> {
+        self.flow_bus
+            .instance_id_spi_holder
+            .get_node_instance_id_manage_spi()
+            .get_node_location_by_id(chain_id, node_instance_id)
+    }
+
+    /// 返回 Chain 中指定节点的全部实例 ID。
+    ///
+    /// 参数 `chain_id`、`node_id` 对应 Java 同名参数。对应 Java:
+    /// `LiteflowMetaOperator#getNodeInstanceIds`。
+    pub fn get_node_instance_ids(&self, chain_id: &str, node_id: &str) -> LFResult<Vec<String>> {
+        self.flow_bus
+            .instance_id_spi_holder
+            .get_node_instance_id_manage_spi()
+            .get_node_instance_ids(chain_id, node_id)
+    }
+
     /// 返回 node id 在所有 Chain 中的引用。
     #[must_use]
     pub fn get_nodes_in_all_chain(&self, node_id: &str) -> Vec<NodeRef> {

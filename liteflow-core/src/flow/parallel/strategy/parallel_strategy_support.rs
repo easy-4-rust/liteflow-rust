@@ -68,7 +68,7 @@ where
                     return (outcome, true);
                 }
             }
-            Err(LiteflowError::ChainEnd) => outcome.chain_end = true,
+            Err(LiteflowError::ChainEnd(_)) => outcome.chain_end = true,
             Err(error) => {
                 if must_idx.contains(&index) && outcome.must_err.is_none() {
                     outcome.must_err = Some(error.clone());

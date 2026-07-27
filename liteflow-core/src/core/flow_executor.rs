@@ -317,7 +317,7 @@ impl FlowExecutor {
         };
 
         match chain.execute_mode(&ctx, ChainExecuteModeEnum::Body).await {
-            Ok(_) | Err(LiteflowError::ChainEnd) => {
+            Ok(_) | Err(LiteflowError::ChainEnd(_)) => {
                 // retry 成功、ignoreError 或 continueOnError 可能在中途写入过异常；
                 // 最终链路成功时必须清除主异常，否则 Java newMainResponse(slot)
                 // 会把已经恢复的执行错误地判为失败。
@@ -352,6 +352,11 @@ impl FlowExecutor {
         // Slot 进入 DataBus 后由租约托管；即使异步执行被取消，Drop 也会归还索引。
         let slot_lease = DataBus::lease_slot(Arc::new(slot));
         let slot = slot_lease.slot();
+        for (name, context_bean_factory) in option.context_bean_classes {
+            // Java 直到 DataBus.offerSlotByClass 才反射构造 Bean；Rust 在相同阶段
+            // 调用强类型工厂，确保每次执行获得独立上下文实例。
+            slot.insert_context_bean(name, context_bean_factory());
+        }
         for (name, bean) in option.context_beans {
             slot.insert_context_bean(name, bean);
         }
@@ -526,7 +531,9 @@ impl FlowExecutor {
             }
         }
         if matched.is_empty() {
-            return Err(LiteflowError::NoMatchedRouteChain);
+            return Err(LiteflowError::NoMatchedRouteChain(
+                "there is no matched route chain".to_string(),
+            ));
         }
 
         // 命中的链路并行执行 body

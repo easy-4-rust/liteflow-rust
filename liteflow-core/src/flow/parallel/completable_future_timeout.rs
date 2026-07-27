@@ -31,7 +31,7 @@ impl CompletableFutureTimeout {
     /// 对应 Java: `CompletableFutureTimeout#timeoutAfter`。
     pub async fn timeout_after<T>(timeout: Duration) -> LFResult<T> {
         tokio::time::sleep(timeout).await;
-        Err(LiteflowError::WhenTimeout)
+        Err(LiteflowError::WhenTimeout("when timeout".to_string()))
     }
 
     /// Future 在时限内完成则返回真实结果，超时则返回默认值。
