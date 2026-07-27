@@ -1,13 +1,15 @@
 //! Parser 对象链语义测试：基类批量解析、Provider 选择与自定义内容源。
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use liteflow_core::parser::{
     BaseJsonFlowParser, BaseXmlFlowParser, FlowParserProvider, NodeConvertHelper, ParserHelper,
+    RuleDefinitionPlan,
 };
 use liteflow_core::util::RuleParsePluginUtil;
 use liteflow_core::{FlowBus, FlowParserTypeEnum, NodePropBean, cmp};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn base_json_parser_resolves_inheritance_across_content_list() {
@@ -187,4 +189,114 @@ fn parser_helper_reports_java_node_type_errors() {
         missing_class,
         liteflow_core::LiteflowError::NodeClassNotFound(_)
     ));
+}
+
+#[tokio::test]
+async fn parser_helper_java_named_json_entries_drive_real_build_plan() {
+    let bus = FlowBus::new();
+    let documents = vec![json!({
+        "flow": {
+            "nodes": {
+                "node": [
+                    {
+                        "id": "jsonScript",
+                        "type": "script",
+                        "language": "rhai",
+                        "value": "()"
+                    },
+                    {
+                        "id": "disabledScript",
+                        "type": "script",
+                        "language": "rhai",
+                        "value": "()",
+                        "enable": false
+                    }
+                ]
+            },
+            "chain": [
+                {
+                    "id": "jsonHelperChain",
+                    "body": "THEN(jsonScript)",
+                    "threadPoolExecutorClass": "json-pool"
+                },
+                {
+                    "id": "disabledChain",
+                    "body": "THEN(disabledScript)",
+                    "enable": "false"
+                }
+            ]
+        }
+    })];
+    let mut plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_node_json(&documents, &mut plan).unwrap();
+    ParserHelper::parse_chain_json(&documents, &mut HashSet::new(), &mut plan).unwrap();
+
+    assert_eq!(plan.build_all(&bus).unwrap(), vec!["jsonHelperChain"]);
+    assert!(bus.contains_node("jsonScript"));
+    assert!(!bus.contains_node("disabledScript"));
+    assert_eq!(
+        bus.get_chain_map()["jsonHelperChain"].get_thread_pool_executor_class(),
+        Some("json-pool")
+    );
+    assert!(bus.execute("jsonHelperChain").await.is_success());
+
+    // Java parseOneChain 对禁用链返回 null；Rust 以 Option 显式表达。
+    assert!(
+        ParserHelper::parse_one_chain(&json!({
+            "id": "disabled",
+            "body": "THEN(jsonScript)",
+            "enable": false
+        }))
+        .unwrap()
+        .is_none()
+    );
+
+    let duplicate_documents = vec![json!({
+        "flow": {
+            "chain": [
+                {"id": "same", "body": "THEN(jsonScript)"},
+                {"id": "same", "body": "THEN(jsonScript)"}
+            ]
+        }
+    })];
+    let duplicate = ParserHelper::parse_chain_json(
+        &duplicate_documents,
+        &mut HashSet::new(),
+        &mut RuleDefinitionPlan::new(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        duplicate,
+        liteflow_core::LiteflowError::ChainDuplicate(_)
+    ));
+}
+
+#[tokio::test]
+async fn parser_helper_java_named_xml_entries_drive_real_build_plan() {
+    let bus = FlowBus::new();
+    let documents = vec![
+        r#"
+        <flow>
+          <nodes>
+            <node id="xmlScript" type="script" language="rhai"><![CDATA[()]]></node>
+            <node id="disabledXmlScript" type="script" language="rhai" enable="false"><![CDATA[()]]></node>
+          </nodes>
+          <chain id="xmlHelperChain" threadPoolExecutorClass="xml-pool">THEN(xmlScript)</chain>
+          <chain id="disabledXmlChain" enable="false">THEN(disabledXmlScript)</chain>
+        </flow>
+        "#
+        .to_string(),
+    ];
+    let mut plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_node_document(&documents, &mut plan).unwrap();
+    ParserHelper::parse_chain_document(&documents, &mut HashSet::new(), &mut plan).unwrap();
+
+    assert_eq!(plan.build_all(&bus).unwrap(), vec!["xmlHelperChain"]);
+    assert!(bus.contains_node("xmlScript"));
+    assert!(!bus.contains_node("disabledXmlScript"));
+    assert_eq!(
+        bus.get_chain_map()["xmlHelperChain"].get_thread_pool_executor_class(),
+        Some("xml-pool")
+    );
+    assert!(bus.execute("xmlHelperChain").await.is_success());
 }

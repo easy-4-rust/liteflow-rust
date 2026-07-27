@@ -4,4 +4,4 @@ pub mod node_convert_helper;
 pub mod parser_helper;
 
 pub use node_convert_helper::{NodeConvertHelper, NodeSimpleVO};
-pub use parser_helper::ParserHelper;
+pub use parser_helper::{ChainDef, ParserHelper, RuleDefinitionPlan};

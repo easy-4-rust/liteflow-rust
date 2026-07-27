@@ -166,13 +166,13 @@ fn id_generator_holder_default_and_custom() {
         "fixed-id"
     );
 
-    // Rust 以显式类名注册表替代 Java 反射，init 必须读取真实 LiteflowConfig。
+    // Rust 以显式类名注册表替代 Java 反射，首次 generate 必须按真实配置懒初始化。
     let mut config = LiteflowConfig::default();
     config.set_request_id_generator_class("test.FixedRequestIdGenerator");
     LiteflowConfigGetter::set_liteflow_config(config);
     IdGeneratorHolder::register_named("test.FixedRequestIdGenerator", Arc::new(Fixed));
     IdGeneratorHolder::clean();
-    IdGeneratorHolder::init().unwrap();
+    assert_eq!(IdGeneratorHolder::generate(), "fixed-id");
     assert_eq!(
         IdGeneratorHolder::get_request_id_generator()
             .expect("配置类名应解析为已注册生成器")

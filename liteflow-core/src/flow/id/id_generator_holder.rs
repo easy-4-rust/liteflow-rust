@@ -3,8 +3,8 @@
 //! Id 生成器帮助器。Java 版 init() 读取 LiteflowConfig.requestIdGeneratorClass：
 //! 为空则用 DefaultRequestIdGenerator，否则反射实例化并经 ContextAware 注册。
 //! Rust 侧与 spi holder 同模式：`OnceLock<RwLock<Option<Arc<dyn RequestIdGenerator>>>>`
-//! 全局单例，未注册时回退默认生成器；register() 显式覆盖（对应配置自定义
-//! 生成器类的场景——LiteflowConfig 配置读取挂接将在 property 包落地后接入）。
+//! 全局单例。首次生成 ID 时按 `LiteflowConfig` 懒初始化；register() 可显式覆盖
+//! 当前生成器，register_named() 用于把 Rust 实现绑定到 Java 配置类名。
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -99,20 +99,36 @@ impl IdGeneratorHolder {
         *cell().write().unwrap() = Some(request_id_generator);
     }
 
-    /// 对应 getInstance().getRequestIdGenerator()：
-    /// 未注册时回退 DefaultRequestIdGenerator（对应 Java init() 中
-    /// requestIdGeneratorClass 为空的分支）
+    /// 返回当前生成器，尚未初始化时按 LiteFlow 配置完成懒初始化。
+    ///
+    /// Java 的 `generate()` 会在生成器为空时调用 `init()`；这里保留相同顺序，
+    /// 因而自定义 `request_id_generator_class` 不会被默认生成器静默覆盖。
+    ///
+    /// # 返回
+    /// 当前共享生成器；配置的自定义类名未注册时，与 Java 未检查异常一样终止调用。
+    ///
+    /// 对应 Java: `IdGeneratorHolder#generate`、`IdGeneratorHolder#init`。
     pub fn load_generator() -> Arc<dyn RequestIdGenerator> {
         if let Some(x) = cell().read().unwrap().as_ref() {
             return x.clone();
         }
-        let mut guard = cell().write().unwrap();
-        guard
-            .get_or_insert_with(|| Arc::new(DefaultRequestIdGenerator::new()))
+        Self::init().unwrap_or_else(|error| {
+            panic!("初始化 RequestIdGenerator 失败: {error}");
+        });
+        cell()
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("init 成功后必须存在 RequestIdGenerator")
             .clone()
     }
 
-    /// 对应 getInstance().generate()：生成唯一 requestId
+    /// 生成唯一 Request ID。
+    ///
+    /// # 返回
+    /// 当前配置生成器创建的 Request ID。
+    ///
+    /// 对应 Java: `IdGeneratorHolder#generate`。
     pub fn generate() -> String {
         Self::load_generator().generate()
     }
@@ -136,7 +152,9 @@ impl IdGeneratorHolder {
             .insert(request_id_generator_class.into(), request_id_generator);
     }
 
-    /// 清空缓存，下次 load 回退默认生成器
+    /// 清空当前生成器，下次生成 ID 时重新读取 LiteFlow 配置。
+    ///
+    /// 对应 Java 测试及容器重载时重新执行 `IdGeneratorHolder#init` 的效果。
     pub fn clean() {
         *cell().write().unwrap() = None;
     }
