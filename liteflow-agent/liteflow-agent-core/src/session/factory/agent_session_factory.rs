@@ -26,11 +26,3 @@ pub trait AgentSessionFactory: Send + Sync {
         agent_config: &AgentConfig,
     ) -> Result<Option<Arc<dyn Session>>, AgentConfigException>;
 }
-
-/// 供外部 crate 通过 `inventory::submit!` 注册 Session 工厂构造函数。
-pub struct AgentSessionFactoryRegistration {
-    /// 创建一个新的线程安全工厂实例。
-    pub factory: fn() -> Arc<dyn AgentSessionFactory>,
-}
-
-inventory::collect!(AgentSessionFactoryRegistration);

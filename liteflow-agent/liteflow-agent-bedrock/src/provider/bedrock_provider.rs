@@ -15,6 +15,7 @@
 //! 通过 AWS SigV4 签名调用 Bedrock Converse API，可接入 Claude（Bedrock 版）、
 //! Titan、Llama 等模型。
 
+use super::AwsCredentials;
 use async_trait::async_trait;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -31,67 +32,6 @@ type HmacSha256 = Hmac<Sha256>;
 const SIGNING_SERVICE: &str = "bedrock";
 const ENDPOINT_PREFIX: &str = "bedrock-runtime";
 const DEFAULT_MAX_TOKENS: u32 = 4096;
-
-/// AWS 凭证（用于 SigV4 签名）。
-pub struct AwsCredentials {
-    pub access_key_id: String,
-    pub secret_access_key: String,
-    pub session_token: Option<String>,
-    pub region: String,
-}
-
-impl AwsCredentials {
-    /// 从环境变量解析凭证。
-    pub fn from_env() -> anyhow::Result<Self> {
-        let access_key_id = std::env::var("AWS_ACCESS_KEY_ID")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("AWS_ACCESS_KEY_ID is required for Bedrock"))?;
-        let secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("AWS_SECRET_ACCESS_KEY is required for Bedrock"))?;
-        let session_token = std::env::var("AWS_SESSION_TOKEN")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty());
-        let region = std::env::var("AWS_REGION")
-            .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "us-east-1".to_string());
-        Ok(Self {
-            access_key_id,
-            secret_access_key,
-            session_token,
-            region,
-        })
-    }
-
-    /// 从显式参数构造凭证。
-    pub fn new(
-        access_key_id: impl Into<String>,
-        secret_access_key: impl Into<String>,
-        region: impl Into<String>,
-    ) -> Self {
-        Self {
-            access_key_id: access_key_id.into(),
-            secret_access_key: secret_access_key.into(),
-            session_token: None,
-            region: region.into(),
-        }
-    }
-
-    /// 设置临时会话 token（STS）。
-    #[must_use]
-    pub fn with_session_token(mut self, token: impl Into<String>) -> Self {
-        self.session_token = Some(token.into());
-        self
-    }
-}
 
 // ── AWS SigV4 Signing ──
 
@@ -300,6 +240,9 @@ struct BedrockUsage {
 
 // ── Provider ──
 
+/// 通过 AWS SigV4 调用 Bedrock Converse API 的模型提供商。
+///
+/// 对应 Java: 无（Rust 提供商基础设施；源自 ZeroClaw `BedrockProvider`）。
 pub struct BedrockProvider {
     credentials: AwsCredentials,
     max_tokens: u32,

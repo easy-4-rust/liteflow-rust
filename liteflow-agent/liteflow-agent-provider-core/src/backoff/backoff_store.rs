@@ -10,25 +10,15 @@
 //!
 //! Thread-safe, in-memory, with TTL-based expiration and soonest-to-expire eviction.
 
+use super::BackoffEntry;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::time::{Duration, Instant};
 
-/// Entry in backoff store with deadline and error context.
-#[derive(Debug, Clone)]
-pub struct BackoffEntry<T> {
-    pub deadline: Instant,
-    pub error_detail: T,
-}
-
-/// Generic backoff store with automatic cleanup.
+/// 支持自动清理、容量限制和最早到期淘汰的线程安全退避存储。
 ///
-/// Thread-safe via parking_lot::Mutex.
-/// Cleanup strategies:
-/// - Lazy removal on `get()` if expired
-/// - Opportunistic cleanup before eviction
-/// - Soonest-to-expire eviction when max_entries reached (evicts the entry with the smallest deadline)
+/// 对应 Java: 无（Rust 提供商基础设施；源自 ZeroClaw `BackoffStore`）。
 pub struct BackoffStore<K, T> {
     data: Mutex<HashMap<K, BackoffEntry<T>>>,
     max_entries: usize,

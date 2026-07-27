@@ -16,7 +16,12 @@ fn executor_compiles_caches_unloads_and_rejects_invalid_qlexpress() {
         }
     "#;
 
-    assert!(executor.validate(script));
+    let validation = executor.validate_with_ex(script);
+    assert!(
+        validation.is_success(),
+        "真实 qlexpress-rust 编译失败：{:?}",
+        validation.cause()
+    );
     assert!(!executor.validate("if (count >) { return true; }"));
 
     executor.load("switch_node", script).unwrap();

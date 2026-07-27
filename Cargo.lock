@@ -3442,6 +3442,7 @@ name = "liteflow-script-qlexpress"
 version = "0.1.0"
 dependencies = [
  "liteflow-core",
+ "qlexpress",
  "serde_json",
  "tempfile",
 ]
@@ -4903,6 +4904,30 @@ dependencies = [
  "heck",
  "proc-macro2",
  "pyo3-build-config",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "qlexpress"
+version = "0.1.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d461da9308b7345e3444dba46582c155ef663df4983516781f3dd29563116aa"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "qlexpress-derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "qlexpress-derive"
+version = "0.1.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aea10ef394c32af52f9558f760b66fc5ef3cc71ebdbc107e8c0746982b6e7b88"
+dependencies = [
+ "proc-macro2",
  "quote",
  "syn 2.0.119",
 ]

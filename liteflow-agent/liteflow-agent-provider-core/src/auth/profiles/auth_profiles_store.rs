@@ -6,6 +6,10 @@
 // 本文件衍生自 ZeroClaw 项目，遵循 Apache-2.0 许可。
 // "ZeroClaw" 是 ZeroClaw Labs 的商标；本项目与其无官方关联。
 
+use super::{
+    AuthProfile, AuthProfileKind, AuthProfilesData, TokenSet,
+    auth_profiles_data::CURRENT_SCHEMA_VERSION,
+};
 use crate::auth::secrets::SecretStore;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -18,139 +22,14 @@ use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 
-const CURRENT_SCHEMA_VERSION: u32 = 1;
 const PROFILES_FILENAME: &str = "auth-profiles.json";
 const LOCK_FILENAME: &str = "auth-profiles.lock";
 const LOCK_WAIT_MS: u64 = 50;
 const LOCK_TIMEOUT_MS: u64 = 10_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum AuthProfileKind {
-    OAuth,
-    Token,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenSet {
-    pub access_token: String,
-    #[serde(default)]
-    pub refresh_token: Option<String>,
-    #[serde(default)]
-    pub id_token: Option<String>,
-    #[serde(default)]
-    pub expires_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub token_type: Option<String>,
-    #[serde(default)]
-    pub scope: Option<String>,
-}
-
-impl TokenSet {
-    pub fn is_expiring_within(&self, skew: Duration) -> bool {
-        match self.expires_at {
-            Some(expires_at) => {
-                let now_plus_skew =
-                    Utc::now() + chrono::Duration::from_std(skew).unwrap_or_default();
-                expires_at <= now_plus_skew
-            }
-            None => false,
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct AuthProfile {
-    pub id: String,
-    pub provider: String,
-    pub profile_name: String,
-    pub kind: AuthProfileKind,
-    #[serde(default)]
-    pub account_id: Option<String>,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub token_set: Option<TokenSet>,
-    #[serde(default)]
-    pub token: Option<String>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-impl std::fmt::Debug for AuthProfile {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AuthProfile")
-            .field("id", &self.id)
-            .field("provider", &self.provider)
-            .field("profile_name", &self.profile_name)
-            .field("kind", &self.kind)
-            .field("workspace_id", &self.workspace_id)
-            .field("metadata", &self.metadata)
-            .field("created_at", &self.created_at)
-            .field("updated_at", &self.updated_at)
-            .finish_non_exhaustive()
-    }
-}
-
-impl AuthProfile {
-    pub fn new_oauth(provider: &str, profile_name: &str, token_set: TokenSet) -> Self {
-        let now = Utc::now();
-        let id = profile_id(provider, profile_name);
-        Self {
-            id,
-            provider: provider.to_string(),
-            profile_name: profile_name.to_string(),
-            kind: AuthProfileKind::OAuth,
-            account_id: None,
-            workspace_id: None,
-            token_set: Some(token_set),
-            token: None,
-            metadata: BTreeMap::new(),
-            created_at: now,
-            updated_at: now,
-        }
-    }
-
-    pub fn new_token(provider: &str, profile_name: &str, token: String) -> Self {
-        let now = Utc::now();
-        let id = profile_id(provider, profile_name);
-        Self {
-            id,
-            provider: provider.to_string(),
-            profile_name: profile_name.to_string(),
-            kind: AuthProfileKind::Token,
-            account_id: None,
-            workspace_id: None,
-            token_set: None,
-            token: Some(token),
-            metadata: BTreeMap::new(),
-            created_at: now,
-            updated_at: now,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthProfilesData {
-    pub schema_version: u32,
-    pub updated_at: DateTime<Utc>,
-    pub active_profiles: BTreeMap<String, String>,
-    pub profiles: BTreeMap<String, AuthProfile>,
-}
-
-impl Default for AuthProfilesData {
-    fn default() -> Self {
-        Self {
-            schema_version: CURRENT_SCHEMA_VERSION,
-            updated_at: Utc::now(),
-            active_profiles: BTreeMap::new(),
-            profiles: BTreeMap::new(),
-        }
-    }
-}
-
+/// 使用文件锁、原子替换与可选加密持久化认证配置档案。
+///
+/// 对应 Java: 无（Rust 提供商认证基础设施；源自 ZeroClaw `AuthProfilesStore`）。
 #[derive(Debug, Clone)]
 pub struct AuthProfilesStore {
     path: PathBuf,
@@ -634,13 +513,10 @@ fn parse_datetime_with_fallback(value: &str) -> DateTime<Utc> {
     parse_datetime(value).unwrap_or_else(|_| Utc::now())
 }
 
-pub fn profile_id(provider: &str, profile_name: &str) -> String {
-    format!("{}:{}", provider.trim(), profile_name.trim())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::profiles::profile_id;
     use tempfile::TempDir;
 
     #[test]

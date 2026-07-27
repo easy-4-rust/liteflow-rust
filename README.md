@@ -118,11 +118,12 @@ bus.register_script_typed(
 ```
 
 Lua 使用 mlua，JavaScript 使用纯 Rust Boa，Python 使用 PyO3 嵌入式
-CPython，均经过真实引擎执行测试。QLExpress 已使用独立 Rust 词法器、Pratt
-表达式解析器和语句解释器，覆盖 LiteFlow 基线脚本使用的赋值、算术/比较/逻辑、
-if/else、return、DefaultContext、`_meta`、执行级 context bean 与 ScriptBean 调用，并与 QLExpress
-4.1.0 做相同脚本差分验证；完整 QLExpress 扩展语法仍在补齐。Groovy、Aviator、
-Kotlin 目前仍只接受与 Rhai 重叠的表达式子集。
+CPython，均经过真实引擎执行测试。QLExpress 直接依赖 crates.io 发布的
+`qlexpress 0.1.0-alpha.1`，由真实 lexer/parser/compiler/QVM 执行脚本，并缓存
+`SerializableParseCache`；LiteFlow 适配层只负责 DefaultContext、`_meta`、JSON
+值和 ScriptBean 桥接。FlowBus 端到端测试已覆盖赋值、循环、复合赋值、条件分支、
+五类节点返回和上下文写回，并与 Java QLExpress 4.1.0 做差分验证。Groovy、
+Aviator、Kotlin 的 JVM 专属动态能力仍有明确适配边界。
 
 ## 决策表链路（route，2.12+）
 

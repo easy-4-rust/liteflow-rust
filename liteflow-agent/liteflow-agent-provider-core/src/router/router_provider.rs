@@ -7,26 +7,15 @@
 // 修改：import 路径 super:: -> crate::。
 // "ZeroClaw" 是 ZeroClaw Labs 的商标；本项目与其无官方关联。
 
+use super::Route;
 use crate::Provider;
 use crate::traits::{ChatMessage, ChatRequest, ChatResponse};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-/// A single route: maps a task hint to a provider + model combo.
-#[derive(Debug, Clone)]
-pub struct Route {
-    pub provider_name: String,
-    pub model: String,
-}
-
-/// Multi-model router — routes requests to different provider+model combos
-/// based on a task hint encoded in the model parameter.
+/// 根据模型参数中的任务提示，在多个提供商与模型之间分派请求。
 ///
-/// The model parameter can be:
-/// - A regular model name (e.g. "anthropic/claude-sonnet-4") → uses default provider
-/// - A hint-prefixed string (e.g. "hint:reasoning") → resolves via route table
-///
-/// This wraps multiple pre-created providers and selects the right one per request.
+/// 对应 Java: 无（Rust 提供商基础设施；源自 ZeroClaw `RouterProvider`）。
 pub struct RouterProvider {
     routes: HashMap<String, (usize, String)>, // hint → (provider_index, model)
     providers: Vec<(String, Box<dyn Provider>)>,

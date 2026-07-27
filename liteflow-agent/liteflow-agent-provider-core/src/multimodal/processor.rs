@@ -12,6 +12,7 @@
 
 //! 多模态图片处理：解析 `[IMAGE:...]` 标记，规范化为 data URI，可选压缩。
 
+use super::{MultimodalConfig, MultimodalError, PreparedMessages};
 use crate::proxy::{ProxyConfig, build_client_with_timeouts};
 use crate::traits::ChatMessage;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -29,75 +30,6 @@ const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &[
     "image/gif",
     "image/bmp",
 ];
-
-/// 多模态图片配置（原 zeroclaw `config::MultimodalConfig`）。
-#[derive(Debug, Clone)]
-pub struct MultimodalConfig {
-    /// 每个请求接受的最大图片数量。
-    pub max_images: usize,
-    /// base64 编码前的最大图片大小（MiB）。
-    pub max_image_size_mb: usize,
-    /// 是否允许获取远程图片 URL（http/https）。默认禁用。
-    pub allow_remote_fetch: bool,
-}
-
-impl Default for MultimodalConfig {
-    fn default() -> Self {
-        Self {
-            max_images: 4,
-            max_image_size_mb: 5,
-            allow_remote_fetch: false,
-        }
-    }
-}
-
-impl MultimodalConfig {
-    /// 返回钳制后的有效限制（max_images ∈ [1,16]，max_image_size_mb ∈ [1,20]）。
-    pub fn effective_limits(&self) -> (usize, usize) {
-        let max_images = self.max_images.clamp(1, 16);
-        let max_image_size_mb = self.max_image_size_mb.clamp(1, 20);
-        (max_images, max_image_size_mb)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PreparedMessages {
-    pub messages: Vec<ChatMessage>,
-    pub contains_images: bool,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum MultimodalError {
-    #[error("multimodal image limit exceeded: max_images={max_images}, found={found}")]
-    TooManyImages { max_images: usize, found: usize },
-
-    #[error(
-        "multimodal image size limit exceeded for '{input}': {size_bytes} bytes > {max_bytes} bytes"
-    )]
-    ImageTooLarge {
-        input: String,
-        size_bytes: usize,
-        max_bytes: usize,
-    },
-
-    #[error("multimodal image MIME type is not allowed for '{input}': {mime}")]
-    UnsupportedMime { input: String, mime: String },
-
-    #[error("multimodal remote image fetch is disabled for '{input}'")]
-    RemoteFetchDisabled { input: String },
-
-    #[error("multimodal image source not found or unreadable: '{input}'")]
-    ImageSourceNotFound { input: String },
-
-    #[error("invalid multimodal image marker '{input}': {reason}")]
-    InvalidMarker { input: String, reason: String },
-
-    #[error("failed to download remote image '{input}': {reason}")]
-    RemoteFetchFailed { input: String, reason: String },
-
-    #[error("failed to read local image '{input}': {reason}")]
-    LocalReadFailed { input: String, reason: String },
-}
 
 pub fn parse_image_markers(content: &str) -> (String, Vec<String>) {
     let mut refs = Vec::new();

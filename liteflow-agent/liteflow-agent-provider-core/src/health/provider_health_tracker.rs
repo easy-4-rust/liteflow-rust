@@ -16,24 +16,16 @@
 //! - Persistent failure state (HashMap with failure counts)
 //! - Temporary circuit breaker blocks (BackoffStore with TTL)
 
+use super::ProviderHealthState;
 use crate::backoff::BackoffStore;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Provider health state with failure tracking.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ProviderHealthState {
-    pub failure_count: u32,
-    pub last_error: Option<String>,
-}
-
-/// Thread-safe provider health tracker with circuit breaker.
+/// 使用失败计数与 TTL 退避实现熔断器的线程安全提供商健康跟踪器。
 ///
-/// Architecture:
-/// - `states`: Persistent failure counts per provider (never expires)
-/// - `backoff`: Temporary circuit breaker blocks with TTL (auto-expires)
+/// 对应 Java: 无（Rust 提供商基础设施；源自 ZeroClaw `ProviderHealthTracker`）。
 pub struct ProviderHealthTracker {
     /// Persistent failure state per provider
     states: Arc<Mutex<HashMap<String, ProviderHealthState>>>,

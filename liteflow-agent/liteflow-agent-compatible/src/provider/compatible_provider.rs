@@ -15,6 +15,7 @@
 //! 适用于所有遵循 `/v1/chat/completions` 格式的服务：
 //! DeepSeek、Kimi（Moonshot）、Minimax、Qwen（通义）、Groq、Mistral、xAI、Venice 等。
 
+use super::AuthStyle;
 use async_trait::async_trait;
 use liteflow_agent_provider_core::util::api_error;
 use liteflow_agent_provider_core::{
@@ -24,17 +25,9 @@ use liteflow_agent_provider_core::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-/// API key 的发送方式。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum AuthStyle {
-    /// `Authorization: Bearer <key>`（默认，OpenAI 标准）。
-    #[default]
-    Bearer,
-    /// 自定义 header（如 `api-key: <key>`）。
-    Custom,
-}
-
-/// 通用 OpenAI 兼容 provider。
+/// 调用 OpenAI Chat Completions 协议的通用兼容提供商。
+///
+/// 对应 Java: 无（Rust 提供商基础设施；源自 ZeroClaw `CompatibleProvider`）。
 pub struct CompatibleProvider {
     name: String,
     base_url: String,

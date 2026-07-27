@@ -243,6 +243,11 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
         r#"
             a = 3;
             b = 2;
+            qvm_sum = 0;
+            for (i = 0; i < 3; i++) {
+                qvm_sum += i;
+            }
+            defaultContext.setData("qvm_sum", qvm_sum);
             defaultContext.setData("score", a * b + 84);
             answer = ql_math.double(21);
             defaultContext.setData("answer", answer);
@@ -303,6 +308,7 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
 
     assert!(response.is_success(), "{:?}", response.cause);
     assert_eq!(response.data("score"), Some(json!(90)));
+    assert_eq!(response.data("qvm_sum"), Some(json!(3)));
     assert_eq!(response.data("answer"), Some(json!(42)));
     assert_eq!(response.data("order_type"), Some(json!(6)));
     assert_eq!(

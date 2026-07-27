@@ -11,6 +11,7 @@
 // "ZeroClaw" 是 ZeroClaw Labs 的商标；本项目与其无官方关联。
 
 use crate::auth::gemini_oauth;
+use crate::auth::openai_oauth;
 use crate::auth::openai_oauth::refresh_access_token;
 use crate::auth::profiles::{
     AuthProfile, AuthProfileKind, AuthProfilesData, AuthProfilesStore, TokenSet, profile_id,
