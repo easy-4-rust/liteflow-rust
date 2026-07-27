@@ -43,6 +43,7 @@ pub mod log;
 pub mod meta;
 pub mod monitor;
 pub mod parser;
+pub mod property;
 pub mod rule_plugin;
 pub mod script;
 pub mod slot;
@@ -59,11 +60,12 @@ pub use core::execute_option::{ExecuteOption, gen_conversation_id};
 pub use core::{
     ComponentInitializer, FlowExecutor, FlowExecutorHolder, FlowInitHook, FnComponent,
     NodeBooleanComponent, NodeComponent, NodeForComponent, NodeIteratorComponent,
-    NodeSwitchComponent, cmp,
+    NodeSwitchComponent, ScriptBooleanComponent, ScriptCommonComponent, ScriptComponent,
+    ScriptForComponent, ScriptSwitchComponent, cmp,
 };
 pub use el::{El, Mods, NodeRef, WhenOpts, parse_el};
 pub use enums::{
-    ChainExecuteModeEnum, CmpStepTypeEnum, ConditionTypeEnum, ExecuteableTypeEnum,
+    ChainExecuteModeEnum, CmpStepType, CmpStepTypeEnum, ConditionTypeEnum, ExecuteableTypeEnum,
     FlowParserTypeEnum, InnerChainTypeEnum, NodeTypeEnum, ParallelStrategyEnum, ParseModeEnum,
 };
 pub use exception::{LFResult, LiteflowError};
@@ -81,11 +83,9 @@ pub use lifecycle::{
     PostProcessFlowExecuteLifeCycle, PostProcessNodeBuildLifeCycle,
     PostProcessScriptEngineInitLifeCycle,
 };
-pub use monitor::{CompStatistics, MonitorBus, MonitorTimeTask};
-pub use script::{
-    ScriptBooleanComponent, ScriptCommonComponent, ScriptComponent, ScriptForComponent,
-    ScriptIteratorComponent, ScriptKind, ScriptSwitchComponent,
-};
+pub use monitor::{CompStatistics, MonitorBus, MonitorFile, MonitorTimeTask};
+pub use property::{LiteflowConfig, LiteflowConfigGetter, TimeUnit};
+pub use script::{ScriptIteratorComponent, ScriptKind};
 /// 供 `liteflow-derive` 生成代码使用，调用方无需重复声明 serde_json 依赖。
 pub use serde_json;
 pub use slot::{CmpContext, Ctx, DataBus, Frame, Slot};
@@ -103,13 +103,10 @@ pub use util::{
     SelectiveJavaEscaper, TupleOf2, TupleOf3,
 };
 
-/// 步骤类型别名（兼容旧 API）
-pub type CmpStepType = CmpStepTypeEnum;
-
 /// 规则加载便捷入口（对应 parser 包）
 pub mod rule {
+    pub use crate::monitor::MonitorFile;
     pub use crate::parser::el::{
         load_json_file, load_json_str, load_xml_file, load_xml_str, load_yml_file, load_yml_str,
     };
-    pub use crate::parser::monitor_file::RuleWatcher;
 }

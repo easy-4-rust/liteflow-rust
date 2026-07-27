@@ -5,13 +5,7 @@ use liteflow_rule_apollo::ApolloRuleSource;
 
 /// 构建 Apollo 规则源而不访问外部服务。
 pub async fn run_case() -> bool {
-    let source = ApolloRuleSource {
-        portal_addr: "apollo.example.test".to_string(),
-        app_id: "liteflow".to_string(),
-        cluster: "default".to_string(),
-        namespace: "application".to_string(),
-        key: "flow".to_string(),
-        format: RuleFormat::Xml,
-    };
+    let source = ApolloRuleSource::new("apollo.example.test", "liteflow", "default", "application")
+        .expect("Apollo 离线契约配置应有效");
     source.name() == "apollo" && source.format() == RuleFormat::Xml
 }

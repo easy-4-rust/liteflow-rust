@@ -1,10 +1,10 @@
 //! ZooKeeper 连接所需的空 watcher。
 
-/// 轮询模式下无需 SDK 回调；变更检测由 `RuleSourceWatcher` 统一承担。
+/// 连接级事件由业务路径的持久递归 Watch 分别处理，本 watcher 只接收会话状态事件。
 pub(crate) struct NopWatcher;
 
 impl zookeeper::Watcher for NopWatcher {
     fn handle(&self, _event: zookeeper::WatchedEvent) {
-        // 轮询刷新由 RuleSourceWatcher 负责，SDK 回调事件有意不参与状态变更。
+        // 业务 znode 变更由 ZkParserHelper 安装的路径 watcher 处理。
     }
 }

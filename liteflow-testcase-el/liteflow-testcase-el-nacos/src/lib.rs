@@ -5,11 +5,7 @@ use liteflow_rule_nacos::NacosRuleSource;
 
 /// 构建 Nacos 规则源而不访问外部服务。
 pub async fn run_case() -> bool {
-    let source = NacosRuleSource::new(
-        "nacos.example.test:8848",
-        "liteflow-flow",
-        "DEFAULT_GROUP",
-        RuleFormat::Xml,
-    );
+    let source = NacosRuleSource::new("nacos.example.test:8848", "liteflow-flow", "DEFAULT_GROUP")
+        .expect("Nacos 离线配置应有效");
     source.name() == "nacos" && source.format() == RuleFormat::Xml
 }

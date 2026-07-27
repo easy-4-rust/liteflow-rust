@@ -66,7 +66,7 @@ impl ApplicationModule for LiteflowVernalModule {
         );
         LFLoggerManager::set_print_execution_log(self.config.print_execution_log);
         // 与 Java FlowExecutor(LiteflowConfig) 一致，在运行时创建前登记兼容配置。
-        LiteflowConfigGetter::set_liteflow_config(self.config.clone());
+        LiteflowConfigGetter::set_liteflow_config(self.config.to_core_config());
         let flow_bus = FlowBus::new();
         for registration in &self.registrations {
             registration.apply(&flow_bus).map_err(|error| {

@@ -40,6 +40,16 @@ impl<F> NodeSwitchComponent<F> {
     {
         (self.process_switch)(ctx).await
     }
+
+    /// 返回当前 SWITCH 表达式允许跳转的目标节点 ID。
+    ///
+    /// 参数 `ctx` 是当前路由节点的组件上下文；返回值对应 Java
+    /// `NodeSwitchComponent#getTargetList`。若组件不在 SWITCH 条件中执行，
+    /// 返回空列表。
+    #[must_use]
+    pub fn get_target_list(&self, ctx: &CmpContext) -> Vec<String> {
+        ctx.switch_target_list()
+    }
 }
 
 #[async_trait]

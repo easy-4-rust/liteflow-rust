@@ -48,6 +48,26 @@ impl LiteflowResponse {
         }
     }
 
+    /// 创建执行前规则初始化失败响应。
+    ///
+    /// 参数保留请求 id、chain id 和原始输入，使兼容的非 `Result` 执行入口仍能
+    /// 返回完整诊断；推荐需要区分初始化错误的调用者使用 Vernal `try_execute`。
+    #[must_use]
+    pub fn initialization_failure(
+        request_id: impl Into<String>,
+        chain_id: impl Into<String>,
+        input: Value,
+        cause: impl Into<String>,
+    ) -> Self {
+        let cause = cause.into();
+        Self::new(
+            Arc::new(Slot::new(request_id.into(), chain_id, input)),
+            false,
+            "rule initialization failed".to_string(),
+            Some(cause),
+        )
+    }
+
     pub fn is_success(&self) -> bool {
         self.success
     }

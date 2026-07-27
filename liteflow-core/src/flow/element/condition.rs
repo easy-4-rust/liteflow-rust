@@ -3,6 +3,7 @@
 pub mod abstract_condition;
 pub mod and_or_condition;
 pub mod bind_wrapper_condition;
+pub mod boolean_condition_type_enum;
 pub mod catch_condition;
 pub mod chain_bind_wrapper_condition;
 pub mod condition_key;
@@ -20,6 +21,8 @@ pub mod then_condition;
 pub mod timeout_condition;
 pub mod when_condition;
 pub mod while_condition;
+
+pub use boolean_condition_type_enum::BooleanConditionTypeEnum;
 
 use crate::enums::ConditionTypeEnum;
 use crate::exception::{LFResult, LiteflowError};

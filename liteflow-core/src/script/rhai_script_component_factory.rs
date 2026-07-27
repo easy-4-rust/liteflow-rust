@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use crate::LFResult;
-use crate::core::NodeComponent;
-
-use super::{
-    ScriptBooleanComponent, ScriptCommonComponent, ScriptForComponent, ScriptIteratorComponent,
-    ScriptKind, ScriptSwitchComponent,
+use crate::core::{
+    NodeComponent, ScriptBooleanComponent, ScriptCommonComponent, ScriptForComponent,
+    ScriptSwitchComponent,
 };
+
+use super::{ScriptIteratorComponent, ScriptKind};
 
 /// 根据脚本类别构建独立的 Java 对等组件对象。
 pub fn build_rhai_component(

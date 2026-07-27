@@ -126,6 +126,14 @@ async fn condition_type_aligns_with_java() {
 
     let switch = SwitchCondition::new(s("sw"), vec![s("a")], None);
     assert_eq!(switch.condition_type(), ConditionTypeEnum::Switch);
+    assert_eq!(
+        switch
+            .get_target_list()
+            .iter()
+            .map(|target| target.id())
+            .collect::<Vec<_>>(),
+        vec!["a"]
+    );
 
     let for_cond = ForCondition::new(s("for"), None, s("do"), None);
     assert_eq!(for_cond.condition_type(), ConditionTypeEnum::For);

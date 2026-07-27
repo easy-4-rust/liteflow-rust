@@ -2,4 +2,4 @@
 
 pub mod parser;
 
-pub use parser::nacos::NacosRuleSource;
+pub use parser::nacos::{NacosParseHelper, NacosParserVO, NacosRuleSource, NacosXmlELParser};

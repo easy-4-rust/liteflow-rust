@@ -2,4 +2,7 @@
 
 pub mod model;
 
-pub use model::OpenAiAgentModelConfig;
+pub use model::{
+    DeepSeek, Glm, Kimi, Minimax, OpenAi, OpenAiAgentModelConfig, OpenAiCompatible,
+    OpenAiCompatiblePresets, OpenAiCompatibleSpec, OpenAiModelFactory, OpenAiSpec,
+};

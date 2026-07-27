@@ -9,7 +9,7 @@ mod when_opts;
 
 pub(crate) use arg::Arg;
 pub use el::El;
-pub(crate) use lexer::lex;
+pub(crate) use lexer::{SpannedTok, format_el_parse_error, lex};
 pub use mods::Mods;
 pub use node_ref::NodeRef;
 pub use parser::parse_el;

@@ -4,8 +4,8 @@ use crate::builder::NodePropBean;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::chain::DEFAULT_NAMESPACE;
 use crate::flow::flow_bus::FlowBus;
-use crate::parser::chain_def::{ChainDef, resolve_and_build};
-use crate::parser::helper::ParserHelper;
+use crate::parser::RuleDefinitionPlan;
+use crate::parser::chain_def::ChainDef;
 use serde_json::Value;
 
 /// 承载 JSON/JSON-EL 解析器共享的节点与链路解析逻辑。
@@ -37,29 +37,36 @@ impl BaseJsonFlowParser {
             return Ok(Vec::new());
         }
 
+        self.collect(content_list)?.build_all(&self.bus)
+    }
+
+    /// 只解析格式并保存节点、链定义，不创建 Chain 或编译脚本。
+    ///
+    /// 对应 Java `PARSE_ONE_ON_FIRST_EXEC` 启动阶段预装载 Chain 定义的行为。
+    pub fn collect(&self, content_list: &[String]) -> LFResult<RuleDefinitionPlan> {
         let mut values = Vec::with_capacity(content_list.len());
         for content in content_list {
             let value = serde_json::from_str(content)
                 .map_err(|error| LiteflowError::Rule(format!("invalid json: {error}")))?;
             values.push(value);
         }
-        self.parse_values(&values)
+        self.collect_values(&values)
     }
 
-    /// 解析已经转换为 JSON Value 的规则列表，供 YML 基类复用。
-    pub(crate) fn parse_values(&self, values: &[Value]) -> LFResult<Vec<String>> {
+    /// 收集已经转换为 JSON Value 的规则列表，供 YML 延迟解析复用。
+    pub(crate) fn collect_values(&self, values: &[Value]) -> LFResult<RuleDefinitionPlan> {
         if values.is_empty() {
-            return Ok(Vec::new());
+            return Ok(RuleDefinitionPlan::new());
         }
 
-        let mut definitions = Vec::new();
+        let mut plan = RuleDefinitionPlan::new();
         for value in values {
-            self.collect_value(value, &mut definitions)?;
+            self.collect_value(value, &mut plan)?;
         }
-        resolve_and_build(&self.bus, definitions)
+        Ok(plan)
     }
 
-    fn collect_value(&self, value: &Value, definitions: &mut Vec<ChainDef>) -> LFResult<()> {
+    fn collect_value(&self, value: &Value, plan: &mut RuleDefinitionPlan) -> LFResult<()> {
         let flow = value
             .get("flow")
             .ok_or_else(|| LiteflowError::Rule("missing flow".to_string()))?;
@@ -70,7 +77,9 @@ impl BaseJsonFlowParser {
             .and_then(Value::as_array)
         {
             for node in nodes {
-                self.parse_node(node)?;
+                if let Some(node) = self.parse_node(node)? {
+                    plan.push_node(node);
+                }
             }
         }
 
@@ -79,25 +88,25 @@ impl BaseJsonFlowParser {
             .and_then(Value::as_array)
             .ok_or_else(|| LiteflowError::Rule("missing flow.chain".to_string()))?;
         for chain in chains {
-            definitions.push(parse_chain_definition(chain)?);
+            plan.push_chain(parse_chain_definition(chain)?);
         }
         Ok(())
     }
 
-    fn parse_node(&self, node: &Value) -> LFResult<()> {
+    fn parse_node(&self, node: &Value) -> LFResult<Option<NodePropBean>> {
         if node
             .get("enable")
             .and_then(Value::as_bool)
             .is_some_and(|enable| !enable)
         {
-            return Ok(());
+            return Ok(None);
         }
 
         let id = node.get("id").and_then(Value::as_str).unwrap_or_default();
         let property: NodePropBean = serde_json::from_value(node.clone()).map_err(|error| {
             LiteflowError::Rule(format!("invalid node[{id}] property: {error}"))
         })?;
-        ParserHelper::build_node(&self.bus, property)
+        Ok(Some(property))
     }
 }
 

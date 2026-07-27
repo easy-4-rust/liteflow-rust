@@ -25,6 +25,10 @@ pub struct SwitchCondition {
 }
 
 impl SwitchCondition {
+    /// 使用路由节点、候选目标和默认目标创建 SWITCH 条件。
+    ///
+    /// 参数分别对应 Java `SwitchCondition` 的 `SWITCH_KEY`、
+    /// `SWITCH_TARGET_KEY` 与 `SWITCH_DEFAULT_KEY` 可执行对象组。
     pub fn new(
         switch_node: Arc<dyn Executable>,
         target_list: Vec<Arc<dyn Executable>>,
@@ -37,7 +41,16 @@ impl SwitchCondition {
         }
     }
 
-    /// 对应 Java SwitchCondition#getConditionType
+    /// 返回 SWITCH 的候选目标可执行对象。
+    ///
+    /// 返回值对应 Java `SwitchCondition#getTargetList`。
+    #[must_use]
+    pub fn get_target_list(&self) -> &[Arc<dyn Executable>] {
+        &self.target_list
+    }
+
+    /// 返回条件类型。对应 Java `SwitchCondition#getConditionType`。
+    #[must_use]
     pub fn condition_type(&self) -> ConditionTypeEnum {
         ConditionTypeEnum::Switch
     }
@@ -46,12 +59,21 @@ impl SwitchCondition {
 #[async_trait]
 impl Executable for SwitchCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        // Java 在 Condition#execute 中先把当前 SwitchCondition 压入 Slot；
+        // Rust 把目标 ID 放入不可变 Frame，使路由组件可读取同一条件上下文。
+        let target_ids = self
+            .get_target_list()
+            .iter()
+            .map(|target| target.id().to_string())
+            .collect::<Vec<_>>();
+        let switch_frame = frame.with_switch_target_list(&target_ids);
+
         // 对应 Java SwitchCondition#executeCondition：先判断 isAccess，
         // 返回 false 则整个 SWITCH 表达式不执行
-        if !self.switch_node.is_access(ctx, frame).await {
+        if !self.switch_node.is_access(ctx, &switch_frame).await {
             return Ok(Value::Null);
         }
-        let v = self.switch_node.execute(ctx, frame).await?;
+        let v = self.switch_node.execute(ctx, &switch_frame).await?;
         let target_id = match &v {
             Value::String(s) => s.clone(),
             Value::Null => String::new(),
@@ -84,7 +106,7 @@ impl Executable for SwitchCondition {
         match target {
             Some(t) => {
                 check_not_pre_finally(t.as_ref(), self.switch_node.id())?;
-                t.execute(ctx, frame).await
+                t.execute(ctx, &switch_frame).await
             }
             None => Err(LiteflowError::NoSwitchTarget(target_id)),
         }

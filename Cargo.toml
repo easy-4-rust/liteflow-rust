@@ -9,6 +9,13 @@ members = [
     "liteflow-agent/liteflow-agent-dashscope",
     "liteflow-agent/liteflow-agent-gemini",
     "liteflow-agent/liteflow-agent-openai",
+    "liteflow-agent/liteflow-agent-provider-core",
+    "liteflow-agent/liteflow-agent-telnyx",
+    "liteflow-agent/liteflow-agent-glm",
+    "liteflow-agent/liteflow-agent-openrouter",
+    "liteflow-agent/liteflow-agent-copilot",
+    "liteflow-agent/liteflow-agent-bedrock",
+    "liteflow-agent/liteflow-agent-compatible",
     "liteflow-benchmark",
     "liteflow-benchmark/liteflow-benchmark-common",
     "liteflow-benchmark/liteflow-benchmark-common-example",
@@ -75,7 +82,7 @@ license = "Apache-2.0"
 
 # 共享依赖：所有成员 crate 复用同一份，避免重复下载与版本漂移
 [workspace.dependencies]
-tokio = { version = "1.52.4", features = ["rt-multi-thread", "time", "sync", "macros"] }
+tokio = { version = "1.52.4", features = ["rt-multi-thread", "time", "sync", "macros", "fs"] }
 async-trait = "0.1.89"
 async-recursion = "1.1"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -86,11 +93,12 @@ rhai = { version = "1.25.1", features = ["sync", "serde"] }
 quick-xml = "0.41.0"
 serde_yaml_ng = "0.10.0"
 md-5 = "0.10.6"
+sha1 = "0.10.6"
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 redis = "0.27"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ureq = { version = "3.3.0", features = ["json"] }
-nacos-sdk = "0.8"
+nacos-sdk = { version = "0.8", features = ["auth-by-aliyun"] }
 etcd-client = "0.14"
 zookeeper = "0.8"
 proc-macro2 = "1.0"
@@ -102,6 +110,22 @@ boa_engine = "0.20"
 pyo3 = { version = "0.23", features = ["auto-initialize"] }
 futures = "0.3"
 humantime-serde = "1.1"
+anyhow = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "socks"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+ring = "0.17"
+directories = "6.0"
+uuid = { version = "1.10", features = ["v4"] }
+tracing = "0.1"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+parking_lot = "0.12"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+chacha20poly1305 = "0.10"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 
 [profile.release]
 opt-level = 3

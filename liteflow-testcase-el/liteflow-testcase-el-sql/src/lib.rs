@@ -6,5 +6,5 @@ use liteflow_rule_sql::SqlRuleSource;
 /// 构建本地 SQLite 规则源。
 pub async fn run_case() -> bool {
     let source = SqlRuleSource::new(":memory:");
-    source.name() == "sql" && source.format() == RuleFormat::Json
+    source.name() == "sql" && source.format() == RuleFormat::Xml
 }

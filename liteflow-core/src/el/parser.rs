@@ -9,7 +9,7 @@
 //! Java 版 2.11 之后底层用 QLExpress4 解析，这里用手写递归下降解析器，
 //! 接受文档规范内的全部 EL 写法。
 
-use super::{Arg, El, NodeRef, Tok, lex};
+use super::{Arg, El, NodeRef, SpannedTok, Tok, format_el_parse_error, lex};
 use crate::builder::el::operator::base::BaseOperator;
 use crate::builder::el::operator::{
     AndOperator, AnyOperator, BindOperator, BreakOperator, CatchOperator, DataOperator,
@@ -23,8 +23,9 @@ use crate::exception::{LFResult, LiteflowError};
 
 // ---------------- 语法 ----------------
 
-struct Parser {
-    toks: Vec<Tok>,
+struct Parser<'a> {
+    source: &'a str,
+    toks: Vec<SpannedTok>,
     pos: usize,
 }
 
@@ -51,24 +52,40 @@ fn normalize_method_name(name: &str) -> String {
     normalized
 }
 
-impl Parser {
+impl Parser<'_> {
     fn peek(&self) -> Option<&Tok> {
-        self.toks.get(self.pos)
+        self.toks.get(self.pos).map(|(token, _)| token)
     }
     fn next(&mut self) -> Option<Tok> {
-        let t = self.toks.get(self.pos).cloned();
+        let t = self.toks.get(self.pos).map(|(token, _)| token.clone());
         if t.is_some() {
             self.pos += 1;
         }
         t
     }
+    fn error_position(&self) -> usize {
+        self.toks
+            .get(self.pos)
+            .or_else(|| self.toks.last())
+            .map_or_else(|| self.source.chars().count(), |(_, position)| *position)
+    }
+    fn parse_error(&self, detail: impl AsRef<str>) -> LiteflowError {
+        format_el_parse_error(self.source, self.error_position(), detail)
+    }
+    fn contextualize(&self, error: LiteflowError) -> LiteflowError {
+        match error {
+            LiteflowError::Parse(detail)
+                if !detail.contains("\n EL: ") && !detail.contains("\n EL:") =>
+            {
+                self.parse_error(detail)
+            }
+            other => other,
+        }
+    }
     fn expect(&mut self, t: Tok) -> LFResult<()> {
         match self.next() {
             Some(x) if x == t => Ok(()),
-            other => Err(LiteflowError::Parse(format!(
-                "expect {:?}, but got {:?}",
-                t, other
-            ))),
+            other => Err(self.parse_error(format!("expect {:?}, but got {:?}", t, other))),
         }
     }
 
@@ -80,19 +97,19 @@ impl Parser {
             let name = match self.next() {
                 Some(Tok::Ident(w)) => w,
                 other => {
-                    return Err(LiteflowError::Parse(format!(
-                        "expect method name after '.', got {:?}",
-                        other
-                    )));
+                    return Err(
+                        self.parse_error(format!("expect method name after '.', got {:?}", other))
+                    );
                 }
             };
             if matches!(self.peek(), Some(Tok::LP)) {
                 let args = self.parse_args()?;
-                e = Self::apply_method(e, &name, args)?;
+                e = Self::apply_method(e, &name, args)
+                    .map_err(|error| self.contextualize(error))?;
             } else {
                 // 无括号形式：声明式组件方法引用 cmpId.methodName
                 // （对应 @LiteflowMethod；已知关键字不允许省略括号）
-                e = Self::apply_method_ref(e, &name)?;
+                e = Self::apply_method_ref(e, &name).map_err(|error| self.contextualize(error))?;
             }
         }
         Ok(e)
@@ -115,10 +132,7 @@ impl Parser {
                 Some(Tok::Comma) => continue,
                 Some(Tok::RP) => break,
                 other => {
-                    return Err(LiteflowError::Parse(format!(
-                        "expect ',' or ')', got {:?}",
-                        other
-                    )));
+                    return Err(self.parse_error(format!("expect ',' or ')', got {:?}", other)));
                 }
             }
         }
@@ -143,10 +157,7 @@ impl Parser {
                 // 子表达式（关键字或节点引用，均可带方法链）
                 Ok(Arg::Expr(self.parse_expr()?))
             }
-            other => Err(LiteflowError::Parse(format!(
-                "unexpected arg token: {:?}",
-                other
-            ))),
+            other => Err(self.parse_error(format!("unexpected arg token: {:?}", other))),
         }
     }
 
@@ -189,10 +200,7 @@ impl Parser {
                 n.tag = tag;
                 Ok(El::Node(n))
             }
-            other => Err(LiteflowError::Parse(format!(
-                "unexpected token: {:?}",
-                other
-            ))),
+            other => Err(self.parse_error(format!("unexpected token: {:?}", other))),
         }
     }
 
@@ -268,15 +276,16 @@ impl Parser {
 pub fn parse_el(text: &str) -> LFResult<El> {
     let toks = lex(text)?;
     if toks.is_empty() {
-        return Err(LiteflowError::Parse("empty EL".into()));
+        return Err(format_el_parse_error(text, 0, "empty EL"));
     }
-    let mut p = Parser { toks, pos: 0 };
+    let mut p = Parser {
+        source: text,
+        toks,
+        pos: 0,
+    };
     let e = p.parse_expr()?;
     if p.pos != p.toks.len() {
-        return Err(LiteflowError::Parse(format!(
-            "unexpected trailing tokens at pos {}",
-            p.pos
-        )));
+        return Err(p.parse_error("unexpected trailing tokens"));
     }
     Ok(e)
 }
@@ -394,5 +403,22 @@ mod tests {
     fn parse_and_or_not() {
         let e = parse_el("IF(AND(x, OR(y, NOT(z))), a, b)").unwrap();
         assert!(matches!(e, El::If { .. }));
+    }
+
+    #[test]
+    fn invalid_el_reports_source_line_column_and_caret() {
+        let error = parse_el("THEN(a,\n  WHEN(b, @))").unwrap_err().to_string();
+        assert!(error.contains("unexpected character: @"));
+        assert!(error.contains("line 2, column 11"));
+        assert!(error.contains(" EL:   WHEN(b, @)"));
+        assert!(error.lines().last().is_some_and(|line| line.ends_with('^')));
+    }
+
+    #[test]
+    fn unclosed_string_points_to_opening_quote() {
+        let error = parse_el("THEN(a, \"missing)").unwrap_err().to_string();
+        assert!(error.contains("unclosed string literal"));
+        assert!(error.contains("line 1, column 9"));
+        assert!(error.contains(" EL: THEN(a, \"missing)"));
     }
 }

@@ -2,4 +2,6 @@
 
 pub mod parser;
 
-pub use parser::apollo::ApolloRuleSource;
+pub use parser::apollo::{
+    ApolloParseHelper, ApolloParserConfigVO, ApolloRuleSource, ApolloXmlELParser,
+};

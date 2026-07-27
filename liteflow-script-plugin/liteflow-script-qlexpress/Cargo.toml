@@ -8,3 +8,7 @@ description = "QLExpress-compatible expression executor for liteflow-rust"
 
 [dependencies]
 liteflow-core = { path = "../../liteflow-core" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

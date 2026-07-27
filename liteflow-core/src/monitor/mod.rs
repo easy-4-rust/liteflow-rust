@@ -5,9 +5,11 @@
 
 pub mod comp_statistics;
 pub mod monitor_bus;
+pub mod monitor_file;
 pub mod monitor_time_task;
 mod stat_entry;
 
 pub use comp_statistics::CompStatistics;
 pub use monitor_bus::MonitorBus;
+pub use monitor_file::MonitorFile;
 pub use monitor_time_task::MonitorTimeTask;

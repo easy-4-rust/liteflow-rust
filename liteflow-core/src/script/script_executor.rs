@@ -1,149 +1,82 @@
-//! 对应 ScriptExecutor（JSR223ScriptExecutor 的 Rust 化）：rhai 引擎。
-//!
-//! 注入到脚本作用域的变量（对齐 Java ScriptExecuteWrap 的绑定）：
-//! - `input`     — requestData
-//! - `data`      — 链路共享数据（Map；脚本结束后变更合并回上下文）
-//! - `node_id`   — 节点 id
-//! - `tag`       — 节点 tag
-//! - `loop_index`— 循环下标（非循环内为 ()）
-//! 脚本最后一个表达式的值为节点返回值。
-
-use super::json_convert::{dynamic_to_json, json_to_dynamic};
 use crate::common::entity::ValidationResp;
-use crate::exception::{LFResult, LiteflowError};
+use crate::enums::ScriptTypeEnum;
+use crate::exception::LFResult;
 use crate::slot::CmpContext;
-use rhai::{AST, Dynamic, Engine, EvalAltResult, Position, Scope};
 use serde_json::Value;
 
-pub struct RhaiScriptExecutor {
-    engine: Engine,
-}
-
-impl Default for RhaiScriptExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RhaiScriptExecutor {
-    pub fn new() -> Self {
-        let mut engine = Engine::new();
-        // Rust 无运行期反射，因此通过统一桥接函数访问受控脚本 Bean。
-        // 方法筛选与别名已经在 ScriptBeanProxy 构建阶段固化。
-        engine.register_fn(
-            "script_call",
-            |bean_name: &str,
-             method_name: &str,
-             arguments: rhai::Array|
-             -> Result<Dynamic, Box<EvalAltResult>> {
-                let arguments = arguments.iter().map(dynamic_to_json).collect::<Vec<_>>();
-                crate::script::ScriptBeanManager::invoke(bean_name, method_name, &arguments)
-                    .map(|value| json_to_dynamic(&value))
-                    .map_err(|error| {
-                        EvalAltResult::ErrorRuntime(format!("{error}").into(), Position::NONE)
-                            .into()
-                    })
-            },
-        );
-        Self { engine }
-    }
-
-    /// 对应脚本编译（Java 版缓存编译产物，isCompiled）
-    pub fn compile(&self, node_id: &str, script: &str) -> LFResult<AST> {
-        self.engine
-            .compile(script)
-            .map_err(|e| LiteflowError::Script {
-                node: node_id.to_string(),
-                msg: format!("compile error: {e}"),
-            })
-    }
-
-    /// 对应 ScriptValidator.validate(script)（只关心是否通过）
-    pub fn validate(&self, script: &str) -> bool {
-        self.engine.compile(script).is_ok()
-    }
-
-    /// 对应 ScriptValidator.validateWithEx(script)（2.16：返回带错误信息的校验结果）
-    pub fn validate_ex(&self, script: &str) -> LFResult<()> {
-        self.engine
-            .compile(script)
-            .map(|_| ())
-            .map_err(|e| LiteflowError::Script {
-                node: String::new(),
-                msg: format!("script validate failure: {e}"),
-            })
-    }
-
-    /// 返回包含失败异常的校验响应。
+/// 脚本执行器抽象，统一脚本的加载、执行、卸载与缓存生命周期。
+///
+/// Java 抽象类把编译产物声明为 `Object`；Rust 端由各具体执行器在自身文件中保存
+/// 强类型编译产物，并通过本 trait 暴露对象安全的生命周期契约。
+///
+/// 对应 Java: `com.yomahub.liteflow.script.ScriptExecutor`。
+pub trait ScriptExecutor: Send + Sync {
+    /// 初始化脚本执行器及其底层引擎。
     ///
-    /// 对应 Java `ScriptValidator#validateWithEx`。保留 `validate_ex` 的
-    /// Result 入口供 Rust `?` 传播，同时提供 Java 对象级的 ValidationResp。
-    pub fn validate_with_ex(&self, script: &str) -> ValidationResp {
-        match self.validate_ex(script) {
-            Ok(()) => ValidationResp::success(),
-            Err(error) => ValidationResp::fail(error),
-        }
+    /// 返回初始化结果。对应 Java: `ScriptExecutor#init`。
+    fn init(&self) -> LFResult<()> {
+        Ok(())
     }
 
-    /// 对应 ScriptExecutor.execute
-    pub fn execute(&self, node_id: &str, ast: &AST, ctx: &CmpContext) -> LFResult<Value> {
-        let mut scope = Scope::new();
+    /// 编译并加载指定节点的脚本。
+    ///
+    /// `node_id` 是脚本节点标识，`script` 是脚本文本。对应 Java:
+    /// `ScriptExecutor#load`。
+    fn load(&self, node_id: &str, script: &str) -> LFResult<()>;
 
-        // input：requestData
-        let input = ctx
-            .inner
-            .input
-            .lock()
-            .map(|v| v.clone())
-            .unwrap_or(Value::Null);
-        scope.push("input", json_to_dynamic(&input));
-
-        // data：链路共享数据快照
-        let mut data_map = rhai::Map::new();
-        for r in ctx.inner.data.iter() {
-            data_map.insert(r.key().clone().into(), json_to_dynamic(r.value()));
-        }
-        scope.push("data", Dynamic::from(data_map));
-
-        scope.push("node_id", Dynamic::from(ctx.node.id.clone()));
-        scope.push(
-            "tag",
-            match &ctx.node.tag {
-                Some(t) => Dynamic::from(t.clone()),
-                None => Dynamic::UNIT,
-            },
-        );
-        scope.push(
-            "loop_index",
-            match ctx.frame.loop_index() {
-                Some(i) => Dynamic::from(i as i64),
-                None => Dynamic::UNIT,
-            },
-        );
-        // loop_object
-        scope.push(
-            "loop_object",
-            ctx.frame
-                .loop_object()
-                .map(json_to_dynamic)
-                .unwrap_or(Dynamic::UNIT),
-        );
-
-        let result = self
-            .engine
-            .eval_ast_with_scope::<Dynamic>(&mut scope, ast)
-            .map_err(|e| LiteflowError::Script {
-                node: node_id.to_string(),
-                msg: format!("eval error: {e}"),
-            })?;
-
-        // data 变更合并回上下文（对齐 Java 脚本直接操作上下文 bean 的语义）
-        if let Some(m) = scope.get_value::<rhai::Map>("data") {
-            for (k, v) in m {
-                ctx.inner.data.insert(k.to_string(), dynamic_to_json(&v));
-            }
-        }
-
-        Ok(dynamic_to_json(&result))
+    /// 执行需要合并编译的第二阶段加载。
+    ///
+    /// 普通执行器无需第二阶段，默认直接成功。对应 Java:
+    /// `ScriptExecutor#loadSecondPhase`。
+    fn load_second_phase(&self) -> LFResult<()> {
+        Ok(())
     }
+
+    /// 从执行器缓存中卸载指定节点脚本。
+    ///
+    /// `node_id` 只标识脚本，不删除 LiteFlow 节点。对应 Java:
+    /// `ScriptExecutor#unLoad`。
+    fn unload(&self, node_id: &str) -> LFResult<()>;
+
+    /// 返回当前执行器已经加载的全部节点 id。
+    ///
+    /// 对应 Java: `ScriptExecutor#getNodeIds`。
+    fn node_ids(&self) -> LFResult<Vec<String>>;
+
+    /// 执行指定节点已经加载的脚本。
+    ///
+    /// `node_id` 选择缓存脚本，`ctx` 提供流程上下文。该入口保留 Java
+    /// `execute` 的统一委托语义。对应 Java: `ScriptExecutor#execute`。
+    fn execute(&self, node_id: &str, ctx: &CmpContext) -> LFResult<Value> {
+        self.execute_script(node_id, ctx)
+    }
+
+    /// 执行具体脚本引擎中的已编译脚本。
+    ///
+    /// 返回可跨引擎传递的 JSON 值。对应 Java:
+    /// `ScriptExecutor#executeScript`。
+    fn execute_script(&self, node_id: &str, ctx: &CmpContext) -> LFResult<Value>;
+
+    /// 清理当前执行器的全部脚本缓存。
+    ///
+    /// 对应 Java: `ScriptExecutor#cleanCache`。
+    fn clean_cache(&self) -> LFResult<()>;
+
+    /// 返回执行器支持的脚本语言类型。
+    ///
+    /// 对应 Java: `ScriptExecutor#scriptType`。
+    fn script_type(&self) -> ScriptTypeEnum;
+
+    /// 校验脚本能否被当前引擎编译。
+    ///
+    /// `script` 是待校验文本；只返回成功与否。对应 Java:
+    /// `ScriptExecutor#validate`。
+    fn validate(&self, script: &str) -> bool {
+        self.validate_with_ex(script).is_success()
+    }
+
+    /// 校验脚本并保留编译失败原因。
+    ///
+    /// 对应 Java: `ScriptExecutor#validate` 的 `ValidationResp` 返回值。
+    fn validate_with_ex(&self, script: &str) -> ValidationResp;
 }

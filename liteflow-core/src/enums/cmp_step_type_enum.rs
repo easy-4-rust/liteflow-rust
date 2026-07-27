@@ -16,6 +16,11 @@ pub enum CmpStepTypeEnum {
     Single,
 }
 
+/// `CmpStepTypeEnum` 的兼容类型名。
+///
+/// 旧版 Rust API 使用 `CmpStepType`；别名与对象定义放在同一文件，crate 根仅重导出。
+pub type CmpStepType = CmpStepTypeEnum;
+
 impl CmpStepTypeEnum {
     /// Java 侧枚举名（toString 语义）
     pub fn as_str(&self) -> &'static str {

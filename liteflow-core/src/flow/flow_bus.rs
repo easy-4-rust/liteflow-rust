@@ -322,6 +322,29 @@ impl FlowBus {
             }
         }
     }
+
+    /// 创建 Chain 缓存淘汰时使用的弱引用清理函数。
+    ///
+    /// 返回闭包只持有 `chains` 与 `el_md5_map` 的 `Weak` 引用，避免
+    /// `FlowBus -> LifeCycleHolder -> ChainCacheLifeCycle -> FlowBus` 形成引用环。
+    /// 清理行为对应 Java `ChainCacheLifeCycle#cleanChain`：Rust 删除已物化 Chain，
+    /// `PARSE_ONE_ON_FIRST_EXEC` 的 `RuleDefinitionPlan` 会在下次执行时重新构建。
+    #[must_use]
+    pub fn chain_cache_cleaner(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
+        let chains = Arc::downgrade(&self.chains);
+        let el_md5_map = Arc::downgrade(&self.el_md5_map);
+        Arc::new(move |chain_id| {
+            let Some(chains) = chains.upgrade() else {
+                return;
+            };
+            if let Some((_, chain)) = chains.remove(chain_id) {
+                if let (Some(el_md5), Some(el_md5_map)) = (chain.el_md5(), el_md5_map.upgrade()) {
+                    el_md5_map.remove(el_md5);
+                }
+            }
+        })
+    }
+
     pub fn contains_chain(&self, chain_id: &str) -> bool {
         self.chains.contains_key(chain_id)
     }

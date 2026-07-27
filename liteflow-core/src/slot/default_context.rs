@@ -63,6 +63,16 @@ impl CmpContext {
         }
         self.frame.find_bind(key)
     }
+
+    /// 返回当前 SWITCH 表达式可选择的目标节点 ID。
+    ///
+    /// Java 组件通过 `NodeSwitchComponent#getTargetList` 从 Slot 的当前 Condition
+    /// 获取该列表；Rust 将不可变条件上下文随 `Frame` 传入组件，避免线程局部变量。
+    /// 不在 SWITCH 路由节点中调用时返回空列表。
+    #[must_use]
+    pub fn switch_target_list(&self) -> Vec<String> {
+        self.frame.switch_target_list().to_vec()
+    }
     /// getRequestData()
     pub fn request_data<T: DeserializeOwned>(&self) -> Option<T> {
         self.inner

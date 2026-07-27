@@ -1,0 +1,38 @@
+LiteFlow-Rust
+Copyright 2025-2026 the LiteFlow-Rust contributors
+
+This product includes software developed by the LiteFlow-Rust contributors
+(https://github.com/dromara/liteflow).
+
+=========================================================================
+Third-Party Notices
+=========================================================================
+
+This product includes code derived from the ZeroClaw project
+(https://github.com/zeroclaw-labs/zeroclaw).
+
+  ZeroClaw
+  Copyright 2025 ZeroClaw Labs
+
+  This product includes software developed at ZeroClaw Labs
+  (https://github.com/zeroclaw-labs).
+
+  Licensed under the Apache License, Version 2.0 (you may alternatively use
+  the MIT License, at your option). The original ZeroClaw project is
+  distributed under a dual license (MIT OR Apache-2.0); this product
+  incorporates ZeroClaw code under the Apache-2.0 license.
+
+  Files derived from ZeroClaw are located primarily under
+  `liteflow-agent/liteflow-agent-providers/` and carry prominent
+  modification notices in their headers. See THIRD_PARTY_NOTICES.md for
+  the full list.
+
+-------------------------------------------------------------------------
+
+This product depends on the AgentScope-Rust project
+(https://github.com/agentscope-ai/agentscope-rust).
+
+  AgentScope-Rust
+  Copyright 2024-2026 the original author or authors.
+
+  Licensed under the Apache License, Version 2.0.

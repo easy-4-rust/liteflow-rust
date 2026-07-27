@@ -1,0 +1,3 @@
+mod apollo_parser_class_name_spi;
+
+pub use apollo_parser_class_name_spi::ApolloParserClassNameSpi;

@@ -1,32 +1,5 @@
-mod agent_config;
-mod agent_memory_mode;
-mod defaults_config;
-mod local_file_memory_config;
-mod logging_config;
-mod memory_storage_config;
-mod memory_storage_mode;
-mod mysql_memory_config;
-mod platform_credential;
-mod redis_memory_config;
-mod session_config;
-mod shell_config;
-mod shell_mode;
-mod skills_config;
-mod workspace_config;
-
-pub use agent_config::AgentConfig;
-#[allow(deprecated)]
-pub use agent_memory_mode::AgentMemoryMode;
-pub use defaults_config::DefaultsConfig;
-pub use local_file_memory_config::LocalFileMemoryConfig;
-pub use logging_config::LoggingConfig;
-pub use memory_storage_config::MemoryStorageConfig;
-pub use memory_storage_mode::MemoryStorageMode;
-pub use mysql_memory_config::MysqlMemoryConfig;
-pub use platform_credential::PlatformCredential;
-pub use redis_memory_config::{RedisClientType, RedisMemoryConfig};
-pub use session_config::SessionConfig;
-pub use shell_config::ShellConfig;
-pub use shell_mode::ShellMode;
-pub use skills_config::SkillsConfig;
-pub use workspace_config::WorkspaceConfig;
+pub use liteflow_core::property::agent::{
+    AgentConfig, DefaultsConfig, LocalFileMemoryConfig, LoggingConfig, MemoryStorageConfig,
+    MemoryStorageMode, MysqlMemoryConfig, PlatformCredential, RedisClientType, RedisMemoryConfig,
+    SessionConfig, ShellConfig, ShellMode, SkillsConfig, WorkspaceConfig,
+};

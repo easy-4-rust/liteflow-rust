@@ -1,6 +1,6 @@
 //! P2 迁移项测试：YML 规则 / 链继承 / 子链嵌套 / 声明式组件 / AOP / 监控 / 生命周期 / 实例编号。
 
-use liteflow_core::{CmpContext, FlowBus, LiteflowError, MonitorTimeTask, cmp, rule};
+use liteflow_core::{CmpContext, FlowBus, LiteflowError, MonitorFile, MonitorTimeTask, cmp, rule};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,6 +8,52 @@ use std::time::Duration;
 
 fn null_ok() -> Result<Value, LiteflowError> {
     Ok(Value::Null)
+}
+
+#[tokio::test]
+async fn monitor_file_manages_real_reload_delete_and_destroy_lifecycle() {
+    let directory = tempfile::tempdir().unwrap();
+    let rule_file = directory.path().join("flow.json");
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"name":"watched_a","condition":[{"type":"then","value":"a"}]}]}}"#,
+    )
+    .unwrap();
+
+    let bus = FlowBus::new();
+    bus.register("a", cmp(|_| async { Ok(Value::Null) }));
+    let monitor = MonitorFile::new(bus.clone());
+    monitor.add_monitor_file_path(&rule_file).unwrap();
+    monitor.create(Duration::from_millis(10)).unwrap();
+    assert!(monitor.is_monitoring());
+    assert!(bus.contains_chain("watched_a"));
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    std::fs::write(
+        &rule_file,
+        r#"{"flow":{"chain":[{"name":"watched_b","condition":[{"type":"then","value":"a"}]}]}}"#,
+    )
+    .unwrap();
+    for _ in 0..50 {
+        if bus.contains_chain("watched_b") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!bus.contains_chain("watched_a"));
+    assert!(bus.contains_chain("watched_b"));
+
+    std::fs::remove_file(&rule_file).unwrap();
+    for _ in 0..50 {
+        if !bus.contains_chain("watched_b") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!bus.contains_chain("watched_b"));
+
+    monitor.destroy().unwrap();
+    assert!(!monitor.is_monitoring());
 }
 
 // ---------- YML 规则 ----------

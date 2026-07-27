@@ -8,4 +8,5 @@ description = "Gemini model adapter for liteflow-agent"
 
 [dependencies]
 agentscope-core = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-core" }
+liteflow-agent-core = { path = "../liteflow-agent-core" }
 serde.workspace = true

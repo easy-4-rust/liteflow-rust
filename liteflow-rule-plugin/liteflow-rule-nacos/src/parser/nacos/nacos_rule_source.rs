@@ -1,95 +1,92 @@
-//! 对应 Java: `com.yomahub.liteflow.parser.nacos.NacosXmlELParser`。
+//! Rust 通用规则源适配器。
 
 use async_trait::async_trait;
 use liteflow_core::exception::{LFResult, LiteflowError};
 use liteflow_core::rule_plugin::{RuleFormat, RuleSource, fnv_fp};
-use nacos_sdk::api::config::{ConfigService, ConfigServiceBuilder};
-use nacos_sdk::api::props::ClientProps;
-use tokio::sync::Mutex;
 
-/// Nacos 规则源，基于 Nacos 官方 Rust SDK。
+use super::{NacosParserVO, NacosXmlELParser};
+
+/// 将 Java 对齐的 Nacos XML EL 解析器适配为 Rust `RuleSource`。
+///
+/// 该对象只承担 Rust 基础设施适配，不替代 Java Nacos 插件的 5 个对象。
+#[derive(Debug, Clone)]
 pub struct NacosRuleSource {
-    pub server_addr: String,
-    pub data_id: String,
-    pub group: String,
-    /// namespace（tenant）。
-    pub namespace: Option<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub format: RuleFormat,
-    service: Mutex<Option<ConfigService>>,
+    parser: NacosXmlELParser,
 }
 
 impl NacosRuleSource {
-    /// 创建 Nacos 规则源。对应 Java `NacosParserVO` 的必要配置。
+    /// 使用完整 Java 对齐配置创建 Nacos 规则源。
+    pub fn from_config(config: NacosParserVO) -> LFResult<Self> {
+        let parser = NacosXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(Self { parser })
+    }
+
+    /// 使用服务地址、dataId 与 group 创建 Nacos 规则源。
+    ///
+    /// Nacos Java 插件只支持 XML EL，因此不再接受任意规则格式。
     pub fn new(
         server_addr: impl Into<String>,
         data_id: impl Into<String>,
         group: impl Into<String>,
-        format: RuleFormat,
-    ) -> Self {
-        Self {
-            server_addr: server_addr.into(),
-            data_id: data_id.into(),
-            group: group.into(),
-            namespace: None,
-            username: None,
-            password: None,
-            format,
-            service: Mutex::new(None),
-        }
+    ) -> LFResult<Self> {
+        let mut config = NacosParserVO::default();
+        config.set_server_addr(server_addr);
+        config.set_data_id(data_id);
+        config.set_group(group);
+        Self::from_config(config)
     }
 
-    /// 设置 namespace。
-    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
-        self.namespace = Some(namespace.into());
-        self
+    /// 设置 namespace（tenant）。
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> LFResult<Self> {
+        let mut config = self.parser.config().clone();
+        config.set_namespace(namespace);
+        self.parser = NacosXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(self)
     }
 
     /// 设置用户名密码。
-    pub fn with_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
-        self.username = Some(username.into());
-        self.password = Some(password.into());
-        self
+    pub fn with_auth(
+        mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> LFResult<Self> {
+        let mut config = self.parser.config().clone();
+        config.set_username(username);
+        config.set_password(password);
+        self.parser = NacosXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(self)
     }
 
-    async fn service(&self) -> LFResult<ConfigService> {
-        let mut guard = self.service.lock().await;
-        if let Some(service) = guard.as_ref() {
-            return Ok(service.clone());
-        }
-        let mut properties = ClientProps::new().server_addr(&self.server_addr);
-        if let Some(namespace) = &self.namespace {
-            properties = properties.namespace(namespace);
-        }
-        if let (Some(username), Some(password)) = (&self.username, &self.password) {
-            properties = properties.auth_username(username).auth_password(password);
-        }
-        let service = ConfigServiceBuilder::new(properties)
-            .build()
-            .await
-            .map_err(|error| LiteflowError::Rule(format!("nacos client build error: {error}")))?;
-        *guard = Some(service.clone());
-        Ok(service)
+    /// 设置 AccessKey 与 SecretKey。
+    pub fn with_access_key(
+        mut self,
+        access_key: impl Into<String>,
+        secret_key: impl Into<String>,
+    ) -> LFResult<Self> {
+        let mut config = self.parser.config().clone();
+        config.set_access_key(access_key);
+        config.set_secret_key(secret_key);
+        self.parser = NacosXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(self)
+    }
+
+    /// 返回 Java 对齐的 Nacos 解析器。
+    #[must_use]
+    pub fn parser(&self) -> &NacosXmlELParser {
+        &self.parser
     }
 }
 
 #[async_trait]
 impl RuleSource for NacosRuleSource {
-    /// 拉取 dataId/group 内容。对应 Java `NacosParserHelper#getContent`。
+    /// 拉取并校验 dataId/group 内容。对应 Java `NacosXmlELParser#parseCustom`。
     async fn fetch(&self) -> LFResult<(String, String)> {
-        let response = self
-            .service()
-            .await?
-            .get_config(self.data_id.clone(), self.group.clone())
-            .await
-            .map_err(|error| LiteflowError::Rule(format!("nacos get config error: {error}")))?;
-        let text = response.content().clone();
+        let text = self.parser.parse_custom().await?;
         Ok((text.clone(), fnv_fp(&text)))
     }
 
     fn format(&self) -> RuleFormat {
-        self.format
+        RuleFormat::Xml
     }
 
     fn name(&self) -> &str {

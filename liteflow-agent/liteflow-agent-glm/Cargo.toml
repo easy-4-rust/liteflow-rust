@@ -1,0 +1,20 @@
+[package]
+name = "liteflow-agent-glm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Zhipu GLM (JWT auth) model adapter for liteflow-agent (derived from ZeroClaw, Apache-2.0)"
+
+[dependencies]
+agentscope-core = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-core" }
+liteflow-agent-provider-core = { path = "../liteflow-agent-provider-core" }
+async-trait.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

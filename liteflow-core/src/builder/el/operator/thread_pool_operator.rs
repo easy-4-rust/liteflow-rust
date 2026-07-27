@@ -4,8 +4,9 @@ use crate::exception::{LFResult, LiteflowError};
 
 /// EL 规则中的 THREAD_POOL 操作符。
 ///
-/// 支持 WHEN、FOR、WHILE、ITERATOR 四类并发条件。Rust 运行时统一由 tokio
-/// 调度，线程池类名作为调度元数据保留。
+/// 支持 WHEN、FOR、WHILE、ITERATOR 四类并发条件。线程池构建器名称会进入
+/// `WhenOpts` 或循环 `Mods`，构建后由 `ExecutorHelper` 按
+/// Condition > Chain > 全局优先级选择并缓存真实有界 Tokio 执行器。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ThreadPoolOperator`。
 pub(crate) struct ThreadPoolOperator;
 

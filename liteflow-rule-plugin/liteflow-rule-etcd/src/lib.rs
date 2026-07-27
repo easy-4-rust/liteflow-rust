@@ -2,4 +2,6 @@
 
 pub mod parser;
 
-pub use parser::etcd::EtcdRuleSource;
+pub use parser::etcd::{
+    EtcdClient, EtcdParserHelper, EtcdParserVO, EtcdRuleSource, EtcdXmlELParser,
+};

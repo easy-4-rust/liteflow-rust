@@ -2,4 +2,4 @@
 
 pub mod model;
 
-pub use model::GeminiAgentModelConfig;
+pub use model::{Gemini, GeminiAgentModelConfig, GeminiModelFactory, GeminiSpec, GeminiThinking};

@@ -2,6 +2,7 @@
 
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::flow_bus::FlowBus;
+use crate::parser::RuleDefinitionPlan;
 use crate::parser::base::BaseJsonFlowParser;
 
 /// 承载 YML/YML-EL 解析器共享的转换与解析逻辑。
@@ -12,6 +13,7 @@ use crate::parser::base::BaseJsonFlowParser;
 /// 对应 Java: `com.yomahub.liteflow.parser.base.BaseYmlFlowParser`。
 #[derive(Clone)]
 pub struct BaseYmlFlowParser {
+    bus: FlowBus,
     json_parser: BaseJsonFlowParser,
 }
 
@@ -20,7 +22,8 @@ impl BaseYmlFlowParser {
     #[must_use]
     pub fn new(bus: FlowBus) -> Self {
         Self {
-            json_parser: BaseJsonFlowParser::new(bus),
+            json_parser: BaseJsonFlowParser::new(bus.clone()),
+            bus,
         }
     }
 
@@ -32,6 +35,11 @@ impl BaseYmlFlowParser {
             return Ok(Vec::new());
         }
 
+        self.collect(content_list)?.build_all(&self.bus)
+    }
+
+    /// 只解析 YAML 并保存格式无关的规则计划，不构建 Chain 或脚本节点。
+    pub fn collect(&self, content_list: &[String]) -> LFResult<RuleDefinitionPlan> {
         let mut values = Vec::with_capacity(content_list.len());
         for content in content_list {
             let yaml_value: serde_yaml_ng::Value = serde_yaml_ng::from_str(content)
@@ -40,6 +48,6 @@ impl BaseYmlFlowParser {
                 .map_err(|error| LiteflowError::Rule(format!("yml convert error: {error}")))?;
             values.push(json_value);
         }
-        self.json_parser.parse_values(&values)
+        self.json_parser.collect_values(&values)
     }
 }

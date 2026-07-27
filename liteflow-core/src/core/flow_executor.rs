@@ -5,13 +5,14 @@ use crate::exception::{LFResult, LiteflowError};
 use crate::flow::flow_bus::FlowBus;
 use crate::flow::id::IdGeneratorHolder;
 use crate::flow::liteflow_response::LiteflowResponse;
+use crate::property::{LiteflowConfig, LiteflowConfigGetter};
 use crate::slot::{Ctx, DataBus, Slot};
 use crate::thread::ExecutorHelper;
 use md5::{Digest, Md5};
 use serde::Serialize;
 use serde_json::Value;
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// LiteFlow 主执行入口。
@@ -20,11 +21,46 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct FlowExecutor {
     bus: FlowBus,
+    liteflow_config: Arc<RwLock<LiteflowConfig>>,
 }
 
 impl FlowExecutor {
+    /// 使用流程总线和当前全局配置创建执行器。
+    ///
+    /// 对应 Java 无显式配置的初始化路径；尚未装配时使用
+    /// `LiteflowConfigGetter#get` 的默认回退配置。
     pub fn new(bus: FlowBus) -> Self {
-        Self { bus }
+        let liteflow_config = LiteflowConfigGetter::get();
+        Self {
+            bus,
+            liteflow_config: Arc::new(RwLock::new(liteflow_config)),
+        }
+    }
+
+    /// 使用指定配置创建执行器并登记到全局配置获取器。
+    ///
+    /// 参数 `liteflow_config` 对应 Java `FlowExecutor(LiteflowConfig)`。
+    #[must_use]
+    pub fn new_with_config(bus: FlowBus, liteflow_config: LiteflowConfig) -> Self {
+        LiteflowConfigGetter::set_liteflow_config(liteflow_config.clone());
+        Self {
+            bus,
+            liteflow_config: Arc::new(RwLock::new(liteflow_config)),
+        }
+    }
+
+    /// 返回当前执行器配置快照。对应 Java: `FlowExecutor#getLiteflowConfig`。
+    #[must_use]
+    pub fn liteflow_config(&self) -> LiteflowConfig {
+        self.liteflow_config.read().unwrap().clone()
+    }
+
+    /// 更新执行器配置并同步全局配置获取器。
+    ///
+    /// 参数 `liteflow_config` 与 Java `FlowExecutor#setLiteflowConfig` 一致。
+    pub fn set_liteflow_config(&self, liteflow_config: LiteflowConfig) {
+        *self.liteflow_config.write().unwrap() = liteflow_config.clone();
+        LiteflowConfigGetter::set_liteflow_config(liteflow_config);
     }
 
     /// execute2Resp(chainId)

@@ -1,47 +1,59 @@
-//! 对应 Java: `com.yomahub.liteflow.parser.zk.ZkParser`。
+//! Rust 通用规则源适配器。
 
 use async_trait::async_trait;
 use liteflow_core::exception::{LFResult, LiteflowError};
 use liteflow_core::rule_plugin::{RuleFormat, RuleSource, fnv_fp};
 
-use super::nop_watcher::NopWatcher;
+use super::{ZkParserVO, ZkXmlELParser};
 
-/// ZooKeeper znode 规则源。
+/// 将 Java 对齐的 ZooKeeper XML EL 解析器适配为 Rust `RuleSource`。
+///
+/// 该对象只承担 Rust 基础设施适配，不替代 Java ZooKeeper 插件的 5 个对象。
+#[derive(Clone)]
 pub struct ZkRuleSource {
-    /// connect string，如 `127.0.0.1:2181`。
-    pub connect_string: String,
-    /// 规则节点路径，LiteFlow 默认使用 `/lite-flow/flow`。
-    pub node_path: String,
-    pub format: RuleFormat,
+    parser: ZkXmlELParser,
+}
+
+impl ZkRuleSource {
+    /// 使用完整 Java 对齐配置创建 ZooKeeper 规则源。
+    pub fn from_config(config: ZkParserVO) -> LFResult<Self> {
+        let parser = ZkXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(Self { parser })
+    }
+
+    /// 使用连接串和 Chain 根路径创建 ZooKeeper 规则源。
+    pub fn new(connect_str: impl Into<String>, chain_path: impl Into<String>) -> LFResult<Self> {
+        Self::from_config(ZkParserVO::new(connect_str, chain_path))
+    }
+
+    /// 设置可选 Script 根路径。
+    pub fn with_script_path(mut self, script_path: impl Into<String>) -> LFResult<Self> {
+        let mut config = self.parser.config().clone();
+        config.set_script_path(Some(script_path.into()));
+        self.parser = ZkXmlELParser::new(config).map_err(LiteflowError::from)?;
+        Ok(self)
+    }
+
+    /// 返回 Java 对齐的 ZooKeeper 解析器。
+    #[must_use]
+    pub fn parser(&self) -> &ZkXmlELParser {
+        &self.parser
+    }
 }
 
 #[async_trait]
 impl RuleSource for ZkRuleSource {
-    /// 读取 znode 数据。对应 Java `ZkParserHelper#getContent`。
+    /// 聚合 Chain/Script 子节点为 XML。对应 Java `ZkXmlELParser#parseCustom`。
     async fn fetch(&self) -> LFResult<(String, String)> {
-        let connect_string = self.connect_string.clone();
-        let node_path = self.node_path.clone();
-        let text = tokio::task::spawn_blocking(move || -> LFResult<String> {
-            let client = zookeeper::ZooKeeper::connect(
-                &connect_string,
-                std::time::Duration::from_secs(5),
-                NopWatcher,
-            )
-            .map_err(|error| LiteflowError::Rule(format!("zk connect error: {error}")))?;
-            let (data, _) = client
-                .get_data(&node_path, false)
-                .map_err(|error| LiteflowError::Rule(format!("zk get data error: {error}")))?;
-            client.close().ok();
-            String::from_utf8(data)
-                .map_err(|error| LiteflowError::Rule(format!("zk decode error: {error}")))
-        })
-        .await
-        .map_err(|error| LiteflowError::Rule(format!("zk task error: {error}")))??;
+        let parser = self.parser.clone();
+        let text = tokio::task::spawn_blocking(move || parser.parse_custom())
+            .await
+            .map_err(|error| LiteflowError::Rule(format!("zk task error: {error}")))??;
         Ok((text.clone(), fnv_fp(&text)))
     }
 
     fn format(&self) -> RuleFormat {
-        self.format
+        RuleFormat::Xml
     }
 
     fn name(&self) -> &str {

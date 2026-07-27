@@ -289,7 +289,7 @@ async fn and_or_filters_inaccessible_items() {
 
 #[test]
 fn script_validate_ex() {
-    let exec = liteflow_core::script::script_executor::RhaiScriptExecutor::new();
+    let exec = liteflow_core::script::RhaiScriptExecutor::new();
     assert!(exec.validate("1 + 1"));
     assert!(exec.validate_ex("1 + 1").is_ok());
     assert!(!exec.validate("let x = "));

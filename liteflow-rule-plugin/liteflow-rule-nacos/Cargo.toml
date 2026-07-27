@@ -10,4 +10,8 @@ description = "Nacos rule source for liteflow-rust"
 liteflow-core = { path = "../../liteflow-core" }
 async-trait.workspace = true
 nacos-sdk.workspace = true
+serde.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

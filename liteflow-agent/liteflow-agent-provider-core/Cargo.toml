@@ -1,0 +1,39 @@
+[package]
+name = "liteflow-agent-provider-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core Provider trait and Model adapter for liteflow-agent (derived from ZeroClaw, Apache-2.0)"
+
+[dependencies]
+agentscope-core = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-core" }
+async-trait.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+# multimodal（可选）
+base64 = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+# auth（可选，oauth 需要）
+chacha20poly1305 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+# codex（可选，websocket 需要）
+tokio-tungstenite = { workspace = true, optional = true }
+directories = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[features]
+default = []
+multimodal = ["dep:base64", "dep:image"]
+auth = ["dep:chacha20poly1305", "dep:sha2", "dep:base64"]
+codex = ["auth", "multimodal", "dep:tokio-tungstenite", "dep:directories"]

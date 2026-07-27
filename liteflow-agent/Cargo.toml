@@ -9,10 +9,25 @@ description = "AgentScope-Rust integrations for liteflow-rust"
 [features]
 default = ["core"]
 core = ["dep:liteflow-agent-core"]
+# agentscope 原生 5 个
 anthropic = ["core", "dep:liteflow-agent-anthropic"]
 dashscope = ["core", "dep:liteflow-agent-dashscope"]
 gemini = ["core", "dep:liteflow-agent-gemini"]
 openai = ["core", "dep:liteflow-agent-openai"]
+# zeroclaw 独有平台（依赖 provider-core）
+provider-core = ["dep:liteflow-agent-provider-core"]
+telnyx = ["provider-core", "dep:liteflow-agent-telnyx"]
+glm = ["provider-core", "dep:liteflow-agent-glm"]
+openrouter = ["provider-core", "dep:liteflow-agent-openrouter"]
+copilot = ["provider-core", "dep:liteflow-agent-copilot"]
+bedrock = ["provider-core", "dep:liteflow-agent-bedrock"]
+compatible = ["provider-core", "dep:liteflow-agent-compatible"]
+# codex（深耦合 auth/multimodal/websocket，可选）
+codex = ["dep:liteflow-agent-provider-core", "liteflow-agent-provider-core/codex", "compatible"]
+# 一键启用所有 zeroclaw 独有平台
+all-providers = [
+    "telnyx", "glm", "openrouter", "copilot", "bedrock", "compatible", "codex",
+]
 
 [dependencies]
 liteflow-agent-core = { path = "liteflow-agent-core", optional = true }
@@ -20,6 +35,14 @@ liteflow-agent-anthropic = { path = "liteflow-agent-anthropic", optional = true 
 liteflow-agent-dashscope = { path = "liteflow-agent-dashscope", optional = true }
 liteflow-agent-gemini = { path = "liteflow-agent-gemini", optional = true }
 liteflow-agent-openai = { path = "liteflow-agent-openai", optional = true }
+# zeroclaw 独有平台
+liteflow-agent-provider-core = { path = "liteflow-agent-provider-core", optional = true }
+liteflow-agent-telnyx = { path = "liteflow-agent-telnyx", optional = true }
+liteflow-agent-glm = { path = "liteflow-agent-glm", optional = true }
+liteflow-agent-openrouter = { path = "liteflow-agent-openrouter", optional = true }
+liteflow-agent-copilot = { path = "liteflow-agent-copilot", optional = true }
+liteflow-agent-bedrock = { path = "liteflow-agent-bedrock", optional = true }
+liteflow-agent-compatible = { path = "liteflow-agent-compatible", optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

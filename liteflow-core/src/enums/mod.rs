@@ -1,7 +1,6 @@
 //! 对应 com.yomahub.liteflow.enums 包：枚举类型集合。
 //! 每个枚举一个文件，与 Java 类一一对应。
 
-pub mod boolean_condition_type_enum;
 pub mod chain_execute_mode_enum;
 pub mod cmp_step_type_enum;
 pub mod condition_type_enum;
@@ -14,9 +13,10 @@ pub mod parallel_strategy_enum;
 pub mod parse_mode_enum;
 pub mod script_type_enum;
 
-pub use boolean_condition_type_enum::BooleanConditionTypeEnum;
+/// 兼容旧导入路径；对象定义位于其 Java 对应包 `flow.element.condition`。
+pub use crate::flow::element::condition::BooleanConditionTypeEnum;
 pub use chain_execute_mode_enum::ChainExecuteModeEnum;
-pub use cmp_step_type_enum::CmpStepTypeEnum;
+pub use cmp_step_type_enum::{CmpStepType, CmpStepTypeEnum};
 pub use condition_type_enum::ConditionTypeEnum;
 pub use executeable_type_enum::ExecuteableTypeEnum;
 pub use flow_parser_type_enum::FlowParserTypeEnum;

@@ -7,13 +7,15 @@
 //! 对应 Java: `com.yomahub.liteflow.builder.el.LiteFlowChainELBuilder`。
 
 use crate::builder::el::operator::boolean_literal_condition::BooleanLiteralCondition;
+use crate::common::entity::ValidationResp;
 use crate::core::DeclMethodComponent;
-use crate::el::{El, NodeRef};
-use crate::enums::{BooleanConditionTypeEnum, NodeTypeEnum};
+use crate::el::{El, NodeRef, format_el_parse_error, parse_el};
+use crate::enums::NodeTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::Executable;
 use crate::flow::element::NodeHooks;
 use crate::flow::element::chain::Chain;
+use crate::flow::element::condition::BooleanConditionTypeEnum;
 use crate::flow::element::condition::bind_wrapper_condition::BindWrapperCondition;
 use crate::flow::element::condition::chain_bind_wrapper_condition::ChainBindWrapperCondition;
 use crate::flow::element::condition::{
@@ -54,6 +56,41 @@ impl LiteFlowChainELBuilder {
             chain_id: std::cell::RefCell::new(String::new()),
             occurrences: std::cell::RefCell::new(HashMap::new()),
         }
+    }
+
+    /// 校验 EL 表达式是否合法。
+    ///
+    /// 解析语法后还会依据当前构建器绑定的 `FlowBus` 校验节点、声明式组件和子链
+    /// 是否已经注册。对应 Java: `LiteFlowChainELBuilder#validate`。
+    #[must_use]
+    pub fn validate(&self, el_str: &str) -> bool {
+        self.validate_with_ex(el_str).is_success()
+    }
+
+    /// 校验 EL 表达式并保留精细化失败原因。
+    ///
+    /// 失败信息包含原始 EL、Unicode 安全的行列号和 `^` 错误位置；未注册引用使用
+    /// Java `buildDataNotFoundExceptionMsg` 的说明语义。参数 `el_str` 是待校验 EL，
+    /// 返回值包含成功标记及 `ELParseException` 对应错误。
+    /// 对应 Java: `LiteFlowChainELBuilder#validateWithEx`。
+    #[must_use]
+    pub fn validate_with_ex(&self, el_str: &str) -> ValidationResp {
+        let expression = match parse_el(el_str) {
+            Ok(expression) => expression,
+            Err(error) => return ValidationResp::fail(error),
+        };
+        if let Some(node) = first_unregistered_node(&expression, &self.bus) {
+            let position = find_node_position(el_str, &node.id).unwrap_or(0);
+            return ValidationResp::fail(format_el_parse_error(
+                el_str,
+                position,
+                format!(
+                    "[{}] is not exist or [{}] is not registered, you need to define a node or chain with id [{}] and register it",
+                    node.id, node.id, node.id
+                ),
+            ));
+        }
+        ValidationResp::success()
     }
 
     /// 根据 EL 语法树构建普通 Chain。
@@ -387,6 +424,109 @@ impl LiteFlowChainELBuilder {
             ));
         Ok(Arc::new(self.finish_node(node_ref, proxy)))
     }
+}
+
+/// 深度优先查找第一个未注册节点或子链，顺序与 EL 源码的执行顺序一致。
+fn first_unregistered_node<'a>(el: &'a El, bus: &FlowBus) -> Option<&'a NodeRef> {
+    match el {
+        El::Node(node) => {
+            let declaration_id = node.id.split('.').next().unwrap_or("");
+            (!bus.contains_node(&node.id)
+                && !bus.contains_chain(&node.id)
+                && bus.get_decl(declaration_id).is_none())
+            .then_some(node)
+        }
+        El::Boolean(_) => None,
+        El::Then(items) | El::And(items) | El::Or(items) | El::When { items, .. } => items
+            .iter()
+            .find_map(|item| first_unregistered_node(item, bus)),
+        El::If {
+            cond,
+            then,
+            elifs,
+            els,
+        } => first_unregistered_node(cond, bus)
+            .or_else(|| first_unregistered_node(then, bus))
+            .or_else(|| {
+                elifs.iter().find_map(|(condition, body)| {
+                    first_unregistered_node(condition, bus)
+                        .or_else(|| first_unregistered_node(body, bus))
+                })
+            })
+            .or_else(|| {
+                els.as_deref()
+                    .and_then(|item| first_unregistered_node(item, bus))
+            }),
+        El::Switch {
+            node,
+            targets,
+            default,
+        } => first_unregistered_node(node, bus)
+            .or_else(|| {
+                targets
+                    .iter()
+                    .find_map(|target| first_unregistered_node(target, bus))
+            })
+            .or_else(|| {
+                default
+                    .as_deref()
+                    .and_then(|item| first_unregistered_node(item, bus))
+            }),
+        El::For {
+            node, body, brk, ..
+        }
+        | El::While {
+            node, body, brk, ..
+        }
+        | El::Iter {
+            node, body, brk, ..
+        } => first_unregistered_node(node, bus)
+            .or_else(|| first_unregistered_node(body, bus))
+            .or_else(|| {
+                brk.as_deref()
+                    .and_then(|item| first_unregistered_node(item, bus))
+            }),
+        El::ForCount { body, brk, .. } => first_unregistered_node(body, bus).or_else(|| {
+            brk.as_deref()
+                .and_then(|item| first_unregistered_node(item, bus))
+        }),
+        El::Catch { body, do_ } => first_unregistered_node(body, bus).or_else(|| {
+            do_.as_deref()
+                .and_then(|item| first_unregistered_node(item, bus))
+        }),
+        El::Not(item) | El::Pre(item) | El::Fin(item) | El::Mods(item, _) => {
+            first_unregistered_node(item, bus)
+        }
+    }
+}
+
+/// 返回完整节点标识第一次作为独立标识符出现的 Unicode 字符偏移。
+fn find_node_position(source: &str, node_id: &str) -> Option<usize> {
+    let source_characters: Vec<char> = source.chars().collect();
+    let node_characters: Vec<char> = node_id.chars().collect();
+    if node_characters.is_empty() || node_characters.len() > source_characters.len() {
+        return None;
+    }
+    source_characters
+        .windows(node_characters.len())
+        .enumerate()
+        .find_map(|(index, window)| {
+            if window != node_characters.as_slice() {
+                return None;
+            }
+            let is_identifier_character = |character: char| {
+                character.is_alphanumeric()
+                    || character == '_'
+                    || character == '$'
+                    || character == '.'
+            };
+            let left_is_boundary =
+                index == 0 || !is_identifier_character(source_characters[index.saturating_sub(1)]);
+            let right_index = index + node_characters.len();
+            let right_is_boundary = right_index == source_characters.len()
+                || !is_identifier_character(source_characters[right_index]);
+            (left_is_boundary && right_is_boundary).then_some(index)
+        })
 }
 
 /// 递归清除语法树中所有 Node 上指定 key 的 bind（对应 BindOperator.clearNodeBindData）

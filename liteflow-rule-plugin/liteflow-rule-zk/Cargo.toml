@@ -9,5 +9,9 @@ description = "ZooKeeper rule source for liteflow-rust"
 [dependencies]
 liteflow-core = { path = "../../liteflow-core" }
 async-trait.workspace = true
+serde.workspace = true
 tokio.workspace = true
 zookeeper.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

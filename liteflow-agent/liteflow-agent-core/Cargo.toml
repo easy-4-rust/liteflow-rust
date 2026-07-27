@@ -11,12 +11,14 @@ liteflow-core = { path = "../../liteflow-core" }
 agentscope-core = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-core" }
 async-trait.workspace = true
 dashmap.workspace = true
+futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-humantime-serde.workspace = true
+inventory = "0.3"
+tracing.workspace = true
 
 [dev-dependencies]
-futures.workspace = true
 tempfile.workspace = true
+tracing-subscriber = "0.3"

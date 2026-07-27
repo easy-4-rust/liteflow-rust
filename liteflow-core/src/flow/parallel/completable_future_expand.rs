@@ -19,7 +19,11 @@ impl CompletableFutureExpand {
     where
         F: Future<Output = T>,
     {
-        super::completable_future_timeout::complete_on_timeout(timeout_default_obj, future, timeout)
-            .await
+        super::completable_future_timeout::CompletableFutureTimeout::complete_on_timeout(
+            timeout_default_obj,
+            future,
+            timeout,
+        )
+        .await
     }
 }

@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// 配置、组件装配或规则初始化失败。
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum LiteflowVernalError {
     /// 规则文件和内联规则不能同时配置。
     #[error("liteflow rule_source and inline_rule cannot both be configured")]

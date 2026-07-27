@@ -9,6 +9,8 @@ pub enum LiteflowParseMode {
     /// 应用启动时完成规则解析，对应 Java `PARSE_ALL_ON_START`。
     #[default]
     ParseAllOnStart,
-    /// 首次执行时解析；当前桥接层保留配置值并在执行入口前保证初始化。
+    /// 第一次执行任意链路时解析全部规则，对应 Java `PARSE_ALL_ON_FIRST_EXEC`。
+    ParseAllOnFirstExec,
+    /// 第一次执行相关链路时只解析该链依赖闭包。
     ParseOneOnFirstExec,
 }

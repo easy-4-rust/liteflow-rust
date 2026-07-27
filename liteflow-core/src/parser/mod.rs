@@ -1,11 +1,11 @@
-//! 对应 Java parser 包：base/el/factory 分层与 monitor 文件热刷新。
+//! 对应 Java parser 包：base/el/factory 分层。
 
 pub mod base;
 pub mod chain_def;
 pub mod el;
 pub mod factory;
 pub mod helper;
-pub mod monitor_file;
+mod rule_definition_plan;
 pub mod spi;
 
 pub use base::{BaseJsonFlowParser, BaseXmlFlowParser, BaseYmlFlowParser, FlowParser};
@@ -17,5 +17,5 @@ pub use el::{
 };
 pub use factory::{ClassParserFactory, FlowParserFactory, FlowParserProvider, LocalParserFactory};
 pub use helper::{NodeConvertHelper, NodeSimpleVO, ParserHelper};
-pub use monitor_file::RuleWatcher;
+pub use rule_definition_plan::RuleDefinitionPlan;
 pub use spi::ParserClassNameSpi;

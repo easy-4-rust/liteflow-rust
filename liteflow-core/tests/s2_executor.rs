@@ -14,7 +14,7 @@ use liteflow_core::exception::LiteflowError;
 use liteflow_core::flow::element::executable::Executable;
 use liteflow_core::flow::element::node::Node;
 use liteflow_core::flow::executor::{DefaultNodeExecutor, NodeExecutor, NodeExecutorHelper};
-use liteflow_core::flow::parallel::{WhenFutureObj, complete_on_timeout};
+use liteflow_core::flow::parallel::{CompletableFutureTimeout, WhenFutureObj, complete_on_timeout};
 use liteflow_core::slot::{CmpContext, Ctx, Frame, Slot};
 use serde_json::Value;
 use std::sync::Arc;
@@ -199,4 +199,31 @@ async fn complete_on_timeout_semantics() {
     )
     .await;
     assert_eq!(v, 7);
+
+    // timeoutAfter → checked exception 映射为 Result 错误。
+    let timeout_error =
+        CompletableFutureTimeout::timeout_after::<()>(Duration::from_millis(1)).await;
+    assert!(matches!(timeout_error, Err(LiteflowError::WhenTimeout)));
+
+    // Tokio 所有权语义：超时后原 Future 被 drop，不会遗留后台任务。
+    struct DropProbe(Arc<AtomicUsize>);
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let future_dropped = Arc::clone(&dropped);
+    let value = CompletableFutureTimeout::complete_on_timeout(
+        9,
+        async move {
+            let _probe = DropProbe(future_dropped);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            42
+        },
+        Duration::from_millis(1),
+    )
+    .await;
+    assert_eq!(value, 9);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }

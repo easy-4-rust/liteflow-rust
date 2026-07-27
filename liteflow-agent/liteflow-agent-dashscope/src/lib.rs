@@ -2,4 +2,6 @@
 
 pub mod model;
 
-pub use model::DashScopeAgentModelConfig;
+pub use model::{
+    DashScope, DashScopeAgentModelConfig, DashScopeModelFactory, DashScopeSpec, DashScopeThinking,
+};

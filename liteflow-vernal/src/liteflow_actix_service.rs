@@ -28,17 +28,28 @@ async fn execute(
     request: web::Json<LiteflowExecuteRequest>,
 ) -> impl Responder {
     let request = request.into_inner();
-    let response = match request.request_id {
+    let result = match request.request_id {
         Some(request_id) => {
             runtime
-                .execute_with_rid(&chain_id, request.data, request_id)
+                .try_execute_with_rid(&chain_id, request.data, request_id)
                 .await
         }
-        None => runtime.execute(&chain_id, request.data).await,
+        None => runtime.try_execute(&chain_id, request.data).await,
     };
+    let initialization_failed = result.is_err();
+    let response = result.unwrap_or_else(|error| {
+        liteflow_core::LiteflowResponse::initialization_failure(
+            "rule-init-failed",
+            chain_id.as_str(),
+            serde_json::Value::Null,
+            error.to_string(),
+        )
+    });
     let body = LiteflowExecuteResponse::from(&response);
     if response.is_success() {
         HttpResponse::Ok().json(body)
+    } else if initialization_failed {
+        HttpResponse::InternalServerError().json(body)
     } else {
         HttpResponse::UnprocessableEntity().json(body)
     }

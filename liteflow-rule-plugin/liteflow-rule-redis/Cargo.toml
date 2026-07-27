@@ -9,5 +9,11 @@ description = "Redis rule source for liteflow-rust"
 [dependencies]
 liteflow-core = { path = "../../liteflow-core" }
 async-trait.workspace = true
-redis.workspace = true
+redis = { workspace = true, features = ["tokio-comp", "cluster", "sentinel"] }
 tokio.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,3 @@
+mod sql_node_instance_id_manage_spi_impl;
+
+pub use sql_node_instance_id_manage_spi_impl::SqlNodeInstanceIdManageSpiImpl;

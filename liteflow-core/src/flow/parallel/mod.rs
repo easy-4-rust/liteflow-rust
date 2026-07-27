@@ -8,7 +8,9 @@ pub mod strategy;
 pub mod when_future_obj;
 
 pub use completable_future_expand::CompletableFutureExpand;
-pub use completable_future_timeout::complete_on_timeout;
+pub use completable_future_timeout::{
+    CompletableFutureTimeout, complete_on_timeout, timeout_after,
+};
 pub use loop_future_obj::LoopFutureObj;
 pub use parallel_supplier::ParallelSupplier;
 pub use when_future_obj::WhenFutureObj;

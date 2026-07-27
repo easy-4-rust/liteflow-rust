@@ -9,6 +9,7 @@ description = "Apollo rule source for liteflow-rust"
 [dependencies]
 liteflow-core = { path = "../../liteflow-core" }
 async-trait.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 ureq.workspace = true

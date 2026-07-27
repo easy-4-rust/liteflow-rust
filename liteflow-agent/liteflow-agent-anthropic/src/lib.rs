@@ -2,4 +2,7 @@
 
 pub mod model;
 
-pub use model::AnthropicAgentModelConfig;
+pub use model::{
+    Anthropic, AnthropicAgentModelConfig, AnthropicCompatible, AnthropicModelFactory,
+    AnthropicSpec, AnthropicThinking,
+};

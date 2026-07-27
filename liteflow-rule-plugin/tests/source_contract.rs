@@ -1,16 +1,21 @@
+#[cfg(any(
+    feature = "apollo",
+    feature = "etcd",
+    feature = "nacos",
+    feature = "redis"
+))]
 use liteflow_core::rule_plugin::{RuleFormat, RuleSource};
 
 #[cfg(feature = "apollo")]
 #[test]
 fn apollo_source_exposes_rule_contract_without_connecting() {
-    let source = liteflow_rule_plugin::apollo::ApolloRuleSource {
-        portal_addr: "127.0.0.1:8070".to_string(),
-        app_id: "sample".to_string(),
-        cluster: "default".to_string(),
-        namespace: "application".to_string(),
-        key: "flow".to_string(),
-        format: RuleFormat::Xml,
-    };
+    let source = liteflow_rule_plugin::apollo::ApolloRuleSource::new(
+        "127.0.0.1:8070",
+        "sample",
+        "default",
+        "application",
+    )
+    .expect("Apollo 契约配置应有效");
     assert_eq!(source.name(), "apollo");
     assert_eq!(source.format(), RuleFormat::Xml);
 }
@@ -21,11 +26,12 @@ fn etcd_source_constructor_preserves_contract_metadata() {
     let source = liteflow_rule_plugin::etcd::EtcdRuleSource::new(
         vec!["http://127.0.0.1:2379".to_string()],
         "/liteflow/flow",
-        RuleFormat::Json,
     )
-    .with_auth("user", "password");
+    .expect("Etcd 契约配置应有效")
+    .with_auth("user", "password")
+    .expect("Etcd 认证配置应有效");
     assert_eq!(source.name(), "etcd");
-    assert_eq!(source.format(), RuleFormat::Json);
+    assert_eq!(source.format(), RuleFormat::Xml);
 }
 
 #[cfg(feature = "nacos")]
@@ -35,10 +41,12 @@ fn nacos_source_constructor_preserves_contract_metadata() {
         "127.0.0.1:8848",
         "flow.xml",
         "DEFAULT_GROUP",
-        RuleFormat::Xml,
     )
+    .expect("Nacos 契约配置应有效")
     .with_namespace("tenant")
-    .with_auth("nacos", "nacos");
+    .expect("Nacos namespace 配置应有效")
+    .with_auth("nacos", "nacos")
+    .expect("Nacos 认证配置应有效");
     assert_eq!(source.name(), "nacos");
     assert_eq!(source.format(), RuleFormat::Xml);
 }
@@ -58,11 +66,9 @@ fn redis_source_exposes_rule_contract_without_connecting() {
 #[cfg(feature = "zk")]
 #[test]
 fn zk_source_exposes_rule_contract_without_connecting() {
-    let source = liteflow_rule_plugin::zk::ZkRuleSource {
-        connect_string: "127.0.0.1:2181".to_string(),
-        node_path: "/lite-flow/flow".to_string(),
-        format: RuleFormat::Json,
-    };
-    assert_eq!(source.name(), "zookeeper");
-    assert_eq!(source.format(), RuleFormat::Json);
+    let config = liteflow_rule_plugin::zk::ZkParserVO::new("127.0.0.1:2181", "/lite-flow/flow");
+    assert_eq!(config.connect_str(), "127.0.0.1:2181");
+    assert_eq!(config.chain_path(), "/lite-flow/flow");
+    assert!(config.validate().is_ok());
+    // 构造解析器会建立真实 ZooKeeper 会话，离线契约只验证不会访问网络的 VO。
 }

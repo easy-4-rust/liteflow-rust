@@ -1,8 +1,9 @@
 //! 对应 AndOrCondition：AND/OR 布尔短路。
 
 use super::{Condition, expect_bool};
-use crate::enums::{BooleanConditionTypeEnum, ConditionTypeEnum};
+use crate::enums::ConditionTypeEnum;
 use crate::exception::LFResult;
+use crate::flow::element::condition::BooleanConditionTypeEnum;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;

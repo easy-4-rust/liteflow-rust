@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use liteflow_core::builder::el::LiteFlowChainELBuilder;
 use liteflow_core::flow::element::chain::Chain;
 use liteflow_core::flow::element::condition::then_condition::ThenCondition;
 use liteflow_core::flow::element::executable::Executable;
@@ -11,13 +12,14 @@ use liteflow_core::flow::instance_id::{
     BaseNodeInstanceIdManageSpi, DefaultNodeInstanceIdManageSpiImpl, NodeInstanceIdManageSpi,
     NodeInstanceIdManageSpiHolder,
 };
-use liteflow_core::script::script_executor::RhaiScriptExecutor;
+use liteflow_core::script::{RhaiScriptExecutor, ScriptExecutor};
 use liteflow_core::{
-    AbstractCondition, ChainConstant, ChainExecuteModeEnum, ComponentInitializer, Condition,
-    ConditionTypeEnum, DataBus, ExecuteableTypeEnum, FlowBus, FlowExecutorHolder, FlowInitHook,
-    FlowParserTypeEnum, LiteflowError, LocalDefaultFlowConstant, LoopFutureObj,
-    NodeBooleanComponent, NodeComponent, NodeForComponent, NodeIteratorComponent, NodeRef,
-    NodeSwitchComponent, NodeTypeEnum, ParallelStrategyEnum, ParallelStrategyHelper, ParseModeEnum,
+    AbstractCondition, ChainConstant, ChainExecuteModeEnum, CmpContext, ComponentInitializer,
+    Condition, ConditionTypeEnum, DataBus, ExecuteableTypeEnum, FlowBus, FlowExecutor,
+    FlowExecutorHolder, FlowInitHook, FlowParserTypeEnum, LiteflowConfig, LiteflowConfigGetter,
+    LiteflowError, LocalDefaultFlowConstant, LoopFutureObj, NodeBooleanComponent, NodeComponent,
+    NodeForComponent, NodeIteratorComponent, NodeRef, NodeSwitchComponent, NodeTypeEnum,
+    ParallelStrategyEnum, ParallelStrategyHelper, ParseModeEnum,
     PostProcessScriptEngineInitLifeCycle, Rollbackable, Slot, cmp,
 };
 use serde_json::{Value, json};
@@ -165,6 +167,35 @@ fn script_engine_lifecycle_runs_after_real_build_and_can_be_cleaned() {
     bus.clean_lifecycle_hooks();
     bus.register_script("after_clean", "rhai", "1 + 1").unwrap();
     assert_eq!(languages.lock().unwrap().as_slice(), ["rhai"]);
+}
+
+#[test]
+fn chain_el_builder_validation_reports_precise_syntax_and_missing_node_errors() {
+    let bus = FlowBus::new();
+    bus.register("registered", cmp(|_| async { Ok(Value::Null) }));
+    let builder = LiteFlowChainELBuilder::new(bus);
+
+    assert!(builder.validate("THEN(registered)"));
+
+    let missing = builder.validate_with_ex("THEN(registered,\n  absent)");
+    assert!(!missing.is_success());
+    let missing_error = missing.cause().unwrap().to_string();
+    assert!(missing_error.contains("[absent] is not exist"));
+    assert!(missing_error.contains("line 2, column 3"));
+    assert!(missing_error.contains(" EL:   absent)"));
+    assert!(
+        missing_error
+            .lines()
+            .last()
+            .is_some_and(|line| line.ends_with('^'))
+    );
+
+    let syntax = builder.validate_with_ex("THEN(registered, @)");
+    assert!(!syntax.is_success());
+    let syntax_error = syntax.cause().unwrap().to_string();
+    assert!(syntax_error.contains("unexpected character: @"));
+    assert!(syntax_error.contains("line 1, column 18"));
+    assert!(syntax_error.contains(" EL: THEN(registered, @)"));
 }
 
 #[test]
@@ -393,7 +424,9 @@ async fn typed_node_component_objects_drive_real_control_flow() {
     );
     bus.register(
         "switch_node",
-        NodeSwitchComponent::new("switch", |_| async {
+        NodeSwitchComponent::new("switch", |ctx: CmpContext| async move {
+            let target_list = ctx.switch_target_list();
+            ctx.set_data("switch_target_list", json!(target_list));
             Ok::<_, LiteflowError>("switch_target".to_string())
         }),
     );
@@ -456,6 +489,10 @@ async fn typed_node_component_objects_drive_real_control_flow() {
     assert_eq!(
         bus.execute("switch_chain").await.data("switch_hit"),
         Some(json!(true))
+    );
+    assert_eq!(
+        bus.execute("switch_chain").await.data("switch_target_list"),
+        Some(json!(["switch_target"]))
     );
 }
 
@@ -597,6 +634,39 @@ fn validation_resp_retains_script_compile_error() {
 }
 
 #[test]
+fn script_executor_owns_real_load_unload_and_cache_lifecycle() {
+    let executor = RhaiScriptExecutor::new();
+    executor.load("b", "1 + 1").unwrap();
+    executor.load("a", "40 + 2").unwrap();
+    assert_eq!(
+        executor.node_ids().unwrap(),
+        vec!["a".to_string(), "b".to_string()]
+    );
+
+    let ctx = liteflow_core::CmpContext {
+        inner: Arc::new(Slot::new(
+            "script-request".to_string(),
+            "script-chain",
+            Value::Null,
+        )),
+        node: NodeRef::new("a"),
+        frame: liteflow_core::Frame::root(),
+    };
+    assert_eq!(executor.execute("a", &ctx).unwrap(), json!(42));
+
+    executor.unload("a").unwrap();
+    let error = executor.execute("a", &ctx).unwrap_err();
+    assert!(matches!(
+        error,
+        LiteflowError::Script { node, msg }
+            if node == "a" && msg == "script for node[a] is not loaded"
+    ));
+
+    executor.clean_cache().unwrap();
+    assert!(executor.node_ids().unwrap().is_empty());
+}
+
+#[test]
 fn flow_init_hook_executes_every_registered_supplier() {
     FlowInitHook::clean_hook();
     let calls = Arc::new(AtomicUsize::new(0));
@@ -631,6 +701,25 @@ async fn flow_executor_holder_loads_and_executes_real_chain() {
         .await;
     assert!(response.is_success(), "{}", response.message);
     FlowExecutorHolder::clean();
+}
+
+#[test]
+fn flow_executor_configuration_updates_the_core_global_getter() {
+    LiteflowConfigGetter::clean();
+    let bus = FlowBus::new();
+    let mut configured = LiteflowConfig::default();
+    configured.set_slot_size(257);
+
+    let executor = FlowExecutor::new_with_config(bus, configured.clone());
+    assert_eq!(executor.liteflow_config(), configured);
+    assert_eq!(LiteflowConfigGetter::get(), configured);
+
+    let mut updated = configured;
+    updated.set_slot_size(513);
+    executor.set_liteflow_config(updated.clone());
+    assert_eq!(executor.liteflow_config(), updated);
+    assert_eq!(LiteflowConfigGetter::get(), updated);
+    LiteflowConfigGetter::clean();
 }
 
 #[tokio::test]

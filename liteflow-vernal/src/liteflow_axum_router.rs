@@ -30,16 +30,27 @@ async fn execute(
     VernalComponent(runtime): VernalComponent<LiteflowRuntime>,
     Json(request): Json<LiteflowExecuteRequest>,
 ) -> (StatusCode, Json<LiteflowExecuteResponse>) {
-    let response = match request.request_id {
+    let result = match request.request_id {
         Some(request_id) => {
             runtime
-                .execute_with_rid(&chain_id, request.data, request_id)
+                .try_execute_with_rid(&chain_id, request.data, request_id)
                 .await
         }
-        None => runtime.execute(&chain_id, request.data).await,
+        None => runtime.try_execute(&chain_id, request.data).await,
     };
+    let initialization_failed = result.is_err();
+    let response = result.unwrap_or_else(|error| {
+        liteflow_core::LiteflowResponse::initialization_failure(
+            "rule-init-failed",
+            &chain_id,
+            serde_json::Value::Null,
+            error.to_string(),
+        )
+    });
     let status = if response.is_success() {
         StatusCode::OK
+    } else if initialization_failed {
+        StatusCode::INTERNAL_SERVER_ERROR
     } else {
         StatusCode::UNPROCESSABLE_ENTITY
     };

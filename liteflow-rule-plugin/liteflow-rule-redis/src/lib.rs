@@ -2,4 +2,4 @@
 
 pub mod parser;
 
-pub use parser::redis::RedisRuleSource;
+pub use parser::redis::{RedisRuleSource, RedisXmlELParser};

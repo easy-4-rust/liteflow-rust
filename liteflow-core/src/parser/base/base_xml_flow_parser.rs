@@ -4,8 +4,8 @@ use crate::builder::NodePropBean;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::chain::DEFAULT_NAMESPACE;
 use crate::flow::flow_bus::FlowBus;
-use crate::parser::chain_def::{ChainDef, resolve_and_build};
-use crate::parser::helper::ParserHelper;
+use crate::parser::RuleDefinitionPlan;
+use crate::parser::chain_def::ChainDef;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 
@@ -35,11 +35,18 @@ impl BaseXmlFlowParser {
             return Ok(Vec::new());
         }
 
-        let mut definitions = Vec::new();
+        self.collect(content_list)?.build_all(&self.bus)
+    }
+
+    /// 只读取 XML 节点与链定义，不创建 Chain 或编译脚本。
+    ///
+    /// 对应 Java `PARSE_ONE_ON_FIRST_EXEC` 的启动期定义收集阶段。
+    pub fn collect(&self, content_list: &[String]) -> LFResult<RuleDefinitionPlan> {
+        let mut plan = RuleDefinitionPlan::new();
         for content in content_list {
-            collect_document(&self.bus, content, &mut definitions)?;
+            collect_document(content, &mut plan)?;
         }
-        resolve_and_build(&self.bus, definitions)
+        Ok(plan)
     }
 }
 
@@ -47,7 +54,7 @@ fn rule_error(message: impl Into<String>) -> LiteflowError {
     LiteflowError::Rule(message.into())
 }
 
-fn collect_document(bus: &FlowBus, content: &str, definitions: &mut Vec<ChainDef>) -> LFResult<()> {
+fn collect_document(content: &str, plan: &mut RuleDefinitionPlan) -> LFResult<()> {
     let mut reader = Reader::from_str(content);
     reader.config_mut().trim_text(true);
     let mut buffer = Vec::new();
@@ -70,9 +77,9 @@ fn collect_document(bus: &FlowBus, content: &str, definitions: &mut Vec<ChainDef
                             namespace.unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
                         definition.route = route;
                         definition.extends = extends;
-                        definitions.push(definition);
+                        plan.push_chain(definition);
                     }
-                    "nodes" => read_nodes(bus, &mut reader)?,
+                    "nodes" => read_nodes(&mut reader, plan)?,
                     "flow" => {}
                     _ => skip_element(&mut reader, &tag)?,
                 }
@@ -196,7 +203,7 @@ fn skip_element(reader: &mut Reader<&[u8]>, tag: &str) -> LFResult<()> {
     }
 }
 
-fn read_nodes(bus: &FlowBus, reader: &mut Reader<&[u8]>) -> LFResult<()> {
+fn read_nodes(reader: &mut Reader<&[u8]>, plan: &mut RuleDefinitionPlan) -> LFResult<()> {
     let mut buffer = Vec::new();
     loop {
         match reader.read_event_into(&mut buffer) {
@@ -212,13 +219,13 @@ fn read_nodes(bus: &FlowBus, reader: &mut Reader<&[u8]>) -> LFResult<()> {
                     property.script = Some(script.trim().to_string());
                 }
                 if enabled {
-                    build_node_property(bus, property)?;
+                    plan.push_node(property);
                 }
             }
             Ok(Event::Empty(element)) if element.name().as_ref() == b"node" => {
                 let (property, enabled) = parse_node_attrs(&element);
                 if enabled {
-                    build_node_property(bus, property)?;
+                    plan.push_node(property);
                 }
             }
             Ok(Event::End(element)) if element.name().as_ref() == b"nodes" => return Ok(()),
@@ -249,8 +256,4 @@ fn parse_node_attrs(element: &BytesStart<'_>) -> (NodePropBean, bool) {
         }
     }
     (property, enabled)
-}
-
-fn build_node_property(bus: &FlowBus, property: NodePropBean) -> LFResult<()> {
-    ParserHelper::build_node(bus, property)
 }
