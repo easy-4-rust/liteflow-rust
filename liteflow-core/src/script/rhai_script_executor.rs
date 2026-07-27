@@ -92,6 +92,33 @@ impl RhaiScriptExecutor {
         engine.register_fn("aviator_now", || {
             Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
         });
+        engine.register_fn(
+            "kotlin_to_int",
+            |value: Dynamic| -> Result<i64, Box<EvalAltResult>> {
+                let value = dynamic_to_json(&value);
+                match value {
+                    Value::Number(number) => number.as_i64().ok_or_else(|| {
+                        EvalAltResult::ErrorRuntime(
+                            "Kotlin Int conversion overflow".into(),
+                            Position::NONE,
+                        )
+                        .into()
+                    }),
+                    Value::String(value) => value.parse::<i64>().map_err(|error| {
+                        EvalAltResult::ErrorRuntime(
+                            format!("Kotlin String.toInt failed: {error}").into(),
+                            Position::NONE,
+                        )
+                        .into()
+                    }),
+                    other => Err(EvalAltResult::ErrorRuntime(
+                        format!("Kotlin toInt does not accept {other}").into(),
+                        Position::NONE,
+                    )
+                    .into()),
+                }
+            },
+        );
         Self {
             engine,
             compiled_script_map: RwLock::new(HashMap::new()),

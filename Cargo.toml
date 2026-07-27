@@ -37,6 +37,7 @@ members = [
     "liteflow-script-plugin/liteflow-script-graaljs",
     "liteflow-script-plugin/liteflow-script-groovy",
     "liteflow-script-plugin/liteflow-script-javascript",
+    "liteflow-script-plugin/liteflow-script-kotlin",
     "liteflow-script-plugin/liteflow-script-lua",
     "liteflow-script-plugin/liteflow-script-python",
     "liteflow-script-plugin/liteflow-script-qlexpress",

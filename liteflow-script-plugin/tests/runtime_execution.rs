@@ -609,3 +609,57 @@ async fn groovy_drives_for_and_iterator_nodes_with_loop_metadata() {
     assert_eq!(response.data("count"), Some(json!(3)));
     assert_eq!(response.data("joined"), Some(json!("a-b")));
 }
+
+/// 对应 Java Kotlin 验证与普通/布尔脚本基线：类型转换、val/var 和上下文写回。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_executes_typed_baseline_and_rejects_compile_time_type_errors() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    register_branch_nodes(&bus);
+    bus.register_script(
+        "kotlin_common",
+        "kotlin",
+        r#"
+            val number: Int = "123".toInt()
+            var score: Int = 2
+            score = score + number
+            defaultContext.setData("score", score)
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "kotlin_check",
+        "kotlin",
+        ScriptKind::Boolean,
+        r#"
+            val score: Int = defaultContext.getData("score")
+            return score == 125
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "kotlin_chain",
+        "THEN(kotlin_common, IF(kotlin_check, pass, fail))",
+    )
+    .unwrap();
+
+    let response = bus.execute("kotlin_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("score"), Some(json!(125)));
+    assert_eq!(response.data("branch"), Some(json!("pass")));
+
+    assert!(
+        bus.register_script("kotlin_wrong_type", "kotlin", r#"val number: Int = "123""#,)
+            .is_err()
+    );
+    assert!(
+        bus.register_script(
+            "kotlin_reassign_val",
+            "kotlin",
+            "val number: Int = 1\nnumber = 2",
+        )
+        .is_err()
+    );
+}

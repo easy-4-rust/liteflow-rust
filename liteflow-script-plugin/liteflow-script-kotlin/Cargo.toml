@@ -1,0 +1,10 @@
+[package]
+name = "liteflow-script-kotlin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Kotlin-compatible controlled script executor for liteflow-rust"
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }

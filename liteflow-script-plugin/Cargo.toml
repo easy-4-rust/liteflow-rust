@@ -12,6 +12,7 @@ aviator = ["dep:liteflow-script-aviator"]
 graaljs = ["dep:liteflow-script-graaljs"]
 groovy = ["dep:liteflow-script-groovy"]
 javascript = ["dep:liteflow-script-javascript"]
+kotlin = ["dep:liteflow-script-kotlin"]
 lua = ["dep:liteflow-script-lua"]
 python = ["dep:liteflow-script-python"]
 qlexpress = ["dep:liteflow-script-qlexpress"]
@@ -22,6 +23,7 @@ liteflow-script-aviator = { path = "liteflow-script-aviator", optional = true }
 liteflow-script-graaljs = { path = "liteflow-script-graaljs", optional = true }
 liteflow-script-groovy = { path = "liteflow-script-groovy", optional = true }
 liteflow-script-javascript = { path = "liteflow-script-javascript", optional = true }
+liteflow-script-kotlin = { path = "liteflow-script-kotlin", optional = true }
 liteflow-script-lua = { path = "liteflow-script-lua", optional = true }
 liteflow-script-python = { path = "liteflow-script-python", optional = true }
 liteflow-script-qlexpress = { path = "liteflow-script-qlexpress", optional = true }

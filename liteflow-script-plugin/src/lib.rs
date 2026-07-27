@@ -11,6 +11,8 @@ pub use liteflow_script_graaljs as graaljs;
 pub use liteflow_script_groovy as groovy;
 #[cfg(feature = "javascript")]
 pub use liteflow_script_javascript as javascript;
+#[cfg(feature = "kotlin")]
+pub use liteflow_script_kotlin as kotlin;
 #[cfg(feature = "lua")]
 pub use liteflow_script_lua as lua;
 #[cfg(feature = "python")]
@@ -26,6 +28,8 @@ pub fn register_all() -> LFResult<()> {
     lua::LuaScriptExecutor::register()?;
     #[cfg(feature = "javascript")]
     javascript::JavaScriptExecutor::register()?;
+    #[cfg(feature = "kotlin")]
+    kotlin::KotlinScriptExecutor::register()?;
     #[cfg(feature = "python")]
     python::PythonScriptExecutor::register()?;
     #[cfg(feature = "groovy")]
