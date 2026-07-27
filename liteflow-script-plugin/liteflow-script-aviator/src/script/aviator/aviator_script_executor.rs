@@ -1,7 +1,7 @@
 //! 对应 Java: `com.yomahub.liteflow.script.aviator.AviatorScriptExecutor`。
 
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use liteflow_core::LFResult;
 use liteflow_core::core::NodeComponent;
@@ -56,10 +56,7 @@ fn normalize_script(node_id: &str, script: &str) -> LFResult<String> {
             .replace("println(", "print(");
         if line.starts_with("setData(") {
             normalized.push(normalize_set_data(node_id, &line)?);
-        } else if let Some(variable) = line
-            .strip_prefix("let ")
-            .and_then(assignment_variable)
-        {
+        } else if let Some(variable) = line.strip_prefix("let ").and_then(assignment_variable) {
             declared_variables.insert(variable.to_string());
             normalized.push(line);
         } else if let Some(variable) = assignment_variable(&line) {

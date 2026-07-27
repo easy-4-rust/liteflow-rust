@@ -11,10 +11,17 @@ use super::json_convert::{dynamic_to_json, json_to_dynamic};
 use crate::common::entity::ValidationResp;
 use crate::enums::ScriptTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
+use crate::script::proxy::ScriptBeanProxy;
 use crate::slot::CmpContext;
 use chrono::Local;
 use rhai::{AST, Dynamic, Engine, EvalAltResult, Position, Scope};
 use serde_json::Value;
+use std::sync::Arc;
+
+#[derive(Clone, Default)]
+struct ScriptBeanBindings {
+    beans: HashMap<String, Arc<ScriptBeanProxy>>,
+}
 
 /// 基于 Rhai 的脚本执行器，按节点 id 缓存强类型 AST。
 ///
@@ -50,6 +57,34 @@ impl RhaiScriptExecutor {
                         EvalAltResult::ErrorRuntime(format!("{error}").into(), Position::NONE)
                             .into()
                     })
+            },
+        );
+        engine.register_type_with_name::<ScriptBeanBindings>("ScriptBeanBindings");
+        engine.register_fn(
+            "script_context_call",
+            |bindings: &mut ScriptBeanBindings,
+             bean_name: &str,
+             method_name: &str,
+             arguments: rhai::Array|
+             -> Result<Dynamic, Box<EvalAltResult>> {
+                let arguments = arguments.iter().map(dynamic_to_json).collect::<Vec<_>>();
+                let result = bindings
+                    .beans
+                    .get(bean_name)
+                    .map_or_else(
+                        || {
+                            crate::script::ScriptBeanManager::invoke(
+                                bean_name,
+                                method_name,
+                                &arguments,
+                            )
+                        },
+                        |bean| bean.invoke(method_name, &arguments),
+                    )
+                    .map(|value| json_to_dynamic(&value));
+                result.map_err(|error| {
+                    EvalAltResult::ErrorRuntime(format!("{error}").into(), Position::NONE).into()
+                })
             },
         );
         // Aviator 基线脚本中的 DateUtil.formatDateTime(new Date()) 在适配层被映射到
@@ -134,6 +169,31 @@ impl RhaiScriptExecutor {
             .map(|value| value.clone())
             .unwrap_or(Value::Null);
         scope.push("input", json_to_dynamic(&input));
+        let cmp_data = ctx
+            .cmp_data_as::<Value>()
+            .or_else(|| ctx.cmp_data().map(|value| Value::String(value.to_string())))
+            .unwrap_or(Value::Null);
+        scope.push("cmp_data", json_to_dynamic(&cmp_data));
+        // Java JSR223 会把本次执行的 context bean 与进程级 ScriptBean 一起绑定。
+        // Rust 将 Slot 中的 ScriptBeanProxy 做成调用快照，优先级高于全局注册表，
+        // 避免并发请求之间通过临时全局状态相互污染。
+        let script_beans = ctx
+            .inner
+            .beans
+            .iter()
+            .filter_map(|entry| {
+                Arc::clone(entry.value())
+                    .downcast::<ScriptBeanProxy>()
+                    .ok()
+                    .map(|proxy| (entry.key().clone(), proxy))
+            })
+            .collect();
+        scope.push(
+            "_script_beans",
+            ScriptBeanBindings {
+                beans: script_beans,
+            },
+        );
 
         // 把链路共享数据快照注入脚本，执行完毕后再合并回并发上下文。
         let mut data_map = rhai::Map::new();

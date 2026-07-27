@@ -4,15 +4,19 @@
 //! 不直接调用插件内部实现，确保插件注册、节点构建、返回类型校验和 data 写回
 //! 都处于验证范围内。
 
+#[cfg(feature = "groovy")]
+use std::any::Any;
+#[cfg(any(feature = "groovy", feature = "qlexpress"))]
+use std::sync::Arc;
 #[cfg(feature = "qlexpress")]
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use liteflow_core::FlowBus;
 use liteflow_core::core::cmp;
-#[cfg(feature = "qlexpress")]
+#[cfg(any(feature = "groovy", feature = "qlexpress"))]
 use liteflow_core::script::ScriptBeanManager;
 use liteflow_core::script::ScriptKind;
-#[cfg(feature = "qlexpress")]
+#[cfg(any(feature = "groovy", feature = "qlexpress"))]
 use liteflow_core::script::proxy::{ScriptBeanProxy, ScriptMethodProxy};
 use serde_json::{Value, json};
 
@@ -370,4 +374,238 @@ async fn jvm_expression_subcrates_execute_declared_common_subset() {
         assert!(response.is_success(), "{:?}", response.cause);
         assert_eq!(response.data("branch"), Some(json!("pass")));
     }
+}
+
+/// 对应 Java Groovy 常用基线：验证 def、DefaultContext 和 if/else。
+#[cfg(feature = "groovy")]
+#[tokio::test]
+async fn groovy_executes_liteflow_context_binding_baseline() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    register_branch_nodes(&bus);
+    bus.register_script(
+        "groovy_common",
+        "groovy",
+        r#"
+            def a = 3
+            int b = 2
+            defaultContext.setData("score", a * b)
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "groovy_check",
+        "groovy",
+        ScriptKind::Boolean,
+        r#"
+            def score = defaultContext.getData("score")
+            if (defaultContext.hasData("score")) {
+                return score == 6
+            } else {
+                return false
+            }
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "groovy_baseline_chain",
+        "THEN(groovy_common, IF(groovy_check, pass, fail))",
+    )
+    .unwrap();
+
+    let response = bus.execute("groovy_baseline_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("score"), Some(json!(6)));
+    assert_eq!(response.data("branch"), Some(json!("pass")));
+}
+
+/// 对应 Java Groovy ScriptBean 测试：直接对象方法调用必须经过 include/exclude 代理规则。
+#[cfg(feature = "groovy")]
+#[tokio::test]
+async fn groovy_invokes_controlled_script_bean_and_rejects_excluded_method() {
+    liteflow_script_plugin::register_all().unwrap();
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "groovyGreeting",
+        &["sayHello"],
+        &[],
+        [ScriptMethodProxy::new(
+            "sayHello",
+            Arc::new(|arguments| {
+                let name = arguments
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Ok(json!(format!("hello,{name}")))
+            }),
+        )],
+    ));
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "groovyDenied",
+        &[],
+        &["sayHello"],
+        [ScriptMethodProxy::new(
+            "sayHello",
+            Arc::new(|_| Ok(json!("must not execute"))),
+        )],
+    ));
+
+    let success_bus = FlowBus::new();
+    success_bus
+        .register_script(
+            "groovy_script_bean",
+            "groovy",
+            r#"defaultContext.setData("demo", groovyGreeting.sayHello("kobe"))"#,
+        )
+        .unwrap();
+    success_bus
+        .add_chain("groovy_script_bean_chain", "groovy_script_bean")
+        .unwrap();
+
+    let success = success_bus.execute("groovy_script_bean_chain").await;
+    assert!(success.is_success(), "{:?}", success.cause);
+    assert_eq!(success.data("demo"), Some(json!("hello,kobe")));
+
+    let denied_bus = FlowBus::new();
+    denied_bus
+        .register_script(
+            "groovy_denied_bean",
+            "groovy",
+            r#"defaultContext.setData("demo", groovyDenied.sayHello("kobe"))"#,
+        )
+        .unwrap();
+    denied_bus
+        .add_chain("groovy_denied_bean_chain", "groovy_denied_bean")
+        .unwrap();
+
+    let denied = denied_bus.execute("groovy_denied_bean_chain").await;
+    assert!(!denied.is_success());
+    assert!(
+        denied
+            .cause
+            .as_deref()
+            .is_some_and(|cause| cause.contains("not exposed"))
+    );
+
+    ScriptBeanManager::remove_script_bean("groovyGreeting");
+    ScriptBeanManager::remove_script_bean("groovyDenied");
+}
+
+/// 对应 Java execute2Resp 的 contextBeanArray：执行级代理优先于全局 ScriptBean。
+#[cfg(feature = "groovy")]
+#[tokio::test]
+async fn groovy_invokes_per_execution_context_script_bean_without_global_state() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "groovy_context_bean",
+        "groovy",
+        r#"defaultContext.setData("demo", slotGreeting.sayHello("jordan"))"#,
+    )
+    .unwrap();
+    bus.add_chain("groovy_context_bean_chain", "groovy_context_bean")
+        .unwrap();
+
+    let proxy = ScriptBeanProxy::new(
+        "slotGreeting",
+        &["sayHello"],
+        &[],
+        [ScriptMethodProxy::new(
+            "sayHello",
+            Arc::new(|arguments| {
+                let name = arguments
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Ok(json!(format!("hello,{name}")))
+            }),
+        )],
+    );
+    let beans: Vec<(String, Arc<dyn Any + Send + Sync>)> =
+        vec![("slotGreeting".to_string(), Arc::new(proxy))];
+
+    let response = bus
+        .execute_with("groovy_context_bean_chain", Value::Null, beans)
+        .await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("demo"), Some(json!("hello,jordan")));
+    assert!(ScriptBeanManager::get_script_bean("slotGreeting").is_none());
+}
+
+/// 对应 Java Groovy cmpdata/flow.xml：验证 `_meta.cmpData` 的对象字段访问。
+#[cfg(feature = "groovy")]
+#[tokio::test]
+async fn groovy_reads_structured_cmp_data_and_supports_println_statement() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "groovy_cmp_data",
+        "groovy",
+        r#"
+            def birth = _meta.cmpData.birth
+            println birth
+            defaultContext.setData("birth", birth)
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "groovy_cmp_data_chain",
+        r#"groovy_cmp_data.data('{"name":"jack","birth":"1995-10-01"}')"#,
+    )
+    .unwrap();
+
+    let response = bus.execute("groovy_cmp_data_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("birth"), Some(json!("1995-10-01")));
+}
+
+/// 对应 Java Groovy loop/flow.xml：脚本驱动 FOR 次数并读取 ITERATOR loopObject。
+#[cfg(feature = "groovy")]
+#[tokio::test]
+async fn groovy_drives_for_and_iterator_nodes_with_loop_metadata() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register(
+        "groovy_tick",
+        cmp(|ctx| async move {
+            let count = ctx.get_data_as::<i64>("count").unwrap_or_default() + 1;
+            ctx.set_data("count", json!(count));
+            Ok(Value::Null)
+        }),
+    );
+    bus.register_script_typed("groovy_for", "groovy", ScriptKind::For, "return 3")
+        .unwrap();
+    bus.register_script_typed(
+        "groovy_values",
+        "groovy",
+        ScriptKind::Iterator,
+        r#"return ["a", "b"]"#,
+    )
+    .unwrap();
+    bus.register_script(
+        "groovy_collect",
+        "groovy",
+        r#"
+            def key = "joined"
+            if (defaultContext.hasData(key)) {
+                defaultContext.setData(key, defaultContext.getData(key) + "-" + _meta.loopObject)
+            } else {
+                defaultContext.setData(key, _meta.loopObject)
+            }
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "groovy_loop_chain",
+        "THEN(FOR(groovy_for).DO(groovy_tick), ITERATOR(groovy_values).DO(groovy_collect))",
+    )
+    .unwrap();
+
+    let response = bus.execute("groovy_loop_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("count"), Some(json!(3)));
+    assert_eq!(response.data("joined"), Some(json!("a-b")));
 }
