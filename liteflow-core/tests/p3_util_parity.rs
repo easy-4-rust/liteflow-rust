@@ -104,6 +104,7 @@ fn bounded_priority_queue_retains_highest_priority_window() {
 
     assert_eq!(queue.len(), 3);
     assert_eq!(queue.to_list(), vec![1, 2, 3]);
+    assert_eq!(queue.iterator().collect::<Vec<_>>(), vec![1, 2, 3]);
     assert_eq!((&queue).into_iter().collect::<Vec<_>>(), vec![1, 2, 3]);
 }
 

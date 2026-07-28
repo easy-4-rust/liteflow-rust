@@ -290,19 +290,39 @@ impl Chain {
             .with_runtime_id(runtime_id)
             .with_current_chain_id(self.id.clone())
             .with_chain_thread_pool(self.thread_pool_executor_class.as_deref());
+        let life_cycles = ctx.inner.chain_execute_life_cycles();
 
-        // Rust 的 Slot 在 DataBus 租约创建时已经绑定主 Chain ID；子链共享该值，
-        // 与 Java setChainId 仅在元数据为空时写入的行为一致。
-        for condition in &self.condition_list {
-            if let Err(error) = condition.execute(ctx, &frame).await {
-                // ChainEnd 是正常的主动结束信号，不写入异常槽。
-                if !matches!(error, LiteflowError::ChainEnd(_)) {
-                    ctx.set_exception(&error.to_string());
-                }
-                return Err(error);
-            }
+        // 生命周期快照随 Slot 进入所有嵌套 Chain；因此主链和子链都会在自己的
+        // Condition 主体外形成 before/after 边界，并把同一个 Slot 交给实现方。
+        for life_cycle in &life_cycles {
+            life_cycle
+                .post_process_before_chain_execute(&self.id, &ctx.inner)
+                .await;
         }
-        Ok(Value::Null)
+
+        let result = async {
+            // Rust 的 Slot 在 DataBus 租约创建时已经绑定主 Chain ID；子链共享该值，
+            // 与 Java setChainId 仅在元数据为空时写入的行为一致。
+            for condition in &self.condition_list {
+                if let Err(error) = condition.execute(ctx, &frame).await {
+                    // ChainEnd 是正常的主动结束信号，不写入异常槽。
+                    if !matches!(error, LiteflowError::ChainEnd(_)) {
+                        ctx.set_exception(&error.to_string());
+                    }
+                    return Err(error);
+                }
+            }
+            Ok(Value::Null)
+        }
+        .await;
+
+        for life_cycle in &life_cycles {
+            life_cycle
+                .post_process_after_chain_execute(&self.id, &ctx.inner)
+                .await;
+        }
+
+        result
     }
 
     /// Chain.executeRoute(slotIndex)：求 route EL 的布尔结果

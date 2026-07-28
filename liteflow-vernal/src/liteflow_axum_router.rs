@@ -13,13 +13,11 @@ pub struct LiteflowAxumRouter;
 
 impl LiteflowAxumRouter {
     /// 创建尚未附加应用上下文的路由。
-    #[must_use]
     pub fn router() -> Router {
         Router::new().route("/liteflow/execute/{chain_id}", post(execute))
     }
 
     /// 创建并附加 Vernal Context；请求中从同一容器解析 LiteflowRuntime。
-    #[must_use]
     pub fn with_context(context: Arc<ApplicationContext>) -> Router {
         Self::router().with_vernal(context)
     }

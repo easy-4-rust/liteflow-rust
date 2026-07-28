@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// Node 的 bind 数据直接保存在 NodeRef；Condition/Chain 通过 Mods 在构建期
 /// 生成绑定包装。override=true 时构建器会清除子节点同名 bind。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.BindOperator`。
-pub(crate) struct BindOperator;
+pub struct BindOperator;
 
 impl BaseOperator for BindOperator {
     fn operator_name(&self) -> &'static str {

@@ -23,13 +23,23 @@ impl LiteFlowProxyUtil {
         !decl_warp_bean.method_wrap_bean_list().is_empty()
     }
 
+    /// 将声明式组件包装对象转换为可注册的组件代理。
+    ///
+    /// 参数 `decl_warp_bean` 保存过程宏生成的类型、方法、重试和参数事实元数据；
+    /// 返回值通过 `DeclComponent` 静态分派表承担 Java `NodeComponent` 动态子类的
+    /// 职责。对应 Java: `LiteFlowProxyUtil#proxy2NodeComponent`。
+    pub fn proxy2_node_component(decl_warp_bean: DeclWarpBean) -> LFResult<Arc<dyn DeclComponent>> {
+        DeclComponentProxy::new(decl_warp_bean).get_proxy()
+    }
+
     /// 生成声明式组件代理。
     ///
-    /// 对应 Java: `LiteFlowProxyUtil#proxy2NodeComponent`。
+    /// 这是早期 Rust API 的描述性名称；实现统一委托 Java 对等入口
+    /// `proxy2_node_component`。
     pub fn proxy_to_decl_component(
         decl_warp_bean: DeclWarpBean,
     ) -> LFResult<Arc<dyn DeclComponent>> {
-        DeclComponentProxy::new(decl_warp_bean).get_proxy()
+        Self::proxy2_node_component(decl_warp_bean)
     }
 
     /// 生成代理并注册到 FlowBus。
@@ -38,7 +48,7 @@ impl LiteFlowProxyUtil {
     /// `FlowBus#getNodeComponentList` 的 Rust 显式装配入口。
     pub fn register_decl_warp(flow_bus: &FlowBus, decl_warp_bean: DeclWarpBean) -> LFResult<()> {
         let node_id = decl_warp_bean.node_id().to_string();
-        let proxy = Self::proxy_to_decl_component(decl_warp_bean)?;
+        let proxy = Self::proxy2_node_component(decl_warp_bean)?;
         flow_bus.register_decl(node_id, proxy);
         Ok(())
     }

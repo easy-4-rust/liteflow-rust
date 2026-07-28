@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// Java 接受布尔值；Rust 兼容历史的数字并行度写法，当前执行器以 Option
 /// 判断是否并行，数值保留在 AST 中供后续受限并发实现使用。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ParallelOperator`。
-pub(crate) struct ParallelOperator;
+pub struct ParallelOperator;
 
 impl BaseOperator for ParallelOperator {
     fn operator_name(&self) -> &'static str {

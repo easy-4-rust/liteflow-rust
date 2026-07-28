@@ -22,7 +22,7 @@ use liteflow_core::flow::element::condition::when_condition::WhenCondition;
 use liteflow_core::flow::element::condition::while_condition::WhileCondition;
 use liteflow_core::flow::element::executable::Executable;
 use liteflow_core::slot::{Ctx, Frame, Slot};
-use liteflow_core::{ConditionTypeEnum, FlowBus, cmp};
+use liteflow_core::{ConditionTypeEnum, FlowBus, ParallelStrategyEnum, cmp};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -219,8 +219,8 @@ async fn iterator_skipped_when_not_accessible() {
     assert!(log.lock().unwrap().is_empty());
 }
 
-/// 对应 Java WhenCondition#executeAsyncCondition：
-/// 过滤 pre/finally 与 isAccess=false 的分支，只并行执行剩余分支
+/// 对应 Java ParallelStrategyExecutor#filterWhenTaskList：
+/// 非 ALL 策略过滤 pre/finally 与 isAccess=false，只并行执行剩余分支。
 #[tokio::test]
 async fn when_filters_pre_finally_and_inaccessible() {
     let log = Arc::new(Mutex::new(Vec::new()));
@@ -229,13 +229,33 @@ async fn when_filters_pre_finally_and_inaccessible() {
     let hidden = Stub::new("hidden", false, &log);
     let a = Stub::new("a", true, &log);
     let b = Stub::new("b", true, &log);
-    let cond = WhenCondition::new(vec![pre, hidden, a, fin, b]);
+    let mut cond = WhenCondition::new(vec![pre, hidden, a, fin, b]);
+    cond.set_parallel_strategy(ParallelStrategyEnum::Specify);
+    cond.set_specify_id_set(HashSet::from(["a".to_string(), "b".to_string()]));
     let (ctx, frame) = ctx_frame();
     let r = cond.execute(&ctx, &frame).await;
     assert!(r.is_ok());
     let mut ran = log.lock().unwrap().clone();
     ran.sort_unstable();
     assert_eq!(ran, vec!["a", "b"]);
+}
+
+/// Java AllOfParallelExecutor 覆盖 filterAccess，因此 ALL 只过滤 PRE/FINALLY，
+/// 不在策略层丢弃 isAccess=false 分支。
+#[tokio::test]
+async fn when_all_preserves_inaccessible_branches_like_java_override() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let hidden = Stub::new("hidden", false, &log);
+    let visible = Stub::new("visible", true, &log);
+    let cond = WhenCondition::new(vec![hidden, visible]);
+    let (ctx, frame) = ctx_frame();
+
+    cond.execute(&ctx, &frame)
+        .await
+        .expect("ALL 策略应保留全部普通分支");
+    let mut ran = log.lock().unwrap().clone();
+    ran.sort_unstable();
+    assert_eq!(ran, ["hidden", "visible"]);
 }
 
 /// 对应 Java ThenCondition#addExecutable：按类型分流，

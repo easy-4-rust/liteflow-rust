@@ -112,11 +112,17 @@ pub trait ScriptExecutor: Send + Sync {
     fn bind_param(&self, context: &CmpContext) -> Map<String, Value> {
         let mut bindings = Map::new();
 
-        // Java 会逐个放入上下文 Bean；Rust 只把可由 serde_json 安全表达的 Bean
-        // 放入通用表，强类型或 ScriptBean 对象仍由具体引擎的原生桥处理。
+        // Java 会逐个放入上下文 Bean；Rust 把不可变 JSON 和可并发写的
+        // RwLock<Value> 都映射为 serde 快照。后者的 getter/setter 原地写回由
+        // 具体脚本引擎的受控 Bean 桥处理。
         for entry in &context.inner.beans {
             if let Ok(value) = Arc::clone(entry.value()).downcast::<Value>() {
                 bindings.insert(entry.key().clone(), (*value).clone());
+            } else if let Ok(value) =
+                Arc::clone(entry.value()).downcast::<std::sync::RwLock<Value>>()
+                && let Ok(value) = value.read()
+            {
+                bindings.insert(entry.key().clone(), value.clone());
             }
         }
 
@@ -260,24 +266,24 @@ pub trait ScriptExecutor: Send + Sync {
     /// 参数 `wrap` 提供节点快照，`context` 提供真实 Slot。对应 Java:
     /// `ScriptExecutor#executeBeforeProcess`。
     fn execute_before_process(&self, wrap: &ScriptExecuteWrap, context: &CmpContext) {
-        CmpAroundAspectHolder::load_cmp_around_aspect()
-            .before_process(wrap.get_node_id(), context.inner.as_ref());
+        let _ = wrap;
+        CmpAroundAspectHolder::load_cmp_around_aspect().before_process(context);
     }
 
     /// 执行脚本组件 finally 后置切面。
     ///
     /// 对应 Java: `ScriptExecutor#executeAfterProcess`。
     fn execute_after_process(&self, wrap: &ScriptExecuteWrap, context: &CmpContext) {
-        CmpAroundAspectHolder::load_cmp_around_aspect()
-            .after_process(wrap.get_node_id(), context.inner.as_ref());
+        let _ = wrap;
+        CmpAroundAspectHolder::load_cmp_around_aspect().after_process(context);
     }
 
     /// 执行脚本组件成功切面。
     ///
     /// 对应 Java: `ScriptExecutor#executeOnSuccess`。
     fn execute_on_success(&self, wrap: &ScriptExecuteWrap, context: &CmpContext) {
-        CmpAroundAspectHolder::load_cmp_around_aspect()
-            .on_success(wrap.get_node_id(), context.inner.as_ref());
+        let _ = wrap;
+        CmpAroundAspectHolder::load_cmp_around_aspect().on_success(context);
     }
 
     /// 执行脚本组件失败切面并保留原始错误。
@@ -290,11 +296,8 @@ pub trait ScriptExecutor: Send + Sync {
         context: &CmpContext,
         error: &LiteflowError,
     ) {
-        CmpAroundAspectHolder::load_cmp_around_aspect().on_error(
-            wrap.get_node_id(),
-            context.inner.as_ref(),
-            error,
-        );
+        let _ = wrap;
+        CmpAroundAspectHolder::load_cmp_around_aspect().on_error(context, error);
     }
 
     /// 执行脚本组件回滚扩展。

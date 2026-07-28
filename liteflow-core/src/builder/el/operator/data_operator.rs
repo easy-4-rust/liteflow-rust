@@ -7,7 +7,7 @@ use crate::exception::LFResult;
 /// Java 使用 LiteflowMetaOperator 获取调用表达式中的全部 Node 并设置
 /// cmpData；Rust 端在 AST 上递归执行相同操作。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.DataOperator`。
-pub(crate) struct DataOperator;
+pub struct DataOperator;
 
 impl BaseOperator for DataOperator {
     fn operator_name(&self) -> &'static str {

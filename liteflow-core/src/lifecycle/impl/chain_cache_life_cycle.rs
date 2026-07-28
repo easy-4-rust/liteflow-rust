@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 
 use crate::lifecycle::{LifeCycle, LifeCycleHolder, PostProcessChainExecuteLifeCycle};
+use crate::slot::Slot;
 
 fn lifecycle_instance() -> &'static OnceLock<Arc<ChainCacheLifeCycle>> {
     static INSTANCE: OnceLock<Arc<ChainCacheLifeCycle>> = OnceLock::new();
@@ -131,12 +132,12 @@ impl LifeCycle for ChainCacheLifeCycle {
 #[async_trait]
 impl PostProcessChainExecuteLifeCycle for ChainCacheLifeCycle {
     /// 执行前记录 Chain 为活跃，并刷新 LRU 顺序。
-    async fn post_process_before_chain_execute(&self, chain_id: &str) {
+    async fn post_process_before_chain_execute(&self, chain_id: &str, _slot: &Slot) {
         self.touch(chain_id);
     }
 
     /// 执行后清理已被淘汰且尚未清理的 Chain。
-    async fn post_process_after_chain_execute(&self, chain_id: &str) {
+    async fn post_process_after_chain_execute(&self, chain_id: &str, _slot: &Slot) {
         if !self.is_active(chain_id) && !self.is_cleaned(chain_id) {
             self.clean_once(chain_id);
         }

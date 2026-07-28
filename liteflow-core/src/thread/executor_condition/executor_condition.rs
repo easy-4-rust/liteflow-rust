@@ -54,4 +54,13 @@ impl ExecutorCondition {
     pub fn condition_executor_class(&self) -> Option<&str> {
         self.condition_executor_class.as_deref()
     }
+
+    /// 返回 Condition 层级执行器构建器名称。
+    ///
+    /// 未指定 Condition 执行器时返回 `None`，对应 Java 的 `null`。
+    /// 对应 Java: `ExecutorCondition#getConditionExecutorClass`。
+    #[must_use]
+    pub fn get_condition_executor_class(&self) -> Option<&str> {
+        self.condition_executor_class()
+    }
 }

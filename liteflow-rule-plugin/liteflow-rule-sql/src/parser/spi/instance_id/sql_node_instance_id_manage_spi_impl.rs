@@ -1,12 +1,9 @@
 //! SQL 节点实例编号持久化 SPI。
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use liteflow_core::exception::{LFResult, LiteflowError};
 use liteflow_core::flow::entity::InstanceInfoDto;
 use liteflow_core::flow::instance_id::NodeInstanceIdManageSpi;
-use sha1::{Digest, Sha1};
+use liteflow_core::util::SerialsUtil;
 
 use crate::parser::sql::{read::SqlRead, util::JDBCHelper, vo::SQLParserVO};
 
@@ -16,7 +13,6 @@ use crate::parser::sql::{read::SqlRead, util::JDBCHelper, vo::SQLParserVO};
 /// `com.yomahub.liteflow.parser.spi.instanceId.SqlNodeInstanceIdManageSpiImpl`。
 pub struct SqlNodeInstanceIdManageSpiImpl {
     jdbc_helper: JDBCHelper,
-    generated_ids: Mutex<HashMap<String, String>>,
 }
 
 impl SqlNodeInstanceIdManageSpiImpl {
@@ -25,7 +21,6 @@ impl SqlNodeInstanceIdManageSpiImpl {
     pub fn new(config: SQLParserVO) -> Self {
         Self {
             jdbc_helper: JDBCHelper::init(config),
-            generated_ids: Mutex::new(HashMap::new()),
         }
     }
 
@@ -38,22 +33,18 @@ impl SqlNodeInstanceIdManageSpiImpl {
 }
 
 impl NodeInstanceIdManageSpi for SqlNodeInstanceIdManageSpiImpl {
-    /// 生成同一进程内稳定的节点实例编号。
+    /// 为本次规则快照生成新的节点实例编号。
+    ///
+    /// Java SQL 实现没有覆盖编号生成逻辑，而是继承
+    /// `BaseNodeInstanceIdManageSpi#addInstanceIdFromExecutableGroup`：EL 摘要变化时
+    /// 每次生成新的短 UUID；稳定性由 SQL 中相同 MD5 的持久化快照提供。
+    /// 参数 `chain_id` 仅用于持久化归属，编号格式为 `nodeId_shortUuid_index`。
     fn gen_instance_id(&self, chain_id: &str, node_id: &str, occurrence: usize) -> String {
-        let key = format!("{chain_id}:{node_id}:{occurrence}");
-        let mut ids = self
-            .generated_ids
-            .lock()
-            .expect("SQL 节点实例编号缓存锁中毒");
-        ids.entry(key.clone())
-            .or_insert_with(|| {
-                let digest = Sha1::digest(key.as_bytes());
-                format!(
-                    "{node_id}_{:08x}_{occurrence}",
-                    u32::from_be_bytes(digest[..4].try_into().expect("SHA-1 前四字节"))
-                )
-            })
-            .clone()
+        let _ = chain_id;
+        format!(
+            "{node_id}_{}_{occurrence}",
+            SerialsUtil::generate_short_uuid()
+        )
     }
 
     /// 读取指定 Chain 的 EL 摘要和节点实例编号 JSON。

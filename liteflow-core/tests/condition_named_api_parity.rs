@@ -11,6 +11,7 @@ use liteflow_core::flow::element::condition::not_condition::NotCondition;
 use liteflow_core::flow::element::condition::pre_condition::PreCondition;
 use liteflow_core::flow::element::condition::switch_condition::SwitchCondition;
 use liteflow_core::flow::element::condition::then_condition::ThenCondition;
+use liteflow_core::flow::element::condition::timeout_condition::TimeoutCondition;
 use liteflow_core::flow::element::condition::when_condition::WhenCondition;
 use liteflow_core::flow::element::condition::while_condition::WhileCondition;
 use liteflow_core::flow::element::condition::{BooleanConditionTypeEnum, Condition};
@@ -46,6 +47,16 @@ struct StackProbe {
     id: &'static str,
     outcome: StackProbeOutcome,
     observed_stack: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+struct SlowProbe;
+
+#[async_trait::async_trait]
+impl Executable for SlowProbe {
+    async fn execute(&self, _ctx: &Ctx, _frame: &Frame) -> LFResult<Value> {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        Ok(json!("late"))
+    }
 }
 
 #[async_trait::async_trait]
@@ -378,6 +389,17 @@ async fn condition_execute_lifecycle_pushes_records_errors_and_always_pops() {
     );
 }
 
+#[tokio::test]
+async fn timeout_condition_java_entry_enforces_real_deadline() {
+    let (ctx, frame) = execution_context();
+    let condition = TimeoutCondition::new(Arc::new(SlowProbe), 1);
+    let error = condition
+        .execute_condition(&ctx, &frame)
+        .await
+        .expect_err("超过最大等待时间必须返回 WHEN 超时错误");
+    assert!(matches!(error, LiteflowError::WhenTimeout(_)));
+}
+
 #[test]
 fn get_all_node_in_condition_recurses_into_condition_and_chain() {
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -601,6 +623,70 @@ async fn not_loop_and_sequence_java_named_methods_share_runtime_state() {
         calls
             .windows(3)
             .any(|window| { window == ["pre-body", "main-body", "finally-body"] })
+    );
+}
+
+#[tokio::test]
+async fn pre_and_finally_preserve_full_java_executable_lists() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (ctx, frame) = execution_context();
+
+    let mut pre = PreCondition::new(Probe::success("pre-old", Value::Null, &calls));
+    Condition::set_executable_list(
+        &mut pre,
+        vec![
+            Probe::success("pre-first", Value::Null, &calls),
+            Probe::success("pre-second", Value::Null, &calls),
+        ],
+    );
+    assert_eq!(
+        Condition::get_executable_list(&pre, "DEFAULT_KEY")
+            .iter()
+            .map(|item| item.id())
+            .collect::<Vec<_>>(),
+        ["pre-first", "pre-second"]
+    );
+    pre.execute_condition(&ctx, &frame)
+        .await
+        .expect("PRE 应顺序执行完整列表");
+
+    let mut finally = FinallyCondition::new(Probe::success("finally-old", Value::Null, &calls));
+    Condition::set_executable_list(
+        &mut finally,
+        vec![
+            Probe::success("finally-first", Value::Null, &calls),
+            Probe::success("finally-second", Value::Null, &calls),
+        ],
+    );
+    finally
+        .execute_condition(&ctx, &frame)
+        .await
+        .expect("FINALLY 应顺序执行完整列表");
+    assert_eq!(
+        *calls.lock().expect("调用记录锁不应中毒"),
+        ["pre-first", "pre-second", "finally-first", "finally-second"]
+    );
+
+    // Java setExecutableList 允许替换为空列表；空 PRE/FINALLY 是成功的 no-op。
+    Condition::set_executable_list(&mut pre, Vec::new());
+    assert!(Condition::get_executable_list(&pre, "DEFAULT_KEY").is_empty());
+    pre.execute_condition(&ctx, &frame)
+        .await
+        .expect("空 PRE 列表应成功完成");
+
+    Condition::set_executable_list(
+        &mut finally,
+        vec![
+            Probe::failure("finally-failed", &calls),
+            Probe::success("finally-never", Value::Null, &calls),
+        ],
+    );
+    assert!(finally.execute_condition(&ctx, &frame).await.is_err());
+    assert!(
+        !calls
+            .lock()
+            .expect("调用记录锁不应中毒")
+            .contains(&"finally-never")
     );
 }
 

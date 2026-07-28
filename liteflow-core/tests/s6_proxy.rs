@@ -178,7 +178,7 @@ fn proxy_rejects_mixed_node_types_and_unknown_methods_at_build_time() {
             Vec::new(),
         ),
     ]);
-    let error = match LiteFlowProxyUtil::proxy_to_decl_component(mixed) {
+    let error = match LiteFlowProxyUtil::proxy2_node_component(mixed) {
         Ok(_) => panic!("mixed node types must be rejected"),
         Err(error) => error,
     };

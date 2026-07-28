@@ -354,5 +354,6 @@ fn agent_error(context: &CmpContext, error: AgentError) -> LiteflowError {
         node: context.node_id().to_string(),
         msg: error.to_string(),
         kind: "AgentError".to_string(),
+        code: None,
     }
 }

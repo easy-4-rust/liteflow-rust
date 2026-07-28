@@ -34,6 +34,12 @@ pub struct ForCondition {
 }
 
 impl ForCondition {
+    /// 创建由 FOR 节点动态计算次数的循环 Condition。
+    ///
+    /// 参数 `for_node` 产生循环次数，`parallel` 是可选并行度，`do_executor`
+    /// 是循环体，`break_item` 是可选 BREAK 条件。对应 Java:
+    /// `ForCondition` 由 EL Builder 完成字段装配后的执行状态。
+    #[must_use]
     pub fn new(
         for_node: Arc<dyn Executable>,
         parallel: Option<usize>,

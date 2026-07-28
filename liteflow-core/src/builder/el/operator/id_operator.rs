@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 仅允许 Condition 设置 id；Node、Chain 引用及布尔字面量均拒绝该操作。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.IdOperator`。
-pub(crate) struct IdOperator;
+pub struct IdOperator;
 
 impl BaseOperator for IdOperator {
     fn operator_name(&self) -> &'static str {

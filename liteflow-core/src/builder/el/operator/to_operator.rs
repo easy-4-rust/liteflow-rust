@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 字符串目标支持 `id:tag`，表达式目标保持原 AST。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ToOperator`。
-pub(crate) struct ToOperator;
+pub struct ToOperator;
 
 impl BaseOperator for ToOperator {
     fn operator_name(&self) -> &'static str {

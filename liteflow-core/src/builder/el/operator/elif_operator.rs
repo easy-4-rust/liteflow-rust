@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 接收判断表达式和 true 分支，并追加到已有 IF 条件。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ElifOperator`。
-pub(crate) struct ElifOperator;
+pub struct ElifOperator;
 
 impl BaseOperator for ElifOperator {
     fn operator_name(&self) -> &'static str {

@@ -1,8 +1,14 @@
-//! 对应 com.yomahub.liteflow.enums.ConditionTypeEnum：
-//! 规则文件中 condition 的 type 枚举（then/when/switch/if/pre/finally/for/while/iterator/catch）。
+//! 规则文件中 Condition 的类型枚举。
+//!
+//! 包含 then/when/switch/if/pre/finally/for/while/iterator/catch 等类型。
 //! Java 每个枚举携带 type 与 name 两个字符串字段。
 
-/// 条件类型枚举
+/// 标识一个 Condition 的构建与执行类型。
+///
+/// Java 枚举的 `type` 和 `name` 初始值相同；Rust 使用不可变枚举保持该不变量，
+/// 因而不提供会破坏枚举身份的 setter。`Retry` 与 `Timeout` 是 Rust 对修饰条件
+/// 对象的显式类型扩展。对应 Java:
+/// `com.yomahub.liteflow.enums.ConditionTypeEnum`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConditionTypeEnum {
@@ -33,7 +39,10 @@ pub enum ConditionTypeEnum {
 }
 
 impl ConditionTypeEnum {
-    /// getType()：对应规则文件中的 type 字符串
+    /// 返回规则文件使用的 Condition 类型码。
+    ///
+    /// 返回值对应 Java: `ConditionTypeEnum#getType`。
+    #[must_use]
     pub fn get_type(&self) -> &'static str {
         match self {
             Self::Then => "then",
@@ -54,11 +63,20 @@ impl ConditionTypeEnum {
             Self::Timeout => "timeout",
         }
     }
-    /// getName()
+    /// 返回 Condition 类型名称。
+    ///
+    /// Java 当前 `name` 与 `type` 相同；Rust 从同一不可变映射返回。
+    /// 对应 Java: `ConditionTypeEnum#getName`。
+    #[must_use]
     pub fn get_name(&self) -> &'static str {
         self.get_type()
     }
-    /// getEnumByCode(code)：按 type 字符串反查枚举
+
+    /// 按类型码反查枚举。
+    ///
+    /// 参数 `code` 对应 Java 同名参数；未匹配时返回 `None`，对应 Java 的 null。
+    /// 对应 Java: `ConditionTypeEnum#getEnumByCode`。
+    #[must_use]
     pub fn get_enum_by_code(code: &str) -> Option<Self> {
         [
             Self::Then,

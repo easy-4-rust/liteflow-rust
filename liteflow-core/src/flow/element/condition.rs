@@ -68,6 +68,10 @@ impl ConditionBase {
         self.bind_data.push((key, value));
     }
 
+    /// 返回当前 Condition 保存的绑定数据。
+    ///
+    /// 返回切片保持插入顺序，并确保同名键只保留最后一次赋值；对应 Java
+    /// `Condition#getBindDataMap` 的构建期读取语义。
     pub(crate) fn bind_data(&self) -> &[(String, String)] {
         &self.bind_data
     }

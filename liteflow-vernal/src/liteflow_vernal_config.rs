@@ -1,5 +1,9 @@
 //! Vernal 容器的 LiteFlow 装配配置。
 
+use std::collections::HashMap;
+
+use liteflow_core::property::TimeUnit;
+use liteflow_core::property::agent::AgentConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::{LiteflowParseMode, LiteflowRuleFormat};
@@ -9,7 +13,9 @@ use liteflow_core::{LiteFlowDefaultGlobalExecutorBuilder, LiteFlowDefaultMainExe
 ///
 /// 核心引擎字段在装配时转换为
 /// `com.yomahub.liteflow.property.LiteflowConfig` 对应的核心 Rust 对象；Vernal
-/// 额外保留内联规则、规则格式等容器启动参数。
+/// 额外保留内联规则、规则格式等容器启动参数。本类型是 Rust 宿主的统一配置
+/// DTO，不重复对应某个 Java 对象；Spring Boot 属性由
+/// `LiteflowPropertyAutoConfiguration` 合并后生成它。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LiteflowVernalConfig {
@@ -17,18 +23,50 @@ pub struct LiteflowVernalConfig {
     pub enable: bool,
     /// 规则文件路径。
     pub rule_source: Option<String>,
+    /// 规则资源扩展数据字符串。
+    pub rule_source_ext_data: Option<String>,
+    /// 规则资源扩展数据映射。
+    pub rule_source_ext_data_map: HashMap<String, String>,
+    /// Slot 池初始容量。
+    pub slot_size: usize,
     /// 内联规则文本，适合测试和程序化模块。
     pub inline_rule: Option<String>,
     /// 规则格式。
     pub rule_format: LiteflowRuleFormat,
     /// 规则解析模式。
     pub parse_mode: LiteflowParseMode,
+    /// 废弃的 WHEN 秒级等待配置。
+    pub when_max_wait_seconds: Option<u64>,
+    /// WHEN 最大等待值。
+    pub when_max_wait_time: u64,
+    /// WHEN 最大等待值单位。
+    pub when_max_wait_time_unit: TimeUnit,
+    /// 是否支持同一规则源中的多种配置类型。
+    pub support_multiple_type: bool,
+    /// 废弃的全局重试次数。
+    pub retry_count: i32,
     /// 是否启用首次执行模式下的 Chain 编译缓存淘汰。
     pub chain_cache_enabled: bool,
     /// Chain 编译缓存容量。
     pub chain_cache_capacity: usize,
     /// 是否打印执行日志。
     pub print_execution_log: bool,
+    /// 节点执行器稳定注册名。
+    pub node_executor_class: String,
+    /// Request ID 生成器稳定注册名。
+    pub request_id_generator_class: String,
+    /// 是否监听规则或脚本文件变更。
+    pub enable_monitor_file: bool,
+    /// 是否启用组件降级。
+    pub fallback_cmp_enable: bool,
+    /// 是否使用快速加载模式。
+    pub fast_load: bool,
+    /// 是否在规则构建时校验节点存在。
+    pub check_node_exists: bool,
+    /// 脚本引擎特殊设置。
+    pub script_setting: HashMap<String, String>,
+    /// 是否在组件扫描器创建时打印 LiteFlow 标识。
+    pub print_banner: bool,
     /// 是否启用监控日志。
     #[serde(rename = "enableLog", alias = "monitorEnableLog")]
     pub monitor_enable_log: bool,
@@ -52,6 +90,10 @@ pub struct LiteflowVernalConfig {
     pub when_thread_pool_isolate: bool,
     /// 是否用 Tokio 轻量任务承担 Java virtual thread 角色。
     pub enable_virtual_thread: bool,
+    /// 是否启用节点实例 ID。
+    pub enable_node_instance_id: bool,
+    /// Agent 嵌套配置。
+    pub agent: Option<AgentConfig>,
 }
 
 impl Default for LiteflowVernalConfig {
@@ -59,12 +101,30 @@ impl Default for LiteflowVernalConfig {
         Self {
             enable: true,
             rule_source: None,
+            rule_source_ext_data: None,
+            rule_source_ext_data_map: HashMap::new(),
+            slot_size: 1024,
             inline_rule: None,
             rule_format: LiteflowRuleFormat::Json,
             parse_mode: LiteflowParseMode::ParseAllOnStart,
+            when_max_wait_seconds: None,
+            when_max_wait_time: 15_000,
+            when_max_wait_time_unit: TimeUnit::Milliseconds,
+            support_multiple_type: false,
+            retry_count: 0,
             chain_cache_enabled: false,
             chain_cache_capacity: 10_000,
             print_execution_log: true,
+            node_executor_class: "com.yomahub.liteflow.flow.executor.DefaultNodeExecutor"
+                .to_string(),
+            request_id_generator_class: "com.yomahub.liteflow.flow.id.DefaultRequestIdGenerator"
+                .to_string(),
+            enable_monitor_file: false,
+            fallback_cmp_enable: false,
+            fast_load: false,
+            check_node_exists: true,
+            script_setting: HashMap::new(),
+            print_banner: true,
             monitor_enable_log: false,
             queue_limit: 200,
             delay: 300_000,
@@ -77,6 +137,8 @@ impl Default for LiteflowVernalConfig {
             main_executor_works: 64,
             when_thread_pool_isolate: false,
             enable_virtual_thread: true,
+            enable_node_instance_id: false,
+            agent: None,
         }
     }
 }
@@ -315,6 +377,16 @@ impl LiteflowVernalConfig {
         let mut core = liteflow_core::LiteflowConfig::default();
         core.set_enabled(self.enable);
         core.set_rule_source(self.rule_source.clone());
+        core.set_rule_source_ext_data(self.rule_source_ext_data.clone());
+        core.set_rule_source_ext_data_map(self.rule_source_ext_data_map.clone());
+        core.set_slot_size(self.slot_size);
+        #[allow(deprecated)]
+        core.set_when_max_wait_seconds(self.when_max_wait_seconds);
+        core.set_when_max_wait_time(self.when_max_wait_time);
+        core.set_when_max_wait_time_unit(self.when_max_wait_time_unit);
+        core.set_support_multiple_type(self.support_multiple_type);
+        #[allow(deprecated)]
+        core.set_retry_count(self.retry_count);
         core.set_parse_mode(match self.parse_mode {
             LiteflowParseMode::ParseAllOnStart => liteflow_core::ParseModeEnum::ParseAllOnStart,
             LiteflowParseMode::ParseAllOnFirstExec => {
@@ -327,6 +399,13 @@ impl LiteflowVernalConfig {
         core.set_chain_cache_enabled(self.chain_cache_enabled);
         core.set_chain_cache_capacity(self.chain_cache_capacity);
         core.set_print_execution_log(self.print_execution_log);
+        core.set_print_banner(self.print_banner);
+        core.set_node_executor_class(self.node_executor_class.clone());
+        core.set_request_id_generator_class(self.request_id_generator_class.clone());
+        core.set_enable_monitor_file(self.enable_monitor_file);
+        core.set_fallback_cmp_enable(self.fallback_cmp_enable);
+        core.set_fast_load(self.fast_load);
+        core.set_script_setting(self.script_setting.clone());
         core.set_enable_log(self.monitor_enable_log);
         core.set_queue_limit(self.queue_limit);
         core.set_delay(self.delay);
@@ -338,6 +417,8 @@ impl LiteflowVernalConfig {
         core.set_main_executor_works(self.main_executor_works);
         core.set_when_thread_pool_isolate(self.when_thread_pool_isolate);
         core.set_enable_virtual_thread(self.enable_virtual_thread);
+        core.set_enable_node_instance_id(self.enable_node_instance_id);
+        core.set_agent(self.agent.clone());
         core
     }
 }

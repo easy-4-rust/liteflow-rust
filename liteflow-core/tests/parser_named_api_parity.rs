@@ -78,6 +78,21 @@ fn local_json_parse_main_reads_real_file() {
     assert!(bus.contains_chain("localJsonChain"));
 }
 
+/// 验证本地 JSON 解析器通过运行时 classpath 资源装载真实 Chain。
+#[test]
+fn local_json_parse_main_reads_classpath_resource() {
+    let bus = bus_with_component();
+    let parser = LocalJsonFlowElParser::new(bus.clone());
+
+    assert_eq!(
+        parser
+            .parse_main(&["classpath:path_content_parser/rule.json".to_string()])
+            .unwrap(),
+        ["classpathChain"]
+    );
+    assert!(bus.contains_chain("classpathChain"));
+}
+
 /// 验证本地 XML 解析器通过 PathContentParser 读取真实文件。
 #[test]
 fn local_xml_parse_main_reads_real_file() {

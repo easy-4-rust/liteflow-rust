@@ -8,7 +8,7 @@ use crate::exception::{ChainDuplicateException, LFResult, LiteflowError};
 use crate::flow::element::chain::DEFAULT_NAMESPACE;
 use crate::flow::flow_bus::FlowBus;
 use crate::script::ScriptKind;
-use crate::util::el_regex_util::{is_abstract_chain, replace_abstract_chain};
+use crate::util::el_regex_util::ElRegexUtil;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use serde_json::Value;
@@ -99,13 +99,46 @@ impl RuleDefinitionPlan {
             .chains
             .iter()
             .filter(|chain| {
-                chain.enable && !(chain.extends.is_none() && is_abstract_chain(&chain.body))
+                chain.enable
+                    && !(chain.extends.is_none() && ElRegexUtil::is_abstract_chain(&chain.body))
             })
             .map(|chain| chain.id.clone())
             .collect();
-        // 逐个入口按依赖拓扑构建，声明顺序不决定子链能否被解析。
+        let definitions: HashMap<String, ChainDef> = self
+            .chains
+            .iter()
+            .filter(|chain| chain.enable)
+            .map(|chain| (chain.id.clone(), chain.clone()))
+            .collect();
+        let nodes: HashMap<String, NodePropBean> = self
+            .nodes
+            .iter()
+            .filter_map(|node| node.id.clone().map(|id| (id, node.clone())))
+            .collect();
+        let replace_chain_ids = chain_ids.iter().cloned().collect::<HashSet<_>>();
+        let mut resolved = HashMap::new();
+        let mut inheritance_path = HashSet::new();
+        let mut build_path = HashSet::new();
+        let mut built_nodes = HashSet::new();
+        let mut built_chains = HashSet::new();
+
+        // 完整规则解析必须覆盖同 ID 的旧 Chain。新 Chain 在 Builder 成功前不会
+        // 写入注册表，因此刷新编译失败时，旧 Chain 仍保持可执行；依赖拓扑仍由
+        // 递归构建，不受声明顺序影响。对应 Java:
+        // `FlowBus#refreshFlowMetaData` 与 `FlowBus#addChain`。
         for chain_id in &chain_ids {
-            self.build_chain(bus, chain_id)?;
+            build_chain_recursive(
+                bus,
+                chain_id,
+                &definitions,
+                &nodes,
+                &mut resolved,
+                &mut inheritance_path,
+                &mut build_path,
+                &mut built_nodes,
+                &replace_chain_ids,
+                &mut built_chains,
+            )?;
         }
         Ok(chain_ids)
     }
@@ -138,6 +171,8 @@ impl RuleDefinitionPlan {
             &mut HashMap::new(),
             &mut HashSet::new(),
             &mut HashSet::new(),
+            &mut HashSet::new(),
+            &HashSet::new(),
             &mut HashSet::new(),
         )
     }
@@ -654,8 +689,12 @@ fn build_chain_recursive(
     inheritance_path: &mut HashSet<String>,
     build_path: &mut HashSet<String>,
     built_nodes: &mut HashSet<String>,
+    replace_chain_ids: &HashSet<String>,
+    built_chains: &mut HashSet<String>,
 ) -> LFResult<()> {
-    if bus.contains_chain(chain_id) {
+    if built_chains.contains(chain_id)
+        || (bus.contains_chain(chain_id) && !replace_chain_ids.contains(chain_id))
+    {
         return Ok(());
     }
     if !build_path.insert(chain_id.to_string()) {
@@ -667,7 +706,7 @@ fn build_chain_recursive(
     let definition = definitions.get(chain_id).ok_or_else(|| {
         LiteflowError::ChainNotFound(format!("[chain not found] chainId={chain_id}"))
     })?;
-    if definition.extends.is_none() && is_abstract_chain(&definition.body) {
+    if definition.extends.is_none() && ElRegexUtil::is_abstract_chain(&definition.body) {
         build_path.remove(chain_id);
         return Err(LiteflowError::ChainNotFound(format!(
             "[abstract chain cannot execute] chainId={chain_id}"
@@ -700,26 +739,27 @@ fn build_chain_recursive(
                 inheritance_path,
                 build_path,
                 built_nodes,
+                replace_chain_ids,
+                built_chains,
             )?;
         }
     }
 
-    let builder = LiteFlowChainELBuilder::new(bus.clone());
-    let mut chain = match &definition.route {
-        Some(route) => builder.build_route_chain(
-            &definition.id,
-            &definition.namespace,
-            parse_el(route)?,
-            parse_el(&body)?,
-        )?,
-        None => builder
-            .build_chain(&definition.id, parse_el(&body)?)?
-            .with_namespace(&definition.namespace),
-    };
-    if let Some(executor_class) = &definition.thread_pool_executor_class {
-        chain.set_thread_pool_executor_class(executor_class);
+    // 统一进入 Java LiteFlowChainELBuilder 的状态机，使规则文件构建与直接 API
+    // 构建共享 EL MD5、节点实例编号 SPI、route 校验和生命周期时序。
+    let builder = LiteFlowChainELBuilder::create_chain(bus.clone());
+    builder
+        .set_chain_id(&definition.id)
+        .set_namespace(&definition.namespace);
+    builder.set_el(&body)?;
+    if let Some(route) = &definition.route {
+        builder.set_route(route);
     }
-    bus.add_built_chain(chain);
+    if let Some(executor_class) = &definition.thread_pool_executor_class {
+        builder.set_thread_pool_executor_class(executor_class);
+    }
+    builder.build()?;
+    built_chains.insert(chain_id.to_string());
     build_path.remove(chain_id);
     Ok(())
 }
@@ -742,7 +782,7 @@ fn resolve_body(
         LiteflowError::ChainNotFound(format!("[abstract chain not found] chainId={chain_id}"))
     })?;
     let body = match &definition.extends {
-        Some(parent_id) => replace_abstract_chain(
+        Some(parent_id) => ElRegexUtil::replace_abstract_chain(
             &resolve_body(parent_id, definitions, resolved, inheritance_path)?,
             &definition.body,
         )?,

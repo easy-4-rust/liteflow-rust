@@ -33,19 +33,19 @@ impl SpiPriority for TrackingAspect {
 }
 
 impl CmpAroundAspect for TrackingAspect {
-    fn before_process(&self, _node_id: &str, _slot: &Slot) {
+    fn before_process(&self, _context: &CmpContext) {
         self.counts.before.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn after_process(&self, _node_id: &str, _slot: &Slot) {
+    fn after_process(&self, _context: &CmpContext) {
         self.counts.after.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn on_success(&self, _node_id: &str, _slot: &Slot) {
+    fn on_success(&self, _context: &CmpContext) {
         self.counts.success.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn on_error(&self, _node_id: &str, _slot: &Slot, _error: &LiteflowError) {
+    fn on_error(&self, _context: &CmpContext, _error: &LiteflowError) {
         self.counts.error.fetch_add(1, Ordering::SeqCst);
     }
 }

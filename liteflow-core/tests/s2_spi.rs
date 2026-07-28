@@ -12,11 +12,9 @@ use liteflow_core::spi::holder::{
     CmpAroundAspectHolder, ContextAwareHolder, ContextCmpInitHolder,
     LiteflowComponentSupportHolder, PathContentParserHolder,
 };
-use liteflow_core::spi::liteflow_component_support::LiteflowComponentSupport;
 use liteflow_core::spi::local::{
-    LocalContextAware, LocalLiteflowComponentSupport, LocalPathContentParser,
+    LocalContextAware, LocalContextCmpInit, LocalLiteflowComponentSupport, LocalPathContentParser,
 };
-use liteflow_core::spi::path_content_parser::PathContentParser;
 use liteflow_core::spi::spi_priority::SpiPriority;
 use liteflow_core::{
     DefaultRequestIdGenerator, IdGeneratorHolder, LiteflowConfig, LiteflowConfigGetter,
@@ -49,6 +47,14 @@ fn local_context_aware_preserves_java_empty_container_semantics() {
     assert_eq!(aware.priority(), 2);
 }
 
+/// 对应 Java LocalContextCmpInit：本地初始化无容器副作用，优先级固定为 2。
+#[test]
+fn local_context_cmp_init_exposes_java_named_local_semantics() {
+    let initializer = LocalContextCmpInit::new();
+    initializer.init_cmp();
+    assert_eq!(initializer.priority(), 2);
+}
+
 /// holder 未注册时回退各 Local 默认实现（对应 Java ServiceLoader 仅命中
 /// local 实现时 list.get(0)）
 #[test]
@@ -72,10 +78,7 @@ fn holders_fallback_to_local_defaults() {
         LiteflowComponentSupportHolder::load_liteflow_component_support().priority(),
         2
     );
-    assert_eq!(
-        PathContentParserHolder::load_path_content_parser().priority(),
-        2
-    );
+    assert_eq!(PathContentParserHolder::load_context_aware().priority(), 2);
 
     SpiFactoryCleaner::clean();
 }
@@ -188,8 +191,8 @@ fn id_generator_holder_default_and_custom() {
     assert_ne!(id3, "fixed-id");
 }
 
-/// 对应 LocalPathContentParser：file:// 前缀与裸路径读文件；
-/// 空路径列表报 ConfigErrorException；classpath: 运行期不支持
+/// 对应 LocalPathContentParser：file:// 前缀、裸路径与运行时 classpath 读文件；
+/// 空路径列表及缺失 classpath 资源报 ConfigErrorException。
 #[test]
 fn local_path_content_parser_file_and_classpath() {
     let parser = LocalPathContentParser::new();
@@ -224,11 +227,35 @@ fn local_path_content_parser_file_and_classpath() {
     let err = parser.parse_content(&[]).unwrap_err();
     assert!(err.to_string().contains("rule source must not be null"));
 
-    // classpath: 运行期不支持 → ConfigErrorException
+    // 显式 classpath: 与裸相对资源名都从 Rust 运行时资源根加载。
+    let classpath_resource = "path_content_parser/rule.json".to_string();
+    let contents = parser
+        .parse_content(&[format!("classpath:{classpath_resource}")])
+        .unwrap();
+    assert_eq!(contents.len(), 1);
+    assert!(contents[0].contains("\"classpathChain\""));
+    let contents = parser
+        .parse_content(std::slice::from_ref(&classpath_resource))
+        .unwrap();
+    assert_eq!(contents.len(), 1);
+
+    // Java getFileAbsolutePath 会解析裸 classpath 名，但显式 classpath: 分支不 add。
+    let paths = parser
+        .get_file_absolute_path(std::slice::from_ref(&classpath_resource))
+        .unwrap();
+    assert_eq!(paths.len(), 1);
+    assert!(paths[0].ends_with("tests/resources/path_content_parser/rule.json"));
+    assert!(
+        parser
+            .get_file_absolute_path(&[format!("classpath:{classpath_resource}")])
+            .unwrap()
+            .is_empty()
+    );
+
     let err = parser
-        .parse_content(&["classpath:rule.json".to_string()])
+        .parse_content(&["classpath:path_content_parser/missing.json".to_string()])
         .unwrap_err();
-    assert!(err.to_string().contains("classpath:"));
+    assert!(err.to_string().contains("classpath resource not found"));
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -259,9 +286,9 @@ fn local_path_content_parser_expands_absolute_ant_patterns() {
     assert!(contents.iter().any(|content| content.contains("\"b\"")));
 }
 
-/// 对应 LocalLiteflowComponentSupport：返回组件自身 name()
+/// 对应 LocalLiteflowComponentSupport：非 Spring 环境不处理注解名称。
 #[test]
-fn local_liteflow_component_support_returns_cmp_name() {
+fn local_liteflow_component_support_returns_none() {
     use async_trait::async_trait;
     use liteflow_core::core::NodeComponent;
     use liteflow_core::exception::LiteflowError;
@@ -281,5 +308,5 @@ fn local_liteflow_component_support_returns_cmp_name() {
 
     let support = LocalLiteflowComponentSupport::new();
     let cmp = CmpA;
-    assert_eq!(support.get_cmp_name(&cmp), Some("cmp_a".to_string()));
+    assert_eq!(support.get_cmp_name(&cmp), None);
 }

@@ -31,11 +31,13 @@ use crate::flow::element::condition::{
 };
 use crate::flow::element::fallback_node::FallbackNode;
 use crate::flow::element::node::Node;
+use crate::flow::entity::InstanceInfoDto;
 use crate::flow::flow_bus::FlowBus;
+use crate::flow::instance_id::BaseNodeInstanceIdManageSpi;
 use crate::property::LiteflowConfigGetter;
-use crate::util::el_regex_util::normalize_el;
+use crate::util::el_regex_util::ElRegexUtil;
 use md5::{Digest, Md5};
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -50,6 +52,14 @@ pub struct LiteFlowChainELBuilder {
     chain_id: RefCell<String>,
     /// 节点出现次数计数（NodeInstanceIdManageSpi 语义）
     occurrences: RefCell<HashMap<String, usize>>,
+    /// EL 摘要一致时按 `(node_id, occurrence)` 恢复的稳定实例编号。
+    restored_instance_ids: RefCell<HashMap<(String, usize), String>>,
+    /// EL 变化时等待通过当前 SPI 持久化的新实例编号。
+    pending_instance_infos: RefCell<Vec<InstanceInfoDto>>,
+    /// 当前主体 Condition 是否启用节点实例编号。
+    instance_ids_enabled: Cell<bool>,
+    /// `true` 表示当前 EL 没有可复用快照，需要写入新编号。
+    instance_ids_need_write: Cell<bool>,
 }
 
 impl LiteFlowChainELBuilder {
@@ -63,6 +73,10 @@ impl LiteFlowChainELBuilder {
             chain: RefCell::new(Chain::new("", Vec::new())),
             chain_id: RefCell::new(String::new()),
             occurrences: RefCell::new(HashMap::new()),
+            restored_instance_ids: RefCell::new(HashMap::new()),
+            pending_instance_infos: RefCell::new(Vec::new()),
+            instance_ids_enabled: Cell::new(false),
+            instance_ids_need_write: Cell::new(false),
         }
     }
 
@@ -98,6 +112,10 @@ impl LiteFlowChainELBuilder {
             chain: RefCell::new(chain),
             chain_id: RefCell::new(chain_id),
             occurrences: RefCell::new(HashMap::new()),
+            restored_instance_ids: RefCell::new(HashMap::new()),
+            pending_instance_infos: RefCell::new(Vec::new()),
+            instance_ids_enabled: Cell::new(false),
+            instance_ids_need_write: Cell::new(false),
         }
     }
 
@@ -172,7 +190,7 @@ impl LiteFlowChainELBuilder {
                 self.chain.borrow().get_chain_id()
             )));
         }
-        let normalized = normalize_el(&el_str);
+        let normalized = ElRegexUtil::normalize(&el_str);
         let el_md5 = format!("{:x}", Md5::digest(normalized.as_bytes()));
         let mut chain = self.chain.borrow_mut();
         chain.set_el(el_str);
@@ -301,6 +319,47 @@ impl LiteFlowChainELBuilder {
         Ok(Chain::new(chain_id, vec![cond]))
     }
 
+    /// 从 Rust 类型化 EL 语法树构建并注册 Chain。
+    ///
+    /// 这是 Rust 扩展入口，不对应 Java 公共方法。语法树会先按稳定的 serde
+    /// 字段顺序编码，再使用带版本前缀的 MD5 作为节点实例编号快照摘要；这样相同
+    /// AST 能跨 `FlowBus` 恢复编号，AST 变化则重新生成。该入口始终立即编译，
+    /// 因为类型化 AST 没有可供 `PARSE_ONE_ON_FIRST_EXEC` 延迟重解析的 EL 原文。
+    ///
+    /// # 参数
+    /// - `chain_id`: Chain 唯一标识。
+    /// - `el`: 已解析的 Rust EL 语法树。
+    ///
+    /// # 返回
+    /// 完成 Condition 构建、实例编号持久化及原子注册时返回 `Ok(())`。
+    pub fn build_parsed_chain(&self, chain_id: &str, el: El) -> LFResult<()> {
+        let canonical_ast = serde_json::to_vec(&el).map_err(|error| {
+            LiteflowError::Rule(format!(
+                "serialize parsed EL for chain[{chain_id}] failed: {error}"
+            ))
+        })?;
+        let mut digest_input = b"liteflow-rust-el-ast-v1:".to_vec();
+        digest_input.extend_from_slice(&canonical_ast);
+        let el_md5 = format!("{:x}", Md5::digest(&digest_input));
+
+        *self.chain_id.borrow_mut() = chain_id.to_string();
+        self.occurrences.borrow_mut().clear();
+        self.prepare_instance_ids(chain_id, &el_md5)?;
+        let body = self.build_executable(el);
+        if body.is_err() {
+            self.instance_ids_enabled.set(false);
+            self.instance_ids_need_write.set(false);
+        }
+        let body = body?;
+        self.persist_instance_ids(chain_id, &el_md5)?;
+
+        let mut chain = Chain::new(chain_id, vec![body]);
+        chain.set_el_md5(el_md5);
+        chain.set_compiled(true);
+        self.bus.add_built_chain(chain);
+        Ok(())
+    }
+
     /// 构建包含 route 条件和 body 的决策表链路。
     ///
     /// `namespace` 用于路由链分组，`route_el` 决定是否命中，`body_el` 是命中后
@@ -330,7 +389,7 @@ impl LiteFlowChainELBuilder {
     /// Java 在 QLExpress 执行前扫描外部变量并递归调用 `buildUnCompileChain`；
     /// Rust 直接遍历类型化 AST，避免字符串误判，同时保留“子 Chain 先完成”的时序。
     fn compile_chain_with_ancestors(&self, ancestors: &mut HashSet<String>) -> LFResult<()> {
-        let (chain_id, el_str, route_el) = {
+        let (chain_id, el_str, el_md5, route_el) = {
             let chain = self.chain.borrow();
             let chain_id = chain.get_chain_id().to_string();
             let el_str = chain
@@ -338,9 +397,17 @@ impl LiteFlowChainELBuilder {
                 .filter(|el| !el.trim().is_empty())
                 .ok_or_else(|| LiteflowError::Custom(format!("no el in this chain[{chain_id}]")))?
                 .to_string();
+            let el_md5 = chain
+                .get_el_md5()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| {
+                    let normalized = ElRegexUtil::normalize(&el_str);
+                    format!("{:x}", Md5::digest(normalized.as_bytes()))
+                });
             (
                 chain_id,
                 el_str,
+                el_md5,
                 chain.get_route_el().map(ToOwned::to_owned),
             )
         };
@@ -352,7 +419,10 @@ impl LiteFlowChainELBuilder {
         }
 
         let result = (|| {
-            let body_el = parse_el(&el_str)?;
+            // Java 的 execute2RespWithEL 会先通过 ElRegexUtil.normalize 保留一个
+            // 语句终止分号，再把结果交给 setEL/build。Rust EL 解析器只处理表达式
+            // 本体，因此仅在解析阶段剔除尾部分号，Chain 中仍保留 Java 的规范化文本。
+            let body_el = parse_el(el_str.trim_end_matches(';'))?;
             let mut referenced_chain_ids = Vec::new();
             collect_referenced_chain_ids(&body_el, &self.bus, &chain_id, &mut referenced_chain_ids);
             for referenced_chain_id in referenced_chain_ids {
@@ -368,7 +438,9 @@ impl LiteFlowChainELBuilder {
             // 子 Chain 已经替换到 FlowBus 后再绑定主体，确保包装器持有编译完成的 Arc。
             *self.chain_id.borrow_mut() = chain_id.clone();
             self.occurrences.borrow_mut().clear();
+            self.prepare_instance_ids(&chain_id, &el_md5)?;
             let body = self.build_executable(body_el)?;
+            self.persist_instance_ids(&chain_id, &el_md5)?;
             let route = route_el
                 .as_deref()
                 .filter(|route| !route.trim().is_empty())
@@ -389,6 +461,82 @@ impl LiteFlowChainELBuilder {
             Ok(())
         })();
         ancestors.remove(&chain_id);
+        result
+    }
+
+    /// 根据配置和持久化快照准备主体 Condition 的节点实例编号。
+    ///
+    /// Java 只在 `enableNodeInstanceId=true` 时调用
+    /// `NodeInstanceIdManageSpi#setNodesInstanceId`。Rust 在节点被放入
+    /// `Arc<dyn Executable>` 前完成同一件事：摘要一致时准备恢复表，摘要不一致时
+    /// 标记为重新生成。路由表达式不进入该状态，保持 Java 仅处理主体 Condition
+    /// 的边界。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#setNodesInstanceId` 与
+    /// `BaseNodeInstanceIdManageSpi#setNodesInstanceId`。
+    fn prepare_instance_ids(&self, chain_id: &str, el_md5: &str) -> LFResult<()> {
+        self.restored_instance_ids.borrow_mut().clear();
+        self.pending_instance_infos.borrow_mut().clear();
+        self.instance_ids_need_write.set(false);
+
+        let enabled = LiteflowConfigGetter::get().get_enable_node_instance_id();
+        self.instance_ids_enabled.set(enabled);
+        if !enabled {
+            return Ok(());
+        }
+
+        let spi = self
+            .bus
+            .instance_id_spi_holder
+            .get_node_instance_id_manage_spi();
+        let lines = spi.read_instance_id_file(chain_id)?;
+        if !lines.first().is_some_and(|saved_md5| saved_md5 == el_md5) {
+            self.instance_ids_need_write.set(true);
+            return Ok(());
+        }
+
+        // Java 以 chainId、nodeId 和同名节点出现下标恢复编号；缺失项保持 None，
+        // 不在摘要一致时偷偷生成新编号。
+        let infos = BaseNodeInstanceIdManageSpi::parse_instance_infos(&lines)?;
+        let mut restored = self.restored_instance_ids.borrow_mut();
+        for info in infos {
+            let (Some(saved_chain_id), Some(node_id), Some(instance_id), Some(index)) = (
+                info.chain_id(),
+                info.node_id(),
+                info.instance_id(),
+                info.index(),
+            ) else {
+                continue;
+            };
+            if saved_chain_id == chain_id {
+                restored.insert((node_id.to_string(), index), instance_id.to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// 在主体 Condition 完成构建后写入新实例编号，并关闭编号状态。
+    ///
+    /// 摘要一致时不会重复写文件；摘要变化时一次性写入本轮按遍历顺序生成的 DTO。
+    /// 无论成功与否，后续 route 构建都不会被误计入主体实例编号。
+    ///
+    /// 对应 Java: `NodeInstanceIdManageSpi#writeInstanceIdFile`。
+    fn persist_instance_ids(&self, chain_id: &str, el_md5: &str) -> LFResult<()> {
+        let result = if self.instance_ids_enabled.get() && self.instance_ids_need_write.get() {
+            let spi = self
+                .bus
+                .instance_id_spi_holder
+                .get_node_instance_id_manage_spi();
+            spi.write_instance_id_file(
+                self.pending_instance_infos.borrow().as_slice(),
+                el_md5,
+                chain_id,
+            )
+        } else {
+            Ok(())
+        };
+        self.instance_ids_enabled.set(false);
+        self.instance_ids_need_write.set(false);
         result
     }
 
@@ -654,26 +802,47 @@ impl LiteFlowChainELBuilder {
             *e += 1;
             v
         };
-        let instance_info = self
-            .bus
-            .instance_id_spi_holder
-            .get_node_instance_id_manage_spi()
-            .build_instance_info(&chain_id, &node_ref.id, occurrence);
-        let instance_id = instance_info
-            .instance_id()
-            .expect("实例编号 SPI 必须生成 instanceId")
-            .to_string();
         let (aspects, monitor) = self.bus.hooks_snapshot();
         let hooks = NodeHooks {
             aspects,
             monitor: Some(monitor),
         };
-        for h in &self.bus.lifecycle.read().unwrap().node_build {
-            h.post_process_after_node_build(&node_ref.id);
+        let node_build_life_cycles = self.bus.lifecycle.read().unwrap().node_build.clone();
+        let mut node = Node::new(node_ref, instance).with_hooks(hooks);
+
+        // Rust 的组件注册表保存可复用组件，EL Builder 为每个出现位置创建真实
+        // Node。生命周期在该构建边界接收同一个可变 Node，before 的元数据修改
+        // 会继续进入实例编号分配和最终 Condition。
+        for life_cycle in &node_build_life_cycles {
+            life_cycle.post_process_before_node_build(&mut node);
         }
-        Node::new(node_ref, instance)
-            .with_instance_id(instance_id)
-            .with_hooks(hooks)
+
+        if self.instance_ids_enabled.get() {
+            let node_id = node.get_id().to_string();
+            let instance_id = if self.instance_ids_need_write.get() {
+                let info = self
+                    .bus
+                    .instance_id_spi_holder
+                    .get_node_instance_id_manage_spi()
+                    .build_instance_info(&chain_id, &node_id, occurrence);
+                let instance_id = info.instance_id().map(ToOwned::to_owned);
+                self.pending_instance_infos.borrow_mut().push(info);
+                instance_id
+            } else {
+                self.restored_instance_ids
+                    .borrow()
+                    .get(&(node_id, occurrence))
+                    .cloned()
+            };
+            if let Some(instance_id) = instance_id {
+                node.set_node_instance_id(instance_id);
+            }
+        }
+
+        for life_cycle in &node_build_life_cycles {
+            life_cycle.post_process_after_node_build(&node);
+        }
+        node
     }
 
     /// 子链包装（对应 ChainBindWrapperCondition 的构建时机）

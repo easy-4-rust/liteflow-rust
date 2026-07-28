@@ -20,6 +20,11 @@ pub struct BindWrapperCondition {
 }
 
 impl BindWrapperCondition {
+    /// 创建携带 Condition 级绑定数据的执行包装器。
+    ///
+    /// 参数 `inner` 是被修饰的执行对象，`bind_data` 是键值列表；执行时绑定数据
+    /// 压入 Frame 并对内部对象可见。承接 Java `Condition#putBindData` 语义。
+    #[must_use]
     pub fn new(inner: Arc<dyn Executable>, bind_data: Vec<(String, String)>) -> Self {
         Self {
             inner,

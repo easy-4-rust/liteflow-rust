@@ -33,6 +33,12 @@ pub struct IteratorCondition {
 }
 
 impl IteratorCondition {
+    /// 创建迭代循环 Condition。
+    ///
+    /// 参数 `iterator_node` 产生待迭代数组，`parallel` 是可选并行度，
+    /// `do_executor` 是循环体，`break_item` 是可选 BREAK 条件。对应 Java:
+    /// `IteratorCondition` 由 EL Builder 完成字段装配后的执行状态。
+    #[must_use]
     pub fn new(
         iterator_node: Arc<dyn Executable>,
         parallel: Option<usize>,

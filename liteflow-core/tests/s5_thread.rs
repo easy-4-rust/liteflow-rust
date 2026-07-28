@@ -63,6 +63,10 @@ fn executor_condition_preserves_java_scope_precedence() {
         condition.condition_executor_class(),
         Some("com.example.ConditionExecutor")
     );
+    assert_eq!(
+        condition.get_condition_executor_class(),
+        condition.condition_executor_class()
+    );
 
     let chain = ExecutorConditionBuilder::build_executor_condition(
         None,

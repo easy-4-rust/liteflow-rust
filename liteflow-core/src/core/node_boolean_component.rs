@@ -41,6 +41,27 @@ impl<F> NodeBooleanComponent<F> {
     {
         (self.process_boolean)(ctx).await
     }
+
+    /// 执行 BOOLEAN 组件并转换为统一节点结果。
+    ///
+    /// 参数 `ctx` 为当前节点执行上下文；返回 `Value::Bool`，供 IF、WHILE、
+    /// BREAK 与布尔组合条件消费。对应 Java: `NodeBooleanComponent#process`。
+    pub async fn process<Fut>(&self, ctx: &CmpContext) -> Result<Value, LiteflowError>
+    where
+        F: Fn(CmpContext) -> Fut,
+        Fut: Future<Output = Result<bool, LiteflowError>>,
+    {
+        self.process_boolean(ctx.clone()).await.map(Value::Bool)
+    }
+
+    /// 返回当前节点最近一次成功执行的布尔结果。
+    ///
+    /// 参数 `ctx` 提供任务 Frame 与节点实例标识；尚未执行时返回 `None`。
+    /// 对应 Java: `NodeBooleanComponent#getItemResultMetaValue`。
+    #[must_use]
+    pub fn get_item_result_meta_value(&self, ctx: &CmpContext) -> Option<Value> {
+        ctx.frame.get_node_item_result(ctx.node.display())
+    }
 }
 
 #[async_trait]
@@ -50,7 +71,7 @@ where
     Fut: Future<Output = Result<bool, LiteflowError>> + Send,
 {
     async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
-        self.process_boolean(ctx.clone()).await.map(Value::Bool)
+        NodeBooleanComponent::process(self, ctx).await
     }
 
     fn name(&self) -> &str {

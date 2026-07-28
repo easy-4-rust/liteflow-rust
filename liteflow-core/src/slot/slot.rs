@@ -8,6 +8,7 @@ use crate::flow::element::chain::Chain;
 use crate::flow::element::condition::Condition;
 use crate::flow::entity::cmp_step::CmpStep;
 use crate::flow::id::IdGeneratorHolder;
+use crate::lifecycle::PostProcessChainExecuteLifeCycle;
 use crate::log::LFLoggerManager;
 use crate::slot::Frame;
 use dashmap::DashMap;
@@ -15,7 +16,7 @@ use serde_json::Value;
 use std::any::Any;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 const NODE_INPUT_PREFIX: &str = "_input_";
 const NODE_OUTPUT_PREFIX: &str = "_output_";
@@ -40,7 +41,7 @@ pub struct Slot {
     pub data: DashMap<String, Value>,
     /// 主流程响应数据。
     response_data: Mutex<Option<Value>>,
-    /// 子链请求数据，key 为 chainId。
+    /// 主链及子链请求数据，key 为 chainId。
     chain_request_data: DashMap<String, Value>,
     /// 同一子链多次调用时的请求数据队列。
     chain_request_queues: DashMap<String, Arc<Mutex<VecDeque<Value>>>>,
@@ -71,20 +72,42 @@ pub struct Slot {
     pub ended: AtomicBool,
     /// attachment（2.15+：Slot.setAttachment/getAttachment/hasAttachment/removeAttachment）
     pub attachments: DashMap<String, Arc<dyn Any + Send + Sync>>,
+    /// 当前 FlowBus 在本次执行中使用的 Chain 生命周期快照。
+    ///
+    /// Java 从全局 `LifeCycleHolder` 查询；Rust 将执行开始时的快照绑定到 Slot，
+    /// 使主 Chain 与所有嵌套子 Chain 共享同一组回调，同时避免跨 await 持锁。
+    chain_execute_life_cycles: RwLock<Vec<Arc<dyn PostProcessChainExecuteLifeCycle>>>,
 }
 
 impl Slot {
+    /// 创建一次链路执行的空数据槽。
+    ///
+    /// 参数 `request_id`、`chain_id` 和 `input` 分别是请求 ID、主链 ID 与请求
+    /// 数据；其余队列、上下文、异常和 attachment 均初始化为空。对应 Java
+    /// `DataBus#offerSlotByClass/offerSlotByBean` 后初始化 Slot 的阶段。
+    #[must_use]
     pub fn new(request_id: String, chain_id: impl Into<String>, input: Value) -> Self {
+        let chain_id = chain_id.into();
+        let chain_request_data = DashMap::new();
+
+        // Java FlowExecutor 在主链开始执行前通过 setChainReqData(chainId, param)
+        // 保存请求参数。Rust 的 Slot 构造函数同时承担该初始化阶段，因此必须在这里
+        // 建立主链映射，确保 NodeComponent#getRequestData 能直接读取真实请求数据。
+        // Java 对 null 参数不写入映射；serde_json::Value::Null 保持相同语义。
+        if !input.is_null() {
+            chain_request_data.insert(chain_id.clone(), input.clone());
+        }
+
         Self {
             request_id,
-            chain_id: chain_id.into(),
+            chain_id,
             conversation_id: None,
             beans: DashMap::new(),
             context_bean_order: Mutex::new(Vec::new()),
             input: Mutex::new(input),
             data: DashMap::new(),
             response_data: Mutex::new(None),
-            chain_request_data: DashMap::new(),
+            chain_request_data,
             chain_request_queues: DashMap::new(),
             private_delivery_queues: DashMap::new(),
             chain_instances: DashMap::new(),
@@ -97,7 +120,32 @@ impl Slot {
             timeout_items: Mutex::new(Vec::new()),
             ended: AtomicBool::new(false),
             attachments: DashMap::new(),
+            chain_execute_life_cycles: RwLock::new(Vec::new()),
         }
+    }
+
+    /// 绑定本次执行使用的 Chain 生命周期快照。
+    ///
+    /// 参数 `life_cycles` 来自当前 FlowBus 的 `LifeCycleHolder`。该内部入口对应
+    /// Java `LifeCycleHolder#getPostProcessChainExecuteLifeCycleList` 的执行期读取。
+    pub(crate) fn set_chain_execute_life_cycles(
+        &self,
+        life_cycles: Vec<Arc<dyn PostProcessChainExecuteLifeCycle>>,
+    ) {
+        *self
+            .chain_execute_life_cycles
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = life_cycles;
+    }
+
+    /// 返回 Chain 生命周期的拥有型快照，调用方可安全跨 await 使用。
+    pub(crate) fn chain_execute_life_cycles(
+        &self,
+    ) -> Vec<Arc<dyn PostProcessChainExecuteLifeCycle>> {
+        self.chain_execute_life_cycles
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// 返回指定节点的输入数据快照。
@@ -158,7 +206,7 @@ impl Slot {
         }
     }
 
-    /// 返回指定子链的请求数据快照。
+    /// 返回指定链路的请求数据快照。
     ///
     /// 参数 `chain_id` 对应 Java 同名参数。对应 Java: `Slot#getChainReqData`。
     #[must_use]
@@ -168,7 +216,7 @@ impl Slot {
             .map(|value| value.clone())
     }
 
-    /// 设置指定子链的请求数据。
+    /// 设置指定链路的请求数据。
     ///
     /// 参数 `chain_id`、`request_data` 对应 Java `chainId`、`t`。
     /// 对应 Java: `Slot#setChainReqData`。

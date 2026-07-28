@@ -1,4 +1,7 @@
-//! 对应 Java: `FlowExecutor` + `LiteflowExecutorInit` 的 Vernal 托管对象。
+//! LiteFlow 的 Vernal 托管运行时，对应 Java `FlowExecutor` 的容器执行职责。
+//!
+//! Spring Boot 初始化对象已独立迁入
+//! `springboot/liteflow_executor_init.rs`，本文件不重复定义该 Java 对象。
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -20,6 +23,7 @@ use crate::{LiteflowConfig, LiteflowParseMode, LiteflowRuleFormat, LiteflowVerna
 pub struct LiteflowRuntime {
     flow_bus: FlowBus,
     config: LiteflowConfig,
+    initialize_on_start: bool,
     rule_state: Mutex<RuleInitializationState>,
     chain_cache: Mutex<Option<std::sync::Arc<ChainCacheLifeCycle>>>,
     monitor_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -29,12 +33,32 @@ impl LiteflowRuntime {
     /// 创建运行时。规则解析由 Vernal `initialize` 阶段统一触发。
     #[must_use]
     pub fn new(flow_bus: FlowBus, config: LiteflowConfig) -> Self {
+        Self::with_initialize_on_start(flow_bus, config, true)
+    }
+
+    /// 创建可控制启动期规则解析的运行时。
+    ///
+    /// # 参数
+    /// - `flow_bus`：共享流程总线；
+    /// - `config`：冻结后的统一配置；
+    /// - `initialize_on_start`：是否在容器初始化阶段调用执行器初始化。
+    ///
+    /// Solon 的 `liteflow.parseOnStart` 通过此入口保留；关闭时规则在首次执行阶段
+    /// 才解析。对应 Java:
+    /// `LiteflowMainAutoConfiguration#flowExecutor`。
+    #[must_use]
+    pub fn with_initialize_on_start(
+        flow_bus: FlowBus,
+        config: LiteflowConfig,
+        initialize_on_start: bool,
+    ) -> Self {
         // Java MonitorBus 构造函数从 LiteflowConfig 读取 queueLimit；Rust 在托管
         // 运行时创建时完成同样接线，确保首条统计记录就使用配置容量。
         flow_bus.monitor().set_queue_limit(config.queue_limit);
         Self {
             flow_bus,
             config,
+            initialize_on_start,
             rule_state: Mutex::new(RuleInitializationState::Uninitialized),
             chain_cache: Mutex::new(None),
             monitor_task: Mutex::new(None),
@@ -63,6 +87,32 @@ impl LiteflowRuntime {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .is_some_and(|task| !task.is_finished())
+    }
+
+    /// 执行 Spring Boot 启动期的执行器初始化。
+    ///
+    /// # 返回
+    /// 规则计划、Chain 缓存和 FlowBus 初始化标志全部设置成功时返回 `Ok(())`。
+    /// 多次调用保持幂等。对应 Java:
+    /// `LiteflowExecutorInit#afterSingletonsInstantiated`。
+    pub fn initialize_executor(&self) -> Result<(), LiteflowVernalError> {
+        {
+            let state = self
+                .rule_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if matches!(
+                *state,
+                RuleInitializationState::Initialized | RuleInitializationState::Planned(_)
+            ) {
+                return Ok(());
+            }
+        }
+        self.ensure_chain_cache_initialized()?;
+        self.initialize_rule()?;
+        // Java 在 FlowExecutor.init(true) 后调用 FlowBus.needInit() 更新首次执行标志。
+        let _ = self.flow_bus.need_init();
+        Ok(())
     }
 
     /// 执行链路；对应 Java `FlowExecutor#execute2Resp`。
@@ -172,7 +222,7 @@ impl LiteflowRuntime {
             self.config.rule_source.as_deref(),
             self.config.inline_rule.as_deref(),
         ) {
-            (Some(source), None) => PathContentParserHolder::load_path_content_parser()
+            (Some(source), None) => PathContentParserHolder::load_context_aware()
                 .parse_content(&[source.to_string()])
                 .map_err(|error| LiteflowVernalError::RuleInitialization(error.to_string()))?,
             (None, Some(text)) => vec![text.to_string()],
@@ -311,10 +361,10 @@ impl LiteflowRuntime {
 impl Lifecycle for LiteflowRuntime {
     fn initialize(&self) -> LifecycleFuture<'_> {
         Box::pin(async move {
-            self.ensure_chain_cache_initialized()
-                .map_err(|error| Box::new(error) as vernal_core::BoxError)?;
-            self.initialize_rule()
-                .map_err(|error| Box::new(error) as vernal_core::BoxError)?;
+            if self.initialize_on_start {
+                self.initialize_executor()
+                    .map_err(|error| Box::new(error) as vernal_core::BoxError)?;
+            }
             self.start_monitor_task();
             Ok(())
         })

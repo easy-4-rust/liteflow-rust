@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 第一个参数为重试次数，后续可选参数为 Java 全限定异常名或 Rust 错误变体名。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.RetryOperator`。
-pub(crate) struct RetryOperator;
+pub struct RetryOperator;
 
 impl BaseOperator for RetryOperator {
     fn operator_name(&self) -> &'static str {

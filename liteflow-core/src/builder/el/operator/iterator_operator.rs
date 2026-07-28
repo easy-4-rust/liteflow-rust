@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// 参数必须是一个迭代类型节点；DO/BREAK/PARALLEL 后缀负责补充循环行为。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.IteratorOperator`。
-pub(crate) struct IteratorOperator;
+pub struct IteratorOperator;
 
 impl BaseOperator for IteratorOperator {
     fn operator_name(&self) -> &'static str {

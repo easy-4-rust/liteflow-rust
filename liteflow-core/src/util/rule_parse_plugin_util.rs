@@ -38,10 +38,28 @@ impl ChainDto {
         &self.id
     }
 
+    /// 返回链路 id。
+    ///
+    /// 返回值来自规则键中冒号前的标识；非标准多段键会保留完整原文。
+    /// 对应 Java: `ChainDto#getId`。
+    #[must_use]
+    pub fn get_id(&self) -> &str {
+        self.id()
+    }
+
     /// 返回规范化后的启用文本。对应 Java: `ChainDto#getEnable`。
     #[must_use]
     pub fn enable(&self) -> &str {
         &self.enable
+    }
+
+    /// 返回规范化后的启用文本。
+    ///
+    /// 返回值只可能是 `"true"` 或 `"false"`。
+    /// 对应 Java: `ChainDto#getEnable`。
+    #[must_use]
+    pub fn get_enable(&self) -> &str {
+        self.enable()
     }
 
     /// 返回链路是否启用。对应 Java: `ChainDto#isEnable`。
@@ -62,7 +80,8 @@ impl ChainDto {
     pub fn to_el_xml(&self, el_content: &str) -> String {
         format!(
             "<chain id=\"{}\" enable=\"{}\">{el_content}</chain>",
-            self.id, self.enable
+            self.get_id(),
+            self.get_enable()
         )
     }
 }

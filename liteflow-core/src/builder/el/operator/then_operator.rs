@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// 参数必须是一个或多个普通可执行表达式。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ThenOperator`。
-pub(crate) struct ThenOperator;
+pub struct ThenOperator;
 
 impl BaseOperator for ThenOperator {
     fn operator_name(&self) -> &'static str {

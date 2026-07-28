@@ -1,64 +1,181 @@
 //! 对应 Java: com.yomahub.liteflow.util.LiteflowContextRegexMatcher
 
-use serde_json::Value;
+use std::collections::HashMap;
+
+use qlexpress::DataValue;
+use qlexpress::runtime::data::IndexMap;
+use serde_json::{Map, Number, Value};
+
+use super::QlExpressUtils;
 
 /// 在具名 JSON 上下文中搜索属性或执行 setter 语义。
 ///
-/// Java 依赖 QLExpress 反射任意 Bean；Rust 以 serde JSON 对象作为安全边界，
-/// 支持 `address.city`、`contextAlias.address.city` 与 `setName`。
+/// Java 依赖 QLExpress 反射任意 Bean；Rust 将 serde JSON 转为 QLExpress Map，
+/// 由真实 QVM 执行属性读取和赋值，同时以 JSON 对象限制宿主反射边界。支持
+/// `address.city`、`contextAlias.address.city` 与 `setName`。
 pub struct LiteflowContextRegexMatcher;
 
 impl LiteflowContextRegexMatcher {
     /// 按表达式搜索第一个非空上下文值。
+    ///
+    /// 参数 `context_list` 是具名 JSON 上下文，`reg_pattern` 是 Java 同名参数；
+    /// 返回首个 QLExpress 求值成功且非空的 JSON 值。对应 Java:
+    /// `LiteflowContextRegexMatcher#searchContext`。
     #[must_use]
     pub fn search_context(context_list: &[(String, Value)], reg_pattern: &str) -> Option<Value> {
-        let segments = path_segments(reg_pattern);
-        for (_, context) in context_list {
-            if let Some(value) = lookup(context, &segments) {
-                return Some(value.clone());
+        let runner = QlExpressUtils::get_context_search_express_runner();
+
+        // 与 Java 一致，先把表达式分别应用到每个具名上下文，首个非 null
+        // 结果获胜。单个上下文失败不会阻断后续候选。
+        for (alias, context_value) in context_list {
+            let context = HashMap::from([(alias.clone(), json_to_data_value(context_value))]);
+            if let Ok(result) = runner.execute(&format!("{alias}.{reg_pattern}"), context)
+                && !result.is_null()
+                && let Some(result) = data_value_to_json(&result)
+            {
+                return Some(result);
             }
         }
-        let (alias, remaining) = segments.split_first()?;
-        context_list
-            .iter()
-            .find(|(name, _)| name == alias)
-            .and_then(|(_, context)| lookup(context, remaining))
-            .cloned()
+
+        // 首轮未命中时按 Java 的 contextMap.<表达式> 规则再次求值，从而支持
+        // 调用方在表达式中显式写出上下文别名。
+        let context_map = DataValue::map(IndexMap::from_entries(
+            context_list
+                .iter()
+                .map(|(alias, value)| (DataValue::Str(alias.clone()), json_to_data_value(value)))
+                .collect(),
+        ));
+        runner
+            .execute(
+                &format!("contextMap.{reg_pattern}"),
+                HashMap::from([("contextMap".to_string(), context_map)]),
+            )
+            .ok()
+            .filter(|result| !result.is_null())
+            .and_then(|result| data_value_to_json(&result))
     }
 
     /// 在首个匹配上下文上执行 setter。
     ///
     /// `setName` 映射为字段 `name`；点路径最后一段同样作为待写字段。
-    /// 返回是否成功写入，对应 Java 内部的 `flag`。
+    /// 参数 `context_list`、`method_expression`、`arguments` 分别对应 Java 的
+    /// contextList、methodExpress、args；返回是否成功写入，对应 Java 内部的
+    /// `flag`。对应 Java: `LiteflowContextRegexMatcher#searchAndSetContext`。
     pub fn search_and_set_context(
         context_list: &mut [(String, Value)],
         method_expression: &str,
         arguments: &[Value],
     ) -> bool {
-        let Some(value) = arguments.first().cloned() else {
+        let Some(replacement) = arguments.first() else {
             return false;
         };
         let segments = setter_segments(method_expression);
-        for (_, context) in context_list.iter_mut() {
-            if set_path(context, &segments, value.clone()) {
-                return true;
-            }
-        }
-        let Some((alias, remaining)) = segments.split_first() else {
+        let Some((context_index, path)) = resolve_setter_target(context_list, &segments) else {
             return false;
         };
-        context_list
-            .iter_mut()
-            .find(|(name, _)| name == alias)
-            .is_some_and(|(_, context)| set_path(context, remaining, value))
+        let (alias, context_value) = &mut context_list[context_index];
+
+        let qlexpress_value = json_to_data_value(context_value);
+        let qlexpress_context = HashMap::from([
+            (alias.to_string(), qlexpress_value.clone()),
+            ("arg0".to_string(), json_to_data_value(replacement)),
+        ]);
+        let expression = format!("{alias}.{} = arg0", path.join("."));
+        if QlExpressUtils::get_context_search_express_runner()
+            .execute(&expression, qlexpress_context)
+            .is_ok()
+            && let Some(updated) = data_value_to_json(&qlexpress_value)
+        {
+            *context_value = updated;
+            return true;
+        }
+        false
     }
 }
 
-fn path_segments(path: &str) -> Vec<&str> {
-    path.trim()
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .collect()
+fn resolve_setter_target(
+    context_list: &[(String, Value)],
+    segments: &[String],
+) -> Option<(usize, Vec<String>)> {
+    let (first, remaining) = segments.split_first()?;
+    if let Some((index, _)) = context_list
+        .iter()
+        .enumerate()
+        .find(|(_, (name, _))| name == first)
+        && !remaining.is_empty()
+    {
+        return Some((index, remaining.to_vec()));
+    }
+    context_list
+        .iter()
+        .enumerate()
+        .find(|(_, (_, context))| path_exists(context, segments))
+        .map(|(index, _)| (index, segments.to_vec()))
+}
+
+fn path_exists(value: &Value, segments: &[String]) -> bool {
+    segments
+        .iter()
+        .try_fold(value, |current, segment| current.get(segment))
+        .is_some()
+}
+
+fn json_to_data_value(value: &Value) -> DataValue {
+    match value {
+        Value::Null => DataValue::Null,
+        Value::Bool(value) => DataValue::Bool(*value),
+        Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                i32::try_from(value)
+                    .map(DataValue::Int)
+                    .unwrap_or(DataValue::Long(value))
+            } else {
+                DataValue::Double(value.as_f64().unwrap_or_default())
+            }
+        }
+        Value::String(value) => DataValue::Str(value.clone()),
+        Value::Array(values) => DataValue::list(values.iter().map(json_to_data_value).collect()),
+        Value::Object(values) => DataValue::map(IndexMap::from_entries(
+            values
+                .iter()
+                .map(|(key, value)| (DataValue::Str(key.clone()), json_to_data_value(value)))
+                .collect(),
+        )),
+    }
+}
+
+fn data_value_to_json(value: &DataValue) -> Option<Value> {
+    match value {
+        DataValue::Null => Some(Value::Null),
+        DataValue::Bool(value) => Some(Value::Bool(*value)),
+        DataValue::Byte(value) => Some(Value::Number(Number::from(*value))),
+        DataValue::Short(value) => Some(Value::Number(Number::from(*value))),
+        DataValue::Int(value) => Some(Value::Number(Number::from(*value))),
+        DataValue::Long(value) => Some(Value::Number(Number::from(*value))),
+        DataValue::Float(value) => Number::from_f64(f64::from(*value)).map(Value::Number),
+        DataValue::Double(value) => Number::from_f64(*value).map(Value::Number),
+        DataValue::BigInt(value) => serde_json::from_str(&value.to_string()).ok(),
+        DataValue::BigDec(value) => serde_json::from_str(value).ok(),
+        DataValue::Char(value) => Some(Value::String(value.to_string())),
+        DataValue::Str(value) => Some(Value::String(value.clone())),
+        DataValue::List(values) | DataValue::Array(values) => values
+            .borrow()
+            .iter()
+            .map(data_value_to_json)
+            .collect::<Option<Vec<_>>>()
+            .map(Value::Array),
+        DataValue::Map(values) => {
+            let mut object = Map::new();
+            for (key, value) in values.borrow().entries() {
+                let DataValue::Str(key) = key else {
+                    return None;
+                };
+                object.insert(key.clone(), data_value_to_json(value)?);
+            }
+            Some(Value::Object(object))
+        }
+        DataValue::Lambda(_) | DataValue::Object(_) => None,
+    }
 }
 
 fn setter_segments(method_expression: &str) -> Vec<String> {
@@ -79,29 +196,39 @@ fn setter_segments(method_expression: &str) -> Vec<String> {
     segments
 }
 
-fn lookup<'a>(value: &'a Value, segments: &[&str]) -> Option<&'a Value> {
-    segments
-        .iter()
-        .try_fold(value, |current, segment| current.get(*segment))
-}
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
 
-fn set_path(value: &mut Value, segments: &[String], replacement: Value) -> bool {
-    let Some((last, parents)) = segments.split_last() else {
-        return false;
-    };
-    let mut current = value;
-    for segment in parents {
-        let Some(next) = current.get_mut(segment) else {
-            return false;
-        };
-        current = next;
+    use super::LiteflowContextRegexMatcher;
+
+    #[test]
+    fn search_context_uses_real_qlexpress_property_access() {
+        let context_list = vec![
+            ("first".to_string(), json!({"address": null})),
+            (
+                "second".to_string(),
+                json!({"address": {"city": "Hangzhou"}}),
+            ),
+        ];
+        assert_eq!(
+            LiteflowContextRegexMatcher::search_context(&context_list, "address.city"),
+            Some(json!("Hangzhou"))
+        );
+        assert_eq!(
+            LiteflowContextRegexMatcher::search_context(&context_list, "second.address.city"),
+            Some(json!("Hangzhou"))
+        );
     }
-    let Some(object) = current.as_object_mut() else {
-        return false;
-    };
-    if !object.contains_key(last) {
-        return false;
+
+    #[test]
+    fn search_and_set_context_writes_back_qlexpress_map_assignment() {
+        let mut context_list = vec![("user".to_string(), json!({"profile": {"name": "before"}}))];
+        assert!(LiteflowContextRegexMatcher::search_and_set_context(
+            &mut context_list,
+            "profile.setName",
+            &[json!("after")],
+        ));
+        assert_eq!(context_list[0].1["profile"]["name"], json!("after"));
     }
-    object.insert(last.clone(), replacement);
-    true
 }

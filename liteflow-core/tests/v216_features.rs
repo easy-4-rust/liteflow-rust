@@ -414,9 +414,12 @@ async fn el_md5_index_cleanup() {
     bus.execute_with_el("THEN(a)").await;
     let md5 = format!(
         "{:x}",
-        Md5::digest(liteflow_core::util::el_regex_util::normalize_el("THEN(a)").as_bytes())
+        Md5::digest(
+            liteflow_core::util::el_regex_util::ElRegexUtil::normalize("THEN(a)").as_bytes()
+        )
     );
     let chain_id = bus.get_chain_id_by_el_md5(&md5).unwrap();
-    bus.remove_chain(&chain_id);
+    assert!(bus.remove_chain(&chain_id));
     assert!(bus.get_chain_id_by_el_md5(&md5).is_none());
+    assert!(!bus.remove_chain(&chain_id));
 }

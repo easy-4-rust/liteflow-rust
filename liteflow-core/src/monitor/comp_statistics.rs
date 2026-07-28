@@ -50,6 +50,10 @@ impl CompStatistics {
         }
     }
 
+    /// 根据 MonitorBus 的累计计数创建报表快照。
+    ///
+    /// 参数依次为组件名、总次数、成功数、失败数、平均耗时和最大耗时；返回对象
+    /// 保留 Java CompStatistics 字段，并填充 Rust 累计诊断扩展字段。
     pub(crate) fn aggregate(
         component_clazz_name: String,
         total: u64,

@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 仅可用于 WHEN/PAR，表示任意一个任务完成即可结束并行等待。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.AnyOperator`。
-pub(crate) struct AnyOperator;
+pub struct AnyOperator;
 
 impl BaseOperator for AnyOperator {
     fn operator_name(&self) -> &'static str {

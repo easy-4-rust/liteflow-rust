@@ -45,6 +45,12 @@ impl ChainBindWrapperCondition {
     pub fn put_bind_data(&mut self, key: impl Into<String>, value: impl Into<String>) {
         <Self as Condition>::put_bind_data(self, key, value);
     }
+
+    /// 返回被包装子 Chain 的共享实例。
+    ///
+    /// 返回值与真实执行路径使用同一 `Arc<Chain>`；这是 `get_wrapped_chain` 的
+    /// Rust 内部别名。对应 Java: `ChainBindWrapperCondition#getWrappedChain`。
+    #[must_use]
     pub fn wrapped_chain(&self) -> &Arc<Chain> {
         &self.wrapped_chain
     }

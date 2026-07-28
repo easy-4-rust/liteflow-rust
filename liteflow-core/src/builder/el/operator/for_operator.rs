@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// 支持 FOR 类型节点，也支持 Java v2.16 的整数固定次数重载。DO/BREAK/
 /// PARALLEL 后缀会继续完善循环 AST。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ForOperator`。
-pub(crate) struct ForOperator;
+pub struct ForOperator;
 
 impl BaseOperator for ForOperator {
     fn operator_name(&self) -> &'static str {

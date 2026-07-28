@@ -30,6 +30,23 @@ struct DirectRollbackComponent {
     calls: Arc<AtomicUsize>,
 }
 
+/// 验证未声明异常过滤器的组件采用 Java `Exception.class` 默认重试范围。
+struct GlobalRetryComponent {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for GlobalRetryComponent {
+    async fn process(&self, _context: &CmpContext) -> Result<Value, LiteflowError> {
+        let current = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if current == 1 {
+            Err(LiteflowError::Custom("first attempt failed".to_string()))
+        } else {
+            Ok(Value::Bool(true))
+        }
+    }
+}
+
 struct PrefixInstanceIdSpi;
 
 struct DataBusAwareComponent {
@@ -180,6 +197,12 @@ fn java_enum_names_and_parser_codes_are_preserved() {
         ConditionTypeEnum::get_enum_by_code("abstract"),
         Some(ConditionTypeEnum::Abstract)
     );
+    assert_eq!(ParallelStrategyEnum::Any.get_strategy_type(), "anyOf");
+    assert_eq!(ParallelStrategyEnum::All.get_description(), "完成全部任务");
+    assert_eq!(
+        ParallelStrategyEnum::Percentage.get_clazz(),
+        "PercentageOfParallelExecutor"
+    );
 }
 
 #[test]
@@ -240,12 +263,16 @@ fn chain_el_builder_validation_reports_precise_syntax_and_missing_node_errors() 
             .is_some_and(|line| line.ends_with('^'))
     );
 
-    let syntax = builder.validate_with_ex("THEN(registered, @)");
+    // `@name` 是 QLExpress4 的合法 Bean 引用前缀，不能再按旧手写 lexer
+    // 视为非法字符；用缺失右括号验证真实 QLExpress 诊断。
+    let syntax = builder.validate_with_ex("THEN(registered, ");
     assert!(!syntax.is_success());
     let syntax_error = syntax.cause().unwrap().to_string();
-    assert!(syntax_error.contains("unexpected character: @"));
-    assert!(syntax_error.contains("line 1, column 18"));
-    assert!(syntax_error.contains(" EL: THEN(registered, @)"));
+    assert!(syntax_error.contains("mismatched"), "{syntax_error}");
+    assert!(
+        syntax_error.contains(" EL: THEN(registered, "),
+        "{syntax_error}"
+    );
 }
 
 #[test]
@@ -407,6 +434,10 @@ async fn condition_hierarchy_dispatches_and_abstract_chain_refuses_execution() {
     let mut abstract_condition = AbstractCondition::new("template_chain");
     let condition: &dyn Condition = &abstract_condition;
     assert_eq!(condition.condition_type(), ConditionTypeEnum::Abstract);
+    assert_eq!(
+        abstract_condition.get_condition_type(),
+        ConditionTypeEnum::Abstract
+    );
     assert_eq!(condition.condition_id(), "condition-abstract");
     assert_eq!(condition.condition_tag(), None);
 
@@ -421,7 +452,7 @@ async fn condition_hierarchy_dispatches_and_abstract_chain_refuses_execution() {
         )),
     };
     let error = abstract_condition
-        .execute(&ctx, &liteflow_core::Frame::root())
+        .execute_condition(&ctx, &liteflow_core::Frame::root())
         .await
         .unwrap_err();
     assert!(matches!(
@@ -552,6 +583,74 @@ async fn typed_node_component_objects_drive_real_control_flow() {
     );
 }
 
+async fn execute_typed_component<C>(node_id: &str, component: Arc<C>) -> CmpContext
+where
+    C: NodeComponent,
+{
+    let slot = Arc::new(Slot::new(
+        format!("{node_id}-request"),
+        "typed-component",
+        Value::Null,
+    ));
+    let frame = liteflow_core::Frame::root();
+    let node_ref = NodeRef::new(node_id);
+    Node::new(node_ref.clone(), component)
+        .execute(&liteflow_core::Ctx::new(Arc::clone(&slot)), &frame)
+        .await
+        .expect("类型化组件应经真实 Node 执行成功");
+    CmpContext {
+        inner: slot,
+        node: node_ref,
+        frame,
+    }
+}
+
+#[tokio::test]
+async fn typed_node_component_java_entries_return_real_cached_results() {
+    let boolean = Arc::new(NodeBooleanComponent::new("boolean", |_| async {
+        Ok::<_, LiteflowError>(true)
+    }));
+    let boolean_ctx = execute_typed_component("boolean_direct", Arc::clone(&boolean)).await;
+    assert_eq!(boolean.process(&boolean_ctx).await.unwrap(), json!(true));
+    assert_eq!(
+        boolean.get_item_result_meta_value(&boolean_ctx),
+        Some(json!(true))
+    );
+
+    let for_component = Arc::new(NodeForComponent::new("for", |_| async {
+        Ok::<_, LiteflowError>(3)
+    }));
+    let for_ctx = execute_typed_component("for_direct", Arc::clone(&for_component)).await;
+    assert_eq!(for_component.process(&for_ctx).await.unwrap(), json!(3));
+    assert_eq!(
+        for_component.get_item_result_meta_value(&for_ctx),
+        Some(json!(3))
+    );
+
+    let iterator = Arc::new(NodeIteratorComponent::new("iterator", |_| async {
+        Ok::<_, LiteflowError>(vec![json!("a"), json!("b")])
+    }));
+    let iterator_ctx = execute_typed_component("iterator_direct", Arc::clone(&iterator)).await;
+    assert_eq!(
+        iterator.process(&iterator_ctx).await.unwrap(),
+        json!(["a", "b"])
+    );
+    assert_eq!(
+        iterator.get_item_result_meta_value(&iterator_ctx),
+        Some(json!(["a", "b"]))
+    );
+
+    let switch = Arc::new(NodeSwitchComponent::new("switch", |_| async {
+        Ok::<_, LiteflowError>("target".to_string())
+    }));
+    let switch_ctx = execute_typed_component("switch_direct", Arc::clone(&switch)).await;
+    assert_eq!(switch.process(&switch_ctx).await.unwrap(), json!("target"));
+    assert_eq!(
+        switch.get_item_result_meta_value(&switch_ctx),
+        Some(json!("target"))
+    );
+}
+
 #[test]
 fn instance_info_dto_keeps_java_camel_case_shape() {
     let spi = DefaultNodeInstanceIdManageSpiImpl::default();
@@ -564,14 +663,23 @@ fn instance_info_dto_keeps_java_camel_case_shape() {
     let parts: Vec<&str> = instance_id.split('_').collect();
     assert_eq!(parts.len(), 3);
     assert_eq!(parts[0], "a");
-    assert_eq!(parts[1].len(), 8);
+    assert_eq!(
+        parts[1].len(),
+        6,
+        "Java SerialsUtil#generateShortUUID 生成 6 位短标识"
+    );
     assert!(parts[1].chars().all(|value| value.is_ascii_alphanumeric()));
     assert_eq!(parts[2], "1");
     assert_eq!(value["index"], 1);
 }
 
-#[test]
-fn component_initializer_injects_java_metadata_and_global_retry_fallback() {
+#[tokio::test]
+#[allow(deprecated)]
+async fn component_initializer_injects_java_metadata_and_global_retry_fallback() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let previous_config = LiteflowConfigGetter::get();
     let initializer = ComponentInitializer::with_default_retry_count(3);
     let component = initializer
         .init_component(
@@ -586,6 +694,44 @@ fn component_initializer_injects_java_metadata_and_global_retry_fallback() {
     assert_eq!(component.node_type(), Some(NodeTypeEnum::Boolean));
     assert_eq!(component.name(), "inventory check");
     assert_eq!(component.retry_count(), 3);
+    assert!(
+        component.is_retry_for(&LiteflowError::Custom("retry me".to_string())),
+        "Java 默认 retryForExceptions=Exception.class，应接受普通执行错误"
+    );
+
+    // Java ComponentInitializer 从 LiteflowConfigGetter 读取全局 retryCount。
+    // Rust 在执行期解析该配置，支持先注册组件、后创建 FlowExecutor 的惯用顺序。
+    let mut global_config = LiteflowConfig::default();
+    global_config.set_retry_count(2);
+    LiteflowConfigGetter::set_liteflow_config(global_config);
+    let globally_configured = ComponentInitializer::load_instance()
+        .init_component(
+            Arc::new(cmp(|_| async { Ok(Value::Null) })),
+            NodeTypeEnum::Common,
+            None,
+            "global_retry_node",
+        )
+        .unwrap();
+    assert_eq!(globally_configured.retry_count(), 2);
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let retry_bus = FlowBus::new();
+    retry_bus.register(
+        "global_retry_runtime",
+        GlobalRetryComponent {
+            calls: Arc::clone(&calls),
+        },
+    );
+    retry_bus
+        .add_chain("global_retry_chain", "THEN(global_retry_runtime)")
+        .unwrap();
+    let retry_response = retry_bus.execute("global_retry_chain").await;
+    assert!(retry_response.is_success(), "{}", retry_response.message);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "全局 retryCount 和默认 Exception 过滤器必须进入真实 NodeExecutor"
+    );
 
     let error = match initializer.init_component(
         Arc::new(cmp(|_| async { Ok(Value::Null) })),
@@ -597,6 +743,7 @@ fn component_initializer_injects_java_metadata_and_global_retry_fallback() {
         Err(error) => error,
     };
     assert!(matches!(error, LiteflowError::NodeBuild(_)));
+    LiteflowConfigGetter::set_liteflow_config(previous_config);
 }
 
 #[test]
@@ -676,6 +823,26 @@ fn instance_id_base_default_file_and_holder_execute_real_contract() {
     )
     .unwrap();
     assert_eq!(restored[1].node_instance_id(), Some(second_a));
+
+    // EL 摘要变化时 Java 会重新生成短 UUID，不能被同进程缓存伪装成稳定编号。
+    let mut changed = vec![
+        Node::new(
+            NodeRef::new("a"),
+            Arc::new(cmp(|_| async { Ok(Value::Null) })),
+        ),
+        Node::new(
+            NodeRef::new("a"),
+            Arc::new(cmp(|_| async { Ok(Value::Null) })),
+        ),
+    ];
+    BaseNodeInstanceIdManageSpi::set_nodes_instance_id(
+        &restarted_spi,
+        &mut changed,
+        "changed-el-md5",
+        "chain1",
+    )
+    .unwrap();
+    assert_ne!(changed[1].node_instance_id(), Some(second_a));
 
     holder.set_node_instance_id_manage_spi(Arc::new(PrefixInstanceIdSpi));
     assert_eq!(
@@ -923,6 +1090,75 @@ async fn flow_executor_invoke_uses_registered_slot_and_full_node_lifecycle() {
         executor.invoke("invoked_node", slot_index).await,
         Err(LiteflowError::DataNotFound(_))
     ));
+}
+
+#[tokio::test]
+async fn node_component_invoke2_resp_reuses_context_and_merges_child_steps() {
+    let _guard = FLOW_EXECUTOR_GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    FlowExecutorHolder::clean();
+
+    let bus = FlowBus::new();
+    bus.register(
+        "child_node",
+        cmp(|ctx| async move {
+            let inherited = ctx
+                .bean::<Value>("shared")
+                .map(|value| value.as_ref().clone())
+                .unwrap_or(Value::Null);
+            let request_data = ctx.request_data::<Value>().unwrap_or(Value::Null);
+            ctx.set_data(
+                "child_observed",
+                json!({
+                    "request_id": ctx.inner.request_id,
+                    "request_data": request_data,
+                    "inherited": inherited
+                }),
+            );
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain("child_chain", "THEN(child_node)")
+        .expect("子链应构建成功");
+    FlowExecutorHolder::set_holder(FlowExecutor::new(bus));
+
+    let parent_slot = Arc::new(Slot::new(
+        "shared-request-id".to_string(),
+        "parent_chain",
+        Value::Null,
+    ));
+    parent_slot.insert_context_bean("shared", Arc::new(json!({"tenant": "acme"})));
+    let component = InvokeLifecycleComponent {
+        calls: Arc::new(Mutex::new(Vec::new())),
+    };
+    let component_context = CmpContext {
+        inner: Arc::clone(&parent_slot),
+        node: NodeRef::new("parent_node"),
+        frame: liteflow_core::Frame::root(),
+    };
+
+    let response = component
+        .invoke2_resp(&component_context, "child_chain", json!({"order_id": 7}))
+        .await
+        .expect("组件内子链调用应成功");
+
+    assert!(response.is_success());
+    assert_eq!(response.get_request_id(), "shared-request-id");
+    assert_eq!(
+        response.data("child_observed"),
+        Some(json!({
+            "request_id": "shared-request-id",
+            "request_data": {"order_id": 7},
+            "inherited": {"tenant": "acme"}
+        }))
+    );
+    assert_eq!(response.get_execute_step_queue().len(), 1);
+    let parent_steps = parent_slot.get_execute_steps();
+    assert_eq!(parent_steps.len(), 1);
+    assert_eq!(parent_steps[0].get_node_id(), "child_node");
+
+    FlowExecutorHolder::clean();
 }
 
 #[tokio::test]

@@ -17,9 +17,12 @@ fn cell() -> &'static RwLock<Option<Arc<dyn PathContentParser>>> {
 pub struct PathContentParserHolder;
 
 impl PathContentParserHolder {
-    /// 对应 loadContextAware()（Java 原方法名如此，实为加载 PathContentParser）：
-    /// 未注册时回退 LocalPathContentParser
-    pub fn load_path_content_parser() -> Arc<dyn PathContentParser> {
+    /// 加载当前路径内容解析器。
+    ///
+    /// Java 原方法名为 `loadContextAware`，但实际返回 `PathContentParser`；未显式注册
+    /// 实现时返回线程安全缓存的 `LocalPathContentParser`。
+    /// 对应 Java: `PathContentParserHolder#loadContextAware`。
+    pub fn load_context_aware() -> Arc<dyn PathContentParser> {
         if let Some(x) = cell().read().unwrap().as_ref() {
             return x.clone();
         }
@@ -27,6 +30,15 @@ impl PathContentParserHolder {
         guard
             .get_or_insert_with(|| Arc::new(LocalPathContentParser::new()))
             .clone()
+    }
+
+    /// 加载当前路径内容解析器。
+    ///
+    /// 这是 Rust 侧修正 Java 误命名后的可读入口，行为与
+    /// `load_context_aware` 完全一致。
+    #[must_use]
+    pub fn load_path_content_parser() -> Arc<dyn PathContentParser> {
+        Self::load_context_aware()
     }
 
     /// 显式注册覆盖实现

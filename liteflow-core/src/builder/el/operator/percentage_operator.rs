@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 仅可用于 WHEN/PAR，阈值范围为 0 到 1。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.PercentageOperator`。
-pub(crate) struct PercentageOperator;
+pub struct PercentageOperator;
 
 impl BaseOperator for PercentageOperator {
     fn operator_name(&self) -> &'static str {

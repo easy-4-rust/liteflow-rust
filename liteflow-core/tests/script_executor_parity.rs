@@ -1,6 +1,6 @@
 //! Java `ScriptExecutor` 与 `ScriptExecuteWrap` 运行时语义测试。
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use liteflow_core::core::NodeComponent;
@@ -149,5 +149,39 @@ fn bind_param_drives_meta_and_context_beans_in_real_rhai_execution() {
         Some(&json!("sub-chain"))
     );
     assert_eq!(context.inner.data.get("loop").as_deref(), Some(&json!("A")));
+    assert!(DataBus::release_slot(slot_index));
+}
+
+#[test]
+fn serde_context_bean_getters_and_setters_mutate_the_same_slot_object() {
+    let (context, slot_index) = script_context();
+    let order = Arc::new(RwLock::new(json!({
+        "orderNo": null,
+        "orderType": 0
+    })));
+    context.inner.insert_context_bean("order", order.clone());
+    let executor = RhaiScriptExecutor::new();
+    executor
+        .load(
+            "script-node",
+            r#"
+                script_context_call(_script_beans, "order", "setOrderNo", ["order1"]);
+                script_context_call(_script_beans, "order", "setOrderType", [7]);
+                data["order_no"] =
+                    script_context_call(_script_beans, "order", "getOrderNo", []);
+                data["order_type"] =
+                    script_context_call(_script_beans, "order", "getOrderType", []);
+            "#,
+        )
+        .unwrap();
+
+    executor.execute_script("script-node", &context).unwrap();
+
+    assert_eq!(
+        *order.read().unwrap(),
+        json!({"orderNo": "order1", "orderType": 7})
+    );
+    assert_eq!(context.get_data("order_no"), Some(json!("order1")));
+    assert_eq!(context.get_data("order_type"), Some(json!(7)));
     assert!(DataBus::release_slot(slot_index));
 }

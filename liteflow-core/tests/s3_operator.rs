@@ -3,11 +3,52 @@
 //! 覆盖 Java v2.16 的 34 个具体操作符，确保每个独立文件都真实参与
 //! AST 构建或运行时执行，而不是只有文件壳。
 
-use liteflow_core::el::{El, parse_el};
+use liteflow_core::builder::el::operator::base::BaseOperator;
+use liteflow_core::builder::el::operator::{ForOperator, ThenOperator, WhileOperator};
+use liteflow_core::el::{Arg, El, parse_el};
 use liteflow_core::{FlowBus, LiteflowError, NodeTypeEnum, cmp};
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[test]
+fn public_operator_objects_call_their_real_typed_build_logic() {
+    let serial = ThenOperator
+        .call(
+            None,
+            vec![Arg::Str("a".to_string()), Arg::Str("b".to_string())],
+        )
+        .expect("公开 THEN Operator 应构建真实 AST");
+    assert!(matches!(serial, El::Then(items) if items.len() == 2));
+
+    let counted_loop = ForOperator
+        .call(None, vec![Arg::Num(3.0)])
+        .expect("公开 FOR Operator 应保留整数重载");
+    assert!(matches!(
+        counted_loop,
+        El::ForCount {
+            count: 3,
+            parallel: None,
+            ..
+        }
+    ));
+
+    let boolean_loop = WhileOperator
+        .call(None, vec![Arg::Bool(false)])
+        .expect("公开 WHILE Operator 应保留布尔字面量重载");
+    assert!(matches!(
+        boolean_loop,
+        El::While { node, .. } if matches!(*node, El::Boolean(false))
+    ));
+
+    let null_error = ThenOperator
+        .call(None, vec![Arg::Null])
+        .expect_err("BaseOperator#call 必须在构建前拒绝 null");
+    assert!(matches!(
+        null_error,
+        LiteflowError::Parse(message) if message == "DataNotFoundException"
+    ));
+}
 
 #[test]
 fn then_operator_builds_serial_ast() {
@@ -43,10 +84,14 @@ fn or_operator_requires_at_least_two_items() {
 
 #[test]
 fn operator_helper_rejects_null_and_non_boolean_condition_items() {
-    assert!(matches!(
-        parse_el("THEN(null)"),
-        Err(LiteflowError::Parse(message)) if message == "DataNotFoundException"
-    ));
+    let null_result = parse_el("THEN(null)");
+    assert!(
+        matches!(
+            null_result,
+            Err(LiteflowError::Parse(ref message)) if message == "DataNotFoundException"
+        ),
+        "{null_result:?}"
+    );
     assert!(matches!(
         parse_el("AND(THEN(a),b)"),
         Err(LiteflowError::Parse(message)) if message == "The parameter error."
@@ -69,7 +114,7 @@ fn operator_helper_checks_registered_node_types_during_chain_build() {
     )
     .unwrap();
     bus.add_node(
-        "boolean",
+        "bool_node",
         None,
         NodeTypeEnum::Boolean,
         Arc::new(cmp(|_| async { Ok(Value::Bool(true)) })),
@@ -83,16 +128,19 @@ fn operator_helper_checks_registered_node_types_during_chain_build() {
     )
     .unwrap();
 
-    assert!(bus.add_chain("valid_boolean", "IF(boolean,target)").is_ok());
+    assert!(
+        bus.add_chain("valid_boolean", "IF(bool_node,target)")
+            .is_ok()
+    );
     assert!(matches!(
         bus.add_chain("wrong_boolean", "IF(common,target)"),
         Err(LiteflowError::Parse(message))
             if message == "The node[common] must be boolean type Node."
     ));
     assert!(matches!(
-        bus.add_chain("wrong_common", "THEN(boolean)"),
+        bus.add_chain("wrong_common", "THEN(bool_node)"),
         Err(LiteflowError::Parse(message))
-            if message == "The node[boolean] must be a common type component"
+            if message == "The node[bool_node] must be a common type component"
     ));
     assert!(matches!(
         bus.add_chain("wrong_for", "FOR(common).DO(target)"),

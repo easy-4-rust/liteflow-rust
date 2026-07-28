@@ -40,6 +40,30 @@ impl AbstractCondition {
     pub fn set_curr_chain_id(&mut self, curr_chain_id: impl Into<String>) {
         <Self as Condition>::set_curr_chain_id(self, curr_chain_id);
     }
+
+    /// 拒绝执行仍含未实现变量的抽象链。
+    ///
+    /// 参数 `ctx` 与 `frame` 对应 Java `slotIndex` 定位的执行状态；返回
+    /// `ChainNotImplemented`，错误文本包含当前 Chain id。
+    /// 对应 Java: `AbstractCondition#executeCondition`。
+    pub async fn execute_condition(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        super::execute_condition_with_lifecycle(self, ctx, frame, async {
+            Err(LiteflowError::ChainNotImplemented(format!(
+                "chain[{}] contains unimplemented variables, cannot be executed",
+                self.curr_chain_id()
+            )))
+        })
+        .await
+    }
+
+    /// 返回抽象条件类型。
+    ///
+    /// 返回值固定为 `ConditionTypeEnum::Abstract`。
+    /// 对应 Java: `AbstractCondition#getConditionType`。
+    #[must_use]
+    pub fn get_condition_type(&self) -> ConditionTypeEnum {
+        ConditionTypeEnum::Abstract
+    }
 }
 
 #[async_trait]
@@ -48,13 +72,7 @@ impl Executable for AbstractCondition {
     ///
     /// 对应 Java: `AbstractCondition#executeCondition`。
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
-        super::execute_condition_with_lifecycle(self, ctx, frame, async {
-            Err(LiteflowError::ChainNotImplemented(format!(
-                "chain[{}] contains unimplemented variables, cannot be executed",
-                self.curr_chain_id()
-            )))
-        })
-        .await
+        AbstractCondition::execute_condition(self, ctx, frame).await
     }
 
     fn collect_node_ids(&self) -> Vec<String> {
@@ -72,6 +90,6 @@ impl Condition for AbstractCondition {
     }
 
     fn condition_type(&self) -> ConditionTypeEnum {
-        ConditionTypeEnum::Abstract
+        self.get_condition_type()
     }
 }

@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// 对 WHEN/PAR 直接设置等待时间；FINALLY 禁止设置；当 THEN 含 FINALLY 时，
 /// 只给其普通/PRE 部分增加超时，FINALLY 被提升到外层，保持 Java 的清理保障。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.MaxWaitTimeOperator`。
-pub(crate) struct MaxWaitTimeOperator;
+pub struct MaxWaitTimeOperator;
 
 impl MaxWaitTimeOperator {
     /// 按给定毫秒倍率构建超时 AST。

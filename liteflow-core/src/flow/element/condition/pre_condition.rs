@@ -1,10 +1,6 @@
 //! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.PreCondition
 //!
-//! 前置 Condition。
-//!
-//! 差异说明：
-//! - Java PreCondition 持有 executableList 并循环执行多个可执行项；Rust 端
-//!   EL 中 PRE(...) 只包裹单个表达式，由 builder 保证单 item，故持单字段。
+//! 前置 Condition，按列表顺序执行全部可执行项。
 
 use super::{Condition, ConditionBase};
 use crate::enums::ConditionTypeEnum;
@@ -19,14 +15,19 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct PreCondition {
     base: ConditionBase,
-    item: Arc<dyn Executable>,
+    executable_list: Vec<Arc<dyn Executable>>,
 }
 
 impl PreCondition {
+    /// 创建前置 Condition。
+    ///
+    /// 参数 `item` 是 PRE 中需要执行的真实表达式；返回值保存同一共享执行对象。
+    /// 对应 Java: `PreCondition#PreCondition` 的 Builder 装配结果。
+    #[must_use]
     pub fn new(item: Arc<dyn Executable>) -> Self {
         Self {
             base: ConditionBase::default(),
-            item,
+            executable_list: vec![item],
         }
     }
 
@@ -51,7 +52,12 @@ impl PreCondition {
 impl Executable for PreCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         super::execute_condition_with_lifecycle(self, ctx, frame, async {
-            self.item.execute(ctx, frame).await
+            // 对应 Java PreCondition#executeCondition：按 executableList 插入顺序
+            // 串行执行，首个异常立即停止并向上传播。
+            for executable in &self.executable_list {
+                executable.execute(ctx, frame).await?;
+            }
+            Ok(Value::Null)
         })
         .await
     }
@@ -76,7 +82,7 @@ impl Condition for PreCondition {
     }
 
     fn typed_executable_group(&self) -> HashMap<String, Vec<Arc<dyn Executable>>> {
-        HashMap::from([("DEFAULT_KEY".to_string(), vec![Arc::clone(&self.item)])])
+        HashMap::from([("DEFAULT_KEY".to_string(), self.executable_list.clone())])
     }
 
     fn replace_typed_executable_group(
@@ -84,8 +90,8 @@ impl Condition for PreCondition {
         group_key: &str,
         executable_list: Vec<Arc<dyn Executable>>,
     ) -> bool {
-        if group_key == "DEFAULT_KEY" && !executable_list.is_empty() {
-            self.item = Arc::clone(&executable_list[0]);
+        if group_key == "DEFAULT_KEY" {
+            self.executable_list = executable_list;
             true
         } else {
             false

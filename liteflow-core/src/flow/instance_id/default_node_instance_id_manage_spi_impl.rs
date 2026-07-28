@@ -1,15 +1,12 @@
 //! 默认节点实例编号管理实现。
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-use rand::distributions::{Alphanumeric, DistString};
 
 use crate::common::ChainConstant;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::entity::InstanceInfoDto;
+use crate::util::SerialsUtil;
 
 use super::NodeInstanceIdManageSpi;
 
@@ -19,7 +16,6 @@ use super::NodeInstanceIdManageSpi;
 /// `com.yomahub.liteflow.flow.instanceId.DefaultNodeInstanceIdManageSpiImpl`。
 pub struct DefaultNodeInstanceIdManageSpiImpl {
     base_path: PathBuf,
-    cache: Mutex<HashMap<String, String>>,
 }
 
 impl DefaultNodeInstanceIdManageSpiImpl {
@@ -28,7 +24,6 @@ impl DefaultNodeInstanceIdManageSpiImpl {
     pub fn with_base_path(base_path: impl Into<PathBuf>) -> Self {
         Self {
             base_path: base_path.into(),
-            cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -80,16 +75,18 @@ impl Default for DefaultNodeInstanceIdManageSpiImpl {
 }
 
 impl NodeInstanceIdManageSpi for DefaultNodeInstanceIdManageSpiImpl {
+    /// 为当前 EL 快照生成 `nodeId_shortUuid_index` 格式的新实例编号。
+    ///
+    /// 参数 `chain_id` 标识所属 Chain，`node_id` 是组件 ID，`occurrence` 是同名
+    /// 节点在主体 Condition 中从零开始的出现下标。稳定编号由持久化快照恢复，
+    /// 只有 EL 变化时才会调用本方法重新生成。
+    /// 对应 Java: `BaseNodeInstanceIdManageSpi#addInstanceIdFromExecutableGroup`。
     fn gen_instance_id(&self, chain_id: &str, node_id: &str, occurrence: usize) -> String {
-        let key = format!("{chain_id}:{node_id}:{occurrence}");
-        let mut cache = self.cache.lock().unwrap();
-        cache
-            .entry(key)
-            .or_insert_with(|| {
-                let short_uuid = Alphanumeric.sample_string(&mut rand::thread_rng(), 8);
-                format!("{node_id}_{short_uuid}_{occurrence}")
-            })
-            .clone()
+        let _ = chain_id;
+        // 稳定性由 EL MD5 对应的持久化快照提供；EL 变化时必须像 Java 一样重新
+        // 生成短 UUID，不能复用进程内 `(chain,node,index)` 缓存。
+        let short_uuid = SerialsUtil::generate_short_uuid();
+        format!("{node_id}_{short_uuid}_{occurrence}")
     }
 
     fn read_instance_id_file(&self, chain_id: &str) -> LFResult<Vec<String>> {

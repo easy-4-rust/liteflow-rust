@@ -4,7 +4,7 @@
 ///
 /// 对应 Java `RetryCondition`、`TimeoutCondition`、`ignoreError` 以及
 /// 2.14+ Condition 级 `bind`。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct Mods {
     /// Condition 实例 id。
     pub id: Option<String>,

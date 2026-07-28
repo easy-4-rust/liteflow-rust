@@ -7,7 +7,7 @@ use crate::exception::LFResult;
 /// 包含至少两个能产生布尔结果的表达式；执行期由 AndOrCondition 做短路判断。
 /// 参数数量与 Java `OperatorHelper#checkObjectSizeGteTwo` 保持一致。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.AndOperator`。
-pub(crate) struct AndOperator;
+pub struct AndOperator;
 
 impl BaseOperator for AndOperator {
     fn operator_name(&self) -> &'static str {

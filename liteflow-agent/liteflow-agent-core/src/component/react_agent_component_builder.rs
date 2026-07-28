@@ -269,15 +269,9 @@ impl ReActAgentComponentBuilder {
             return Ok(self.session.clone());
         }
 
-        let mode = self.config.session.memory.mode;
         AgentSessionFactoryRegistry::new()
             .create_session(&self.config)
-            .map_err(|error| match mode {
-                crate::MemoryStorageMode::Redis | crate::MemoryStorageMode::Mysql => {
-                    AgentError::SessionBackendRequiresInjection(mode)
-                }
-                _ => AgentError::from(error),
-            })
+            .map_err(AgentError::from)
     }
 }
 

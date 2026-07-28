@@ -14,7 +14,7 @@ use crate::flow::element::chain::Chain;
 use crate::flow::element::fallback_node::normalize_fallback_type;
 use crate::flow::instance_id::{NodeInstanceIdManageSpi, NodeInstanceIdManageSpiHolder};
 use crate::lifecycle::{
-    LifeCycleHolder, PostProcessChainBuildLifeCycle, PostProcessChainExecuteLifeCycle,
+    LifeCycle, LifeCycleHolder, PostProcessChainBuildLifeCycle, PostProcessChainExecuteLifeCycle,
     PostProcessFlowExecuteLifeCycle, PostProcessNodeBuildLifeCycle,
     PostProcessScriptEngineInitLifeCycle,
 };
@@ -23,14 +23,17 @@ use crate::parser::el::{JsonFlowElParser, XmlFlowElParser, YmlFlowElParser};
 use crate::script::{ScriptKind, build_rhai_component};
 use crate::spi::DeclComponentParserHolder;
 use dashmap::DashMap;
-use md5::{Digest, Md5};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 type MonitorFileCleaner = Arc<dyn Fn() -> LFResult<()> + Send + Sync>;
 
-/// 流程总线
+/// 保存并管理 Chain、Node、脚本、生命周期和运行期扩展的流程元数据总线。
+///
+/// Java 使用进程级静态注册表；Rust 将同一组状态绑定到可克隆的 `FlowBus`，
+/// 使多个运行时相互隔离。对应 Java:
+/// `com.yomahub.liteflow.flow.FlowBus`。
 #[derive(Clone)]
 pub struct FlowBus {
     pub(crate) nodes: Arc<DashMap<String, Arc<dyn NodeComponent>>>,
@@ -71,6 +74,11 @@ impl Default for FlowBus {
 }
 
 impl FlowBus {
+    /// 创建一个相互隔离的空流程总线。
+    ///
+    /// 返回值包含空的 Chain/Node 注册表、默认节点实例 ID SPI 和生命周期容器。
+    /// 对应 Java: `FlowBus` 静态初始化块。
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: Arc::new(DashMap::new()),
@@ -107,17 +115,37 @@ impl FlowBus {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(cleaner);
     }
-    pub fn register_node_build_hook(&self, h: Arc<dyn PostProcessNodeBuildLifeCycle>) {
-        self.lifecycle.write().unwrap().node_build.push(h);
+    /// 注册节点构建生命周期实现。
+    ///
+    /// 参数 `hook` 在节点完成构建后被调用。对应 Java:
+    /// `LifeCycleHolder#addLifeCycle` 的 `PostProcessNodeBuildLifeCycle` 分支。
+    pub fn register_node_build_hook(&self, hook: Arc<dyn PostProcessNodeBuildLifeCycle>) {
+        self.lifecycle.write().unwrap().node_build.push(hook);
     }
-    pub fn register_chain_build_hook(&self, h: Arc<dyn PostProcessChainBuildLifeCycle>) {
-        self.lifecycle.write().unwrap().chain_build.push(h);
+
+    /// 注册 Chain 构建前后生命周期实现。
+    ///
+    /// 参数 `hook` 会在新 Chain 写入注册表前后各接收一次同一个 Chain。
+    /// 对应 Java: `LifeCycleHolder#addLifeCycle` 的
+    /// `PostProcessChainBuildLifeCycle` 分支。
+    pub fn register_chain_build_hook(&self, hook: Arc<dyn PostProcessChainBuildLifeCycle>) {
+        self.lifecycle.write().unwrap().chain_build.push(hook);
     }
-    pub fn register_flow_execute_hook(&self, h: Arc<dyn PostProcessFlowExecuteLifeCycle>) {
-        self.lifecycle.write().unwrap().flow_execute.push(h);
+
+    /// 注册流程执行前后生命周期实现。
+    ///
+    /// 参数 `hook` 作用于一次完整 Flow 执行。对应 Java:
+    /// `LifeCycleHolder#addLifeCycle` 的 `PostProcessFlowExecuteLifeCycle` 分支。
+    pub fn register_flow_execute_hook(&self, hook: Arc<dyn PostProcessFlowExecuteLifeCycle>) {
+        self.lifecycle.write().unwrap().flow_execute.push(hook);
     }
-    pub fn register_chain_execute_hook(&self, h: Arc<dyn PostProcessChainExecuteLifeCycle>) {
-        self.lifecycle.write().unwrap().chain_execute.push(h);
+
+    /// 注册 Chain 执行前后生命周期实现。
+    ///
+    /// 参数 `hook` 作用于主链和嵌套子链执行。对应 Java:
+    /// `LifeCycleHolder#addLifeCycle` 的 `PostProcessChainExecuteLifeCycle` 分支。
+    pub fn register_chain_execute_hook(&self, hook: Arc<dyn PostProcessChainExecuteLifeCycle>) {
+        self.lifecycle.write().unwrap().chain_execute.push(hook);
     }
     /// 注册脚本执行器初始化完成钩子。
     ///
@@ -134,12 +162,31 @@ impl FlowBus {
             .push(hook);
     }
 
+    /// 按真实生命周期子接口注册容器发现的生命周期对象。
+    ///
+    /// # 参数
+    /// - `life_cycle`：实现一个或多个 LiteFlow 生命周期阶段的共享对象。
+    ///
+    /// Java 通过 `LifeCycleHolder#addLifeCycle` 的运行期类型判断把对象放入对应
+    /// 列表；Rust 由对象安全的 `LifeCycle::register_life_cycle` 完成同等强类型
+    /// 分派，并保持当前 `FlowBus` 的应用上下文隔离。
+    pub fn register_life_cycle(&self, life_cycle: Arc<dyn LifeCycle>) {
+        self.lifecycle
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .add_life_cycle(life_cycle);
+    }
+
     /// 清空当前流程总线的全部生命周期钩子。
     ///
     /// 对应 Java `LifeCycleHolder#clean`。
     pub fn clean_lifecycle_hooks(&self) {
         self.lifecycle.write().unwrap().clean();
     }
+    /// 替换当前总线使用的节点实例 ID 管理 SPI。
+    ///
+    /// 参数 `spi` 负责编号生成、快照读取和写入；后续 Builder 构建立即使用新实现。
+    /// 对应 Java: `NodeInstanceIdManageSpiHolder#setSpi`。
     pub fn set_instance_id_spi(&self, spi: Arc<dyn NodeInstanceIdManageSpi>) {
         self.instance_id_spi_holder
             .set_node_instance_id_manage_spi(spi);
@@ -166,6 +213,11 @@ impl FlowBus {
         self.try_register_decl_warp(decl_warp_bean)
             .expect("register declarative component failed");
     }
+
+    /// 返回指定声明式组件。
+    ///
+    /// 参数 `node_id` 是 `cmpId.methodName` 中的组件 ID；未注册时返回 `None`。
+    /// 该内部查询承接 Java `FlowBus#getNode` 的声明式组件代理解析分支。
     pub(crate) fn get_decl(&self, node_id: &str) -> Option<Arc<dyn DeclComponent>> {
         self.decls.get(node_id).map(|r| r.clone())
     }
@@ -206,6 +258,11 @@ impl FlowBus {
         self.fallback_nodes
             .contains_key(normalize_fallback_type(node_type).get_code())
     }
+
+    /// 返回构建 Node 时使用的全局切面与监控器快照。
+    ///
+    /// 返回的拥有型切面列表和共享 MonitorBus 可安全进入异步执行对象；该内部
+    /// 入口承接 Java CmpAroundAspectHolder 与 MonitorBus 的构建期读取。
     pub(crate) fn hooks_snapshot(&self) -> (Vec<Arc<dyn ICmpAroundAspect>>, Arc<MonitorBus>) {
         (self.aspects.read().unwrap().clone(), self.monitor.clone())
     }
@@ -225,6 +282,10 @@ impl FlowBus {
     ) -> LFResult<()> {
         self.try_register_arc(node_id, Arc::new(cmp))
     }
+    /// 注册已经类型擦除的线程安全节点组件。
+    ///
+    /// 参数 `node_id` 是 EL 中使用的节点 ID，`cmp` 是待初始化的组件实例；校验
+    /// 失败时保持 Java 注册入口的立即失败语义。对应 Java: `FlowBus#addNode`。
     pub fn register_arc(&self, node_id: impl Into<String>, cmp: Arc<dyn NodeComponent>) {
         self.try_register_arc(node_id, cmp)
             .expect("register component failed");
@@ -304,6 +365,10 @@ impl FlowBus {
         self.nodes.remove(node_id);
         self.script_nodes.remove(node_id);
     }
+    /// 返回指定节点是否已经注册。
+    ///
+    /// 参数 `node_id` 是待查询节点 ID。对应 Java: `FlowBus#containNode`。
+    #[must_use]
     pub fn contains_node(&self, node_id: &str) -> bool {
         self.nodes.contains_key(node_id)
     }
@@ -333,6 +398,10 @@ impl FlowBus {
         self.nodes.remove(node_id).is_some()
     }
 
+    /// 返回指定节点组件的共享实例。
+    ///
+    /// 参数 `node_id` 是 EL 节点 ID；未注册时返回 `None`。对应 Java:
+    /// `FlowBus#getNode`。
     pub(crate) fn get_node(&self, node_id: &str) -> Option<Arc<dyn NodeComponent>> {
         self.nodes.get(node_id).map(|r| r.clone())
     }
@@ -342,23 +411,26 @@ impl FlowBus {
     /// LiteFlowChainELBuilder.createChain().setChainId().setEL()
     pub fn add_chain(&self, chain_id: impl Into<String>, el: &str) -> LFResult<()> {
         let id = chain_id.into();
-        let ast = parse_el(el)?;
-        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
-        chain.set_el(el);
-        chain.set_el_md5(format!("{:x}", Md5::digest(el.as_bytes())));
-        self.add_built_chain(chain);
-        Ok(())
+        let builder = LiteFlowChainELBuilder::create_chain(self.clone());
+        builder.set_chain_id(id);
+        builder.set_el(el)?;
+        builder.build()
     }
 
-    /// 以语法树构建链路（平滑加载：先完整构建，再原子替换）
+    /// 以 Rust 类型化语法树构建链路。
+    ///
+    /// 该 Rust 扩展入口委托给统一 Builder，完整执行节点实例编号恢复/持久化、
+    /// Chain 注册和构建后生命周期。类型化 AST 不含 EL 原文，因此始终立即编译。
+    ///
+    /// # 参数
+    /// - `chain_id`: Chain 唯一标识。
+    /// - `el`: 已解析的 EL 语法树。
+    ///
+    /// # 返回
+    /// 构建和原子注册成功时返回 `Ok(())`。
     pub fn add_chain_el(&self, chain_id: impl Into<String>, el: El) -> LFResult<()> {
         let id = chain_id.into();
-        let chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, el)?;
-        self.chains.insert(id.clone(), Arc::new(chain));
-        for h in &self.lifecycle.read().unwrap().chain_build {
-            h.post_process_after_chain_build(&id);
-        }
-        Ok(())
+        LiteFlowChainELBuilder::new(self.clone()).build_parsed_chain(&id, el)
     }
 
     /// 第一阶段预装载已经创建的链，不触发生命周期与 EL MD5 登记。
@@ -369,37 +441,76 @@ impl FlowBus {
             .insert(chain.get_chain_id().to_string(), Arc::new(chain));
     }
 
-    /// 由已构建的 Chain 直接装配（parser 包用）
-    pub fn add_built_chain(&self, chain: Chain) {
+    /// 由已构建的 Chain 完成生命周期调用并原子写入注册表。
+    ///
+    /// 参数 `chain` 已包含可执行 Condition 和 EL 元数据。before 回调发生在写入
+    /// 前并可修改 Chain 元数据；after 回调发生在写入后，且两阶段接收同一个
+    /// Chain。
+    /// 对应 Java: `FlowBus#addChain(Chain)`。
+    pub fn add_built_chain(&self, mut chain: Chain) {
+        let hooks = self
+            .lifecycle
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .chain_build
+            .clone();
+        for hook in &hooks {
+            hook.post_process_before_chain_build(&mut chain);
+        }
+
+        let chain = Arc::new(chain);
         let id = chain.id.clone();
         if let Some(md5) = chain.get_el_md5().map(ToOwned::to_owned) {
             self.el_md5_map.insert(md5, id.clone());
         }
-        self.chains.insert(id.clone(), Arc::new(chain));
-        for h in &self.lifecycle.read().unwrap().chain_build {
-            h.post_process_after_chain_build(&id);
+        self.chains.insert(id, Arc::clone(&chain));
+
+        for hook in &hooks {
+            hook.post_process_after_chain_build(&chain);
         }
     }
 
-    /// 构建匿名链路并登记 elMd5 索引（2.16：execute2RespWithEL 的缓存语义）
+    /// 构建匿名链路并登记 EL MD5 索引。
+    ///
+    /// # 参数
+    /// - `chain_id`: 首次执行动态 EL 时生成的匿名 Chain ID。
+    /// - `normalized_el`: 经 `ElRegexUtil::normalize` 处理并保留尾部分号的 EL。
+    /// - `el_md5`: 调用方对规范化 EL 计算的 MD5，用于校验缓存键一致性。
+    ///
+    /// # 返回
+    /// Builder 编译、实例编号持久化和 Chain 注册成功时返回 `Ok(())`；摘要不一致
+    /// 或 EL 无效时返回对应错误。
+    /// 对应 Java: `FlowExecutor#execute2RespWithEL`。
     pub fn add_chain_anonymous(
         &self,
         chain_id: &str,
         normalized_el: &str,
         el_md5: String,
     ) -> LFResult<()> {
-        // normalize 末尾保留的分号是 QLExpress 语句终止符语义，本解析器剔除
-        let ast = parse_el(normalized_el.trim_end_matches(';'))?;
-        let id = chain_id.to_string();
-        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(&id, ast)?;
-        chain.set_el(normalized_el);
-        chain.set_el_md5(el_md5.clone());
-        self.chains.insert(id.clone(), Arc::new(chain));
-        self.el_md5_map.insert(el_md5, id.clone());
-        for h in &self.lifecycle.read().unwrap().chain_build {
-            h.post_process_after_chain_build(&id);
+        let builder = LiteFlowChainELBuilder::create_chain(self.clone());
+        builder.set_chain_id(chain_id);
+        builder.set_el(normalized_el)?;
+
+        // 调用方与 Builder 都按 Java ElRegexUtil.normalize 计算摘要；显式校验可防止
+        // 匿名链缓存键与 Chain 自身摘要分裂，避免后续错误复用另一条链。
+        let builder_el_md5 = builder
+            .get_chain()
+            .get_el_md5()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| {
+                LiteflowError::Parse(format!(
+                    "anonymous chain[{chain_id}] does not contain an EL MD5"
+                ))
+            })?;
+        if builder_el_md5 != el_md5 {
+            return Err(LiteflowError::Parse(format!(
+                "anonymous chain[{chain_id}] EL MD5 mismatch"
+            )));
         }
-        Ok(())
+
+        // 对应 Java FlowExecutor#execute2RespWithEL：匿名 EL 与普通 Chain 共用
+        // LiteFlowChainELBuilder，因此完整触发节点实例编号、生命周期和原子注册。
+        builder.build()
     }
 
     /// getChainIdByElMd5（2.16）
@@ -412,20 +523,25 @@ impl FlowBus {
         if !self.chains.contains_key(chain_id) {
             return Err(LiteflowError::ChainNotFound(chain_id.to_string()));
         }
-        let ast = parse_el(el)?;
-        let mut chain = LiteFlowChainELBuilder::new(self.clone()).build_chain(chain_id, ast)?;
-        chain.set_el(el);
-        chain.set_el_md5(format!("{:x}", Md5::digest(el.as_bytes())));
-        self.add_built_chain(chain);
-        Ok(())
+        let builder = LiteFlowChainELBuilder::create_chain(self.clone());
+        builder.set_chain_id(chain_id);
+        builder.set_el(el)?;
+        builder.build()
     }
 
-    pub fn remove_chain(&self, chain_id: &str) {
+    /// 从元数据注册表中移除指定 Chain，并同步清除匿名 EL 摘要索引。
+    ///
+    /// 参数 `chain_id` 是待删除 Chain ID；确实删除时返回 `true`，不存在时返回
+    /// `false`。对应 Java: `FlowBus#removeChain(String)`。
+    pub fn remove_chain(&self, chain_id: &str) -> bool {
         if let Some((_, chain)) = self.chains.remove(chain_id) {
             // 2.16：移除 chain 时同步清理 elMd5 索引
             if let Some(md5) = chain.get_el_md5() {
                 self.el_md5_map.remove(md5);
             }
+            true
+        } else {
+            false
         }
     }
 
@@ -452,6 +568,10 @@ impl FlowBus {
         })
     }
 
+    /// 返回指定 Chain 是否已经注册。
+    ///
+    /// 参数 `chain_id` 是待查询 Chain ID。对应 Java: `FlowBus#containChain`。
+    #[must_use]
     pub fn contains_chain(&self, chain_id: &str) -> bool {
         self.chains.contains_key(chain_id)
     }
@@ -482,9 +602,19 @@ impl FlowBus {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect()
     }
+    /// 返回当前全部 Chain ID 的线程安全快照。
+    ///
+    /// 返回顺序不作保证；该 Rust 便利入口读取的事实来源与 Java
+    /// `FlowBus#getChainMap` 相同。
+    #[must_use]
     pub fn chain_ids(&self) -> Vec<String> {
         self.chains.iter().map(|r| r.key().clone()).collect()
     }
+
+    /// 返回指定 Chain 的共享实例。
+    ///
+    /// 参数 `chain_id` 是 Chain 唯一 ID；未注册时返回 `None`。对应 Java:
+    /// `FlowBus#getChain`。
     pub(crate) fn get_chain(&self, chain_id: &str) -> Option<Arc<Chain>> {
         self.chains.get(chain_id).map(|r| r.clone())
     }
@@ -724,7 +854,17 @@ impl FlowBus {
         }
     }
 
-    /// 构建决策表链路（route + body），对应 setRoute + setEL
+    /// 构建并注册包含 route 判断与主体 EL 的决策表 Chain。
+    ///
+    /// # 参数
+    /// - `chain_id`: Chain 唯一标识。
+    /// - `namespace`: 决策路由命名空间。
+    /// - `route_el`: 只允许布尔节点、AND、OR 或 NOT 的路由表达式。
+    /// - `body_el`: 路由命中后执行的主体表达式。
+    ///
+    /// # 返回
+    /// 标准 Builder 完成主体实例编号、route 校验和注册时返回 `Ok(())`。
+    /// 对应 Java: `LiteFlowChainELBuilder#setRoute` 与 `#setEL`。
     pub fn add_route_chain(
         &self,
         chain_id: impl Into<String>,
@@ -733,12 +873,12 @@ impl FlowBus {
         body_el: &str,
     ) -> LFResult<()> {
         let id = chain_id.into();
-        let route = parse_el(route_el)?;
-        let body = parse_el(body_el)?;
-        let chain = LiteFlowChainELBuilder::new(self.clone())
-            .build_route_chain(&id, namespace, route, body)?;
-        self.chains.insert(id.clone(), Arc::new(chain));
-        Ok(())
+        let builder = LiteFlowChainELBuilder::create_chain(self.clone());
+        builder.set_chain_id(id);
+        builder.set_namespace(namespace);
+        builder.set_route(route_el);
+        builder.set_el(body_el)?;
+        builder.build()
     }
 
     /// EL 语法校验（validate）
@@ -793,6 +933,11 @@ use std::any::Any as StdAny;
 use std::time::Duration;
 
 impl FlowBus {
+    /// 创建绑定当前流程总线的执行器。
+    ///
+    /// 返回的执行器与当前 `FlowBus` 共享 Chain、Node、监控及生命周期状态。
+    /// 对应 Java: `FlowExecutorHolder#loadInstance` 的便捷调用语义。
+    #[must_use]
     pub fn executor(&self) -> FlowExecutor {
         FlowExecutor::new(self.clone())
     }

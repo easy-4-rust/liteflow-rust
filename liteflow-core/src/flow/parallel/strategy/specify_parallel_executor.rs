@@ -3,8 +3,8 @@
 //! 对应 Java:
 //! `com.yomahub.liteflow.flow.parallel.strategy.SpecifyParallelExecutor`。
 
-use super::{ParallelOpts, ParallelStrategyExecutor, collect, spawn_all};
-use crate::exception::{LFResult, LiteflowError};
+use super::{ParallelOpts, ParallelStrategyExecutor, collect, record_timeout_items, spawn_all};
+use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;
@@ -25,26 +25,25 @@ impl ParallelStrategyExecutor for SpecifyParallelExecutor {
         ctx: Ctx,
         frame: Frame,
     ) -> LFResult<Value> {
+        let n = items.len();
         let must_idx = opts.must_idx.clone();
-        let set = spawn_all(items, &ctx, &frame, &opts.executor_service);
-        let (out, early) = collect(set, &must_idx, |out| {
-            must_idx.iter().all(|m| out.oks.contains(m))
+        let set = spawn_all(items, &ctx, &frame, &opts.executor_service, opts.max_wait);
+        let (out, _) = collect(set, &must_idx, |out| {
+            if must_idx.is_empty() {
+                // Java 在 MUST 指定项一个也不存在时回退为等待全部任务。
+                out.completed.len() >= n
+            } else {
+                must_idx.iter().all(|index| out.completed.contains(index))
+            }
         })
         .await;
-        if early {
+        record_timeout_items(&out, &ctx);
+        if opts.ignore_error {
             return Ok(Value::Null);
         }
-        if out.chain_end {
-            return Err(LiteflowError::ChainEnd("chain end".to_string()));
+        if let Some(error) = out.first_err {
+            return Err(error);
         }
-        if let Some(e) = out.must_err {
-            return Err(LiteflowError::WhenExecute(e.to_string()));
-        }
-        if must_idx.iter().all(|m| out.oks.contains(m)) {
-            return Ok(Value::Null);
-        }
-        Err(LiteflowError::WhenExecute(
-            "specified parallel items not completed".into(),
-        ))
+        Ok(Value::Null)
     }
 }

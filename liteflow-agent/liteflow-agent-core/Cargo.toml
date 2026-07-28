@@ -20,5 +20,7 @@ inventory = "0.3"
 tracing.workspace = true
 
 [dev-dependencies]
+agentscope-extensions-session-mysql = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-extensions/agentscope-extensions-session-mysql" }
+agentscope-extensions-session-redis = { path = "../../../../workspace-octoclaw-labs/agentscope-rust/crates/agentscope-extensions/agentscope-extensions-session-redis" }
 tempfile.workspace = true
 tracing-subscriber = "0.3"

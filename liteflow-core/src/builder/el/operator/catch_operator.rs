@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// CATCH 只允许一个普通表达式，DO 后缀负责设置异常后的降级表达式。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.CatchOperator`。
-pub(crate) struct CatchOperator;
+pub struct CatchOperator;
 
 impl BaseOperator for CatchOperator {
     fn operator_name(&self) -> &'static str {

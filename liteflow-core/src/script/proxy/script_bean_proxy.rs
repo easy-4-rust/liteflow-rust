@@ -34,6 +34,9 @@ impl ScriptBeanProxy {
                 (includes.is_empty() || includes.contains(method.exposed_name()))
                     && !excludes.contains(method.exposed_name())
             })
+            // Java 在这里为每个允许的方法创建 ByteBuddy 代理；Rust 完成同一
+            // 白名单决策后，把静态 callable 代理转移到最终 Bean 代理中。
+            .map(ScriptMethodProxy::get_proxy_script_method)
             .map(|method| (method.exposed_name().to_string(), method))
             .collect();
         Self {
@@ -54,6 +57,18 @@ impl ScriptBeanProxy {
         let mut names = self.methods.keys().cloned().collect::<Vec<_>>();
         names.sort();
         names
+    }
+
+    /// 生成完成包含/排除过滤后的脚本 Bean 代理。
+    ///
+    /// Java 返回 ByteBuddy 创建的新对象；Rust 对象在 `new` 中已经完成同一方法
+    /// 白名单构建并持有真实 callable，因此所有权转移后即可注册到脚本引擎。
+    /// 返回值仍会拒绝未声明或被排除的方法。
+    ///
+    /// 对应 Java: `ScriptBeanProxy#getProxyScriptBean`。
+    #[must_use]
+    pub fn get_proxy_script_bean(self) -> Self {
+        self
     }
 
     /// 调用允许暴露的方法；访问未声明或已排除的方法时返回专用异常。

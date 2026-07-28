@@ -447,37 +447,30 @@ impl FlowExecutor {
         )
     }
 
-    /// 执行 Flow/Chain 的 before 生命周期。
+    /// 绑定 Chain 生命周期快照并执行 Flow 的 before 生命周期。
     ///
-    /// 对应 Java `FlowExecutor#doExecute` 进入链路前的生命周期处理。先克隆钩子再
-    /// await，避免持有 `std::sync::RwLock` guard 跨异步挂起点。
-    async fn run_before_hooks(&self, chain_id: &str) {
+    /// Chain 生命周期由 `Chain#execute` 在主链和子链边界调用；此处只负责把
+    /// 当前 FlowBus 的快照绑定到 Slot，并执行 Java `FlowExecutor#doExecute`
+    /// 的 before 回调。先克隆钩子再 await，避免持锁跨异步挂起点。
+    async fn run_before_hooks(&self, chain_id: &str, slot: &Arc<Slot>) {
         let (flow_hooks, chain_hooks) = {
             let hooks = self.bus.lifecycle.read().unwrap();
             (hooks.flow_execute.clone(), hooks.chain_execute.clone())
         };
+        slot.set_chain_execute_life_cycles(chain_hooks);
         for hook in flow_hooks {
-            hook.post_process_before_flow_execute(chain_id).await;
-        }
-        for hook in chain_hooks {
-            hook.post_process_before_chain_execute(chain_id).await;
+            hook.post_process_before_flow_execute(chain_id, slot).await;
         }
     }
 
-    /// 执行 Chain/Flow 的 after 生命周期。
+    /// 执行 Flow 的 after 生命周期。
     ///
     /// 对应 Java `FlowExecutor#doExecute` 的 finally 块：成功、组件异常、找不到
     /// Chain 与超时都必须进入 after 生命周期。
-    async fn run_after_hooks(&self, chain_id: &str) {
-        let (chain_hooks, flow_hooks) = {
-            let hooks = self.bus.lifecycle.read().unwrap();
-            (hooks.chain_execute.clone(), hooks.flow_execute.clone())
-        };
-        for hook in chain_hooks {
-            hook.post_process_after_chain_execute(chain_id).await;
-        }
+    async fn run_after_hooks(&self, chain_id: &str, slot: &Arc<Slot>) {
+        let flow_hooks = self.bus.lifecycle.read().unwrap().flow_execute.clone();
         for hook in flow_hooks {
-            hook.post_process_after_flow_execute(chain_id).await;
+            hook.post_process_after_flow_execute(chain_id, slot).await;
         }
     }
 
@@ -505,9 +498,12 @@ impl FlowExecutor {
                 LiteflowResponse::new_main_response(slot)
             }
             Err(error) => {
+                let error_code = error.get_code().map(ToOwned::to_owned);
                 ctx.set_exception(&error.to_string());
                 ctx.rollback().await;
-                LiteflowResponse::new_main_response(slot)
+                let mut response = LiteflowResponse::new_main_response(slot);
+                response.set_code(error_code);
+                response
             }
         }
     }
@@ -545,10 +541,10 @@ impl FlowExecutor {
             crate::flow::flow_event_publisher::FlowEventPublisher::set_listener(&ctx, l.clone());
         }
 
-        self.run_before_hooks(chain_id).await;
-        let response = self.execute_chain_on_slot(chain_id, slot).await;
+        self.run_before_hooks(chain_id, &slot).await;
+        let response = self.execute_chain_on_slot(chain_id, slot.clone()).await;
         crate::flow::flow_event_publisher::FlowEventPublisher::remove_listener(&ctx);
-        self.run_after_hooks(chain_id).await;
+        self.run_after_hooks(chain_id, &slot).await;
         response
     }
 
@@ -599,7 +595,7 @@ impl FlowExecutor {
         context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)>,
     ) -> LiteflowResponse {
         // 规范化 EL（对应 ElRegexUtil.normalize：单引号→双引号、去空白、末尾保留一个分号）
-        let normalized = crate::util::el_regex_util::normalize_el(el_str);
+        let normalized = crate::util::el_regex_util::ElRegexUtil::normalize(el_str);
         let el_md5 = format!("{:x}", Md5::digest(normalized.as_bytes()));
 
         let chain_id = match self.bus.get_chain_id_by_el_md5(&el_md5) {
@@ -690,7 +686,7 @@ impl FlowExecutor {
                     DataBus::lease_slot(Arc::new(Slot::new(request_id, chain.id.clone(), v)));
                 let slot = slot_lease.slot();
                 let ctx = Ctx::new(slot.clone());
-                executor.run_before_hooks(&chain.id).await;
+                executor.run_before_hooks(&chain.id, &slot).await;
                 let matched = match chain.execute_mode(&ctx, ChainExecuteModeEnum::Route).await {
                     Ok(Value::Bool(matched)) => matched,
                     Ok(_) => false,
@@ -700,7 +696,7 @@ impl FlowExecutor {
                         false
                     }
                 };
-                executor.run_after_hooks(&chain.id).await;
+                executor.run_after_hooks(&chain.id, &slot).await;
                 (chain, matched)
             });
         }
@@ -757,7 +753,7 @@ impl FlowExecutor {
         let slot = slot_lease.slot();
         let ctx = Ctx::new(slot.clone());
 
-        self.run_before_hooks(chain_id).await;
+        self.run_before_hooks(chain_id, &slot).await;
         let response =
             match tokio::time::timeout(timeout, self.execute_chain_on_slot(chain_id, slot.clone()))
                 .await
@@ -767,10 +763,10 @@ impl FlowExecutor {
                     let message = "chain execute timeout".to_string();
                     ctx.set_exception(&message);
                     ctx.rollback().await;
-                    LiteflowResponse::new(slot, false, message.clone(), Some(message))
+                    LiteflowResponse::new(slot.clone(), false, message.clone(), Some(message))
                 }
             };
-        self.run_after_hooks(chain_id).await;
+        self.run_after_hooks(chain_id, &slot).await;
         response
     }
 }

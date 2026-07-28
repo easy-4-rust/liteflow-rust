@@ -360,7 +360,13 @@ fn instance_id_spi_creates_reads_and_updates_real_table() {
     assert!(lines[1].contains("node-a-1"));
 
     let generated = spi.gen_instance_id("chain-a", "node-a", 2);
-    assert_eq!(generated, spi.gen_instance_id("chain-a", "node-a", 2));
+    let regenerated = spi.gen_instance_id("chain-a", "node-a", 2);
+    assert!(generated.starts_with("node-a_"));
+    assert!(generated.ends_with("_2"));
+    assert_ne!(
+        generated, regenerated,
+        "EL 变化触发新快照时必须像 Java 一样生成新的短 UUID"
+    );
 
     let helper = JDBCHelper::init(config);
     helper.create_node_instance_id_table().unwrap();

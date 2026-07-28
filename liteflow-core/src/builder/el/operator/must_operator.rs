@@ -8,7 +8,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 参数可为节点 id 字符串或节点表达式；Rust 使用有序集合去重后写入 WhenOpts。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.MustOperator`。
-pub(crate) struct MustOperator;
+pub struct MustOperator;
 
 impl BaseOperator for MustOperator {
     fn operator_name(&self) -> &'static str {

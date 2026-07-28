@@ -2,8 +2,12 @@
 
 use super::{Mods, NodeRef, WhenOpts};
 
-/// EL 语法树，对应 `flow.element.condition` 包的 Condition 族。
-#[derive(Debug, Clone, PartialEq)]
+/// LiteFlow EL 的 Rust 专用类型化语法树。
+///
+/// Java 由 QLExpress 表达式对象直接构建 `flow.element.condition` Condition 族；
+/// Rust 以本枚举保存相同结构，再由 LiteFlowChainELBuilder 生成真实 Condition。
+/// 本类型不对应独立 Java 对象。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum El {
     /// 节点引用。
     Node(NodeRef),

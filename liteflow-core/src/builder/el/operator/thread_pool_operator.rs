@@ -8,7 +8,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// `WhenOpts` 或循环 `Mods`，构建后由 `ExecutorHelper` 按
 /// Condition > Chain > 全局优先级选择并缓存真实有界 Tokio 执行器。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ThreadPoolOperator`。
-pub(crate) struct ThreadPoolOperator;
+pub struct ThreadPoolOperator;
 
 impl BaseOperator for ThreadPoolOperator {
     fn operator_name(&self) -> &'static str {

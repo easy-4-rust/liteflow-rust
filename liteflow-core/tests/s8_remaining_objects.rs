@@ -116,7 +116,8 @@ async fn meta_operator_and_chain_cache_lifecycle_drive_flow_bus() {
 
     assert_eq!(metadata.get_nodes("chainA").len(), 2);
     assert_eq!(metadata.get_nodes_by_id("chainA", "a").len(), 2);
-    assert_eq!(metadata.get_chains_contains_node_id("a").len(), 1);
+    // Parser SPI 构建的 spiChain 与直接构建的 chainA 都真实包含节点 a。
+    assert_eq!(metadata.get_chains_contains_node_id("a").len(), 2);
     assert!(bus.execute("chainA").await.is_success());
     assert!(bus.execute("chainB").await.is_success());
     assert_eq!(cleaned.lock().unwrap().as_slice(), ["chainA"]);

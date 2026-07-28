@@ -620,47 +620,13 @@ impl Node {
             ctx.register_rollback(node_instance_id, self.instance.clone(), cctx.clone());
         }
 
-        // 全局切面 beforeProcess（对应 aop.ICmpAroundAspect）
-        for aspect in &self.hooks.aspects {
-            aspect.before_process(&cctx).await;
-        }
-
-        // 对齐 Java NodeComponent#execute：
-        // beforeProcess → process → onSuccess；任一步骤失败都进入 onError；
-        // afterProcess 始终在 finally 语义中执行。
-        let result = match self.instance.before_process(&cctx).await {
-            Ok(()) => match self.instance.process(&cctx).await {
-                Ok(value) => {
-                    // Java 四类有返回值组件在 process 内先写 Slot，再执行
-                    // onSuccess；因此即使 onSuccess 失败，已经产生的结果仍可读取。
-                    frame.set_node_item_result(self.get_id().to_string(), value.clone());
-                    self.instance.on_success(&cctx).await.map(|_| value)
-                }
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error),
-        };
-
-        match &result {
-            Ok(_) => {
-                for aspect in &self.hooks.aspects {
-                    aspect.on_success(&cctx).await;
-                }
-            }
-            Err(error) => {
-                self.instance.on_error(&cctx, error).await;
-                for aspect in &self.hooks.aspects {
-                    aspect.on_error(&cctx, error).await;
-                }
-                if !matches!(error, LiteflowError::ChainEnd(_)) {
-                    ctx.set_exception(&error.to_string());
-                }
-            }
-        }
-
-        self.instance.after_process(&cctx).await;
-        for aspect in &self.hooks.aspects {
-            aspect.after_process(&cctx).await;
+        // 真实调用 Java 对等入口 NodeComponent#execute；组件钩子、全局切面和
+        // 有返回值结果缓存由该入口统一维护，Node 继续负责步骤、监控和重试。
+        let result = self.instance.execute(&cctx, frame, &self.hooks).await;
+        if let Err(error) = &result
+            && !matches!(error, LiteflowError::ChainEnd(_))
+        {
+            ctx.set_exception(&error.to_string());
         }
 
         // Java Node 在成功和异常两条路径都会再次调用组件 isEnd；脚本执行器可在
@@ -705,6 +671,7 @@ impl Node {
                 Err(LiteflowError::ChainEnd(message))
             }
             Err(e) => {
+                let error_code = e.get_code().map(ToOwned::to_owned);
                 let error_kind = format!("{e:?}")
                     .split([' ', '(', '{'])
                     .next()
@@ -735,6 +702,7 @@ impl Node {
                     node: self.display_name().to_string(),
                     msg: e.to_string(),
                     kind: error_kind,
+                    code: error_code,
                 })
             }
         }
@@ -744,11 +712,11 @@ impl Node {
 #[async_trait]
 impl Executable for Node {
     /// 对应 Java Node.execute(slotIndex)：经 NodeExecutorHelper.buildNodeExecutor
-    /// 取得节点执行器（组件未指定时为缓存的 DefaultNodeExecutor），
+    /// 取得节点执行器（组件优先，否则解析全局 nodeExecutorClass），
     /// 委托执行器的重试主干执行（NodeExecutor.execute → 循环调用 execute_once）。
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         let executor = crate::flow::executor::NodeExecutorHelper::load_instance()
-            .build_node_executor(self.instance.node_executor());
+            .try_build_node_executor(self.instance.node_executor())?;
         executor.execute(self, ctx, frame).await
     }
 
@@ -797,7 +765,7 @@ impl Rollbackable for Node {
         step.set_instance(self.instance.clone());
         step.set_ref_node(self.clone());
 
-        match self.instance.rollback(&component_context).await {
+        match self.instance.do_rollback(&component_context).await {
             Ok(()) => step.finish_rollback(true, None),
             Err(error) => step.finish_rollback(false, Some(error.to_string())),
         }

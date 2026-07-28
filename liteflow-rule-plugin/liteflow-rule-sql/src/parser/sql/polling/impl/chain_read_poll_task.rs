@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use liteflow_core::builder::el::LiteFlowChainELBuilder;
-use liteflow_core::el::parse_el;
 use liteflow_core::flow::flow_bus::FlowBus;
 
 use super::super::{AbstractSqlReadPollTask, SqlReadPollTask};
@@ -36,28 +35,22 @@ impl ChainReadPollTask {
         }
     }
 
-    /// 保存新增或变化的 Chain。对应 Java `doSave`。
+    /// 保存新增或变化的 Chain。
+    ///
+    /// 参数 `save_elements` 是本轮 SQL 对账识别出的新增或变化记录；每条记录都按
+    /// Java 调用顺序设置 chainId、route、namespace 与 body，再通过标准 Builder
+    /// 原子替换 FlowBus 中的 Chain。构建失败时返回包含原始原因的 SQL EL 异常。
+    /// 对应 Java: `ChainReadPollTask#doSave`。
     pub fn do_save(&self, save_elements: &[ChainVO]) -> Result<(), ELSQLException> {
         for chain in save_elements {
-            if let Some(route) = chain
-                .route
-                .as_deref()
-                .filter(|route| !route.trim().is_empty())
-            {
-                let route_el =
-                    parse_el(route).map_err(|error| ELSQLException::new(error.to_string()))?;
-                let body_el = parse_el(&chain.body)
-                    .map_err(|error| ELSQLException::new(error.to_string()))?;
-                let namespace = chain.namespace.as_deref().unwrap_or("DEFAULT");
-                let built = LiteFlowChainELBuilder::new(self.bus.clone())
-                    .build_route_chain(&chain.chain_id, namespace, route_el, body_el)
-                    .map_err(|error| ELSQLException::new(error.to_string()))?;
-                self.bus.add_built_chain(built);
-            } else {
-                self.bus
-                    .add_chain(&chain.chain_id, &chain.body)
-                    .map_err(|error| ELSQLException::new(error.to_string()))?;
-            }
+            let builder = LiteFlowChainELBuilder::create_chain(self.bus.clone());
+            builder.set_chain_id(&chain.chain_id);
+            builder.set_route(chain.route.as_deref().unwrap_or_default());
+            builder.set_namespace(chain.namespace.as_deref().unwrap_or_default());
+            builder
+                .set_el(&chain.body)
+                .and_then(|_| builder.build())
+                .map_err(|error| ELSQLException::new(error.to_string()))?;
         }
         Ok(())
     }

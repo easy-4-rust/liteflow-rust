@@ -9,3 +9,6 @@ license.workspace = true
 liteflow-core = { path = "../../liteflow-core" }
 liteflow-script-qlexpress = { path = "../../liteflow-script-plugin/liteflow-script-qlexpress" }
 liteflow-vernal = { path = "../../liteflow-vernal" }
+
+[dev-dependencies]
+tokio.workspace = true

@@ -4,19 +4,21 @@
 //! 不直接调用插件内部实现，确保插件注册、节点构建、返回类型校验和 data 写回
 //! 都处于验证范围内。
 
-#[cfg(feature = "groovy")]
+#[cfg(any(feature = "groovy", feature = "kotlin"))]
 use std::any::Any;
-#[cfg(any(feature = "groovy", feature = "qlexpress"))]
+#[cfg(any(feature = "groovy", feature = "kotlin", feature = "qlexpress"))]
 use std::sync::Arc;
 #[cfg(feature = "qlexpress")]
 use std::sync::Mutex;
+#[cfg(feature = "kotlin")]
+use std::sync::RwLock;
 
 use liteflow_core::FlowBus;
 use liteflow_core::core::cmp;
-#[cfg(any(feature = "groovy", feature = "qlexpress"))]
+#[cfg(any(feature = "groovy", feature = "kotlin", feature = "qlexpress"))]
 use liteflow_core::script::ScriptBeanManager;
 use liteflow_core::script::ScriptKind;
-#[cfg(any(feature = "groovy", feature = "qlexpress"))]
+#[cfg(any(feature = "groovy", feature = "kotlin", feature = "qlexpress"))]
 use liteflow_core::script::proxy::{ScriptBeanProxy, ScriptMethodProxy};
 use serde_json::{Value, json};
 
@@ -256,6 +258,10 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
             defaultContext.setData("order_type", order_type);
             node_id = _meta.get("nodeId");
             defaultContext.setData("node_id", node_id);
+            defaultContext.setData("curr_chain_id", _meta.get("currChainId"));
+            defaultContext.setData("curr_chain_name", _meta.get("currChainName"));
+            defaultContext.setData("request_copy", _meta.get("requestData"));
+            defaultContext.setData("payload_value", payload.get("value"));
         "#,
     )
     .unwrap();
@@ -298,10 +304,11 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
     let response = bus
         .execute_with(
             "ql_chain",
-            Value::Null,
+            json!({"trace_id": "ql-real-runtime"}),
             vec![
                 ("order".to_string(), Arc::new(order_proxy)),
                 ("order_state".to_string(), order_context),
+                ("payload".to_string(), Arc::new(json!({"value": 7}))),
             ],
         )
         .await;
@@ -321,6 +328,13 @@ async fn qlexpress_executes_java_liteflow_syntax_without_rhai_translation() {
         6
     );
     assert_eq!(response.data("node_id"), Some(json!("ql_common")));
+    assert_eq!(response.data("curr_chain_id"), Some(json!("ql_chain")));
+    assert_eq!(response.data("curr_chain_name"), Some(json!("ql_chain")));
+    assert_eq!(
+        response.data("request_copy"),
+        Some(json!({"trace_id": "ql-real-runtime"}))
+    );
+    assert_eq!(response.data("payload_value"), Some(json!(7)));
     assert_eq!(response.data("branch"), Some(json!("pass")));
     assert_eq!(response.data("loop_count"), Some(json!(3)));
     ScriptBeanManager::remove_script_bean("ql_math");
@@ -668,4 +682,502 @@ async fn kotlin_executes_typed_baseline_and_rejects_compile_time_type_errors() {
         )
         .is_err()
     );
+}
+
+/// 对应 Java `common/flow.xml`：验证 Kotlin 表达式函数、块函数、bindings 上下文、
+/// 普通/For/Boolean/Switch 五段真实 FlowBus 调用链。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_executes_java_common_function_and_binding_baseline() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    register_branch_nodes(&bus);
+    bus.register(
+        "kotlin_tick",
+        cmp(|ctx| async move {
+            let count = ctx.get_data_as::<i64>("kotlin_ticks").unwrap_or_default();
+            ctx.set_data("kotlin_ticks", json!(count + 1));
+            Ok(Value::Null)
+        }),
+    );
+    bus.register_script(
+        "kotlin_java_common",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+
+            fun sum(a: Int, b: Int) = a + b
+            var a = 2
+            var b = 3
+            val defaultContext = bindings["defaultContext"] as DefaultContext
+            defaultContext.setData("s1", sum(a, b))
+            defaultContext.setData("k1", 1)
+            defaultContext.setData("k2", 2)
+            defaultContext.setData("count", 2)
+            defaultContext.setData("route", "pass")
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "kotlin_java_for",
+        "kotlin",
+        ScriptKind::For,
+        r#"
+            fun getCount(): Int {
+                val ctx = bindings["defaultContext"] as DefaultContext
+                var n1 = ctx.getData("k1") as Int
+                var n2 = ctx.getData("k2") as Int
+                return n1 + n2
+            }
+            getCount()
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "kotlin_java_boolean",
+        "kotlin",
+        ScriptKind::Boolean,
+        r#"
+            fun getBoolean() = 2 > 1
+            getBoolean()
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "kotlin_java_switch",
+        "kotlin",
+        ScriptKind::Switch,
+        r#"
+            fun getId(ctx: DefaultContext): String {
+                return ctx.getData("route") as String
+            }
+            getId(bindings["defaultContext"] as DefaultContext)
+        "#,
+    )
+    .unwrap();
+    bus.register_script_typed(
+        "kotlin_java_break",
+        "kotlin",
+        ScriptKind::Boolean,
+        r#"
+            fun isBreak(): Boolean {
+                val ctx = bindings["defaultContext"] as DefaultContext
+                var count = ctx.getData("count") as Int
+                ctx.setData("count", --count)
+                println("count: $count")
+                return count < 0
+            }
+            isBreak()
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "kotlin_java_common_chain",
+        "THEN(kotlin_java_common, FOR(kotlin_java_for).DO(kotlin_tick), IF(kotlin_java_boolean, pass, fail), SWITCH(kotlin_java_switch).TO(pass, fail), WHILE(kotlin_java_boolean).DO(kotlin_tick).BREAK(kotlin_java_break))",
+    )
+    .unwrap();
+
+    let response = bus
+        .execute_with_data("kotlin_java_common_chain", json!({"seed": true}))
+        .await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("s1"), Some(json!(5)));
+    assert_eq!(response.data("kotlin_ticks"), Some(json!(6)));
+    assert_eq!(response.data("count"), Some(json!(-1)));
+    assert_eq!(response.data("branch"), Some(json!("pass")));
+}
+
+/// 对应 Java Kotlin `cmpdata/flow.xml`：验证 bindings 中的 `_meta` Map、cmpData
+/// 结构化字段和 DefaultContext 别名写回。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_reads_java_meta_and_structured_cmp_data_bindings() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "kotlin_cmp_data",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+
+            var meta = bindings["_meta"] as Map<String, *>
+            var cmpData = meta["cmpData"] as Map<String, *>
+            var context = bindings["defaultContext"] as DefaultContext
+            context.setData("birth", cmpData["birth"])
+            context.setData("meta_node", meta["nodeId"])
+            context.setData("meta_request", meta["requestData"])
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "kotlin_cmp_data_chain",
+        r#"kotlin_cmp_data.data('{"name":"jack","birth":"1995-10-01"}')"#,
+    )
+    .unwrap();
+
+    let response = bus
+        .execute_with_data("kotlin_cmp_data_chain", json!({"request_id": 42}))
+        .await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("birth"), Some(json!("1995-10-01")));
+    assert_eq!(response.data("meta_node"), Some(json!("kotlin_cmp_data")));
+    assert_eq!(
+        response.data("meta_request"),
+        Some(json!({"request_id": 42}))
+    );
+}
+
+/// 对应 Java Kotlin `scriptbean/flow.xml`：bindings 对象方法调用必须继续通过
+/// ScriptBeanProxy 的 include/exclude 规则，而不是开放任意 Rust 反射。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_invokes_controlled_script_bean_from_bindings() {
+    liteflow_script_plugin::register_all().unwrap();
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "demo",
+        &["getDemoStr2"],
+        &[],
+        [ScriptMethodProxy::new(
+            "getDemoStr2",
+            Arc::new(|arguments| {
+                let name = arguments
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Ok(json!(format!("hello,{name}")))
+            }),
+        )],
+    ));
+    let bus = FlowBus::new();
+    bus.register_script(
+        "kotlin_script_bean",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+            import com.example.DemoBean1
+
+            var demoBean = bindings["demo"] as DemoBean1
+            var greeting = demoBean.getDemoStr2("kobe")
+            var context = bindings["defaultContext"] as DefaultContext
+            context.setData("demo", greeting)
+        "#,
+    )
+    .unwrap();
+    bus.add_chain("kotlin_script_bean_chain", "kotlin_script_bean")
+        .unwrap();
+
+    let response = bus.execute("kotlin_script_bean_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("demo"), Some(json!("hello,kobe")));
+    ScriptBeanManager::remove_script_bean("demo");
+}
+
+/// 对应 Java Kotlin `scriptmethod/flow.xml`：同一个业务对象上的 `@ScriptMethod`
+/// 必须按注解 value 分组为独立 bindings Bean，同时保留各自真实方法逻辑。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_invokes_script_method_alias_groups_from_bindings() {
+    liteflow_script_plugin::register_all().unwrap();
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "scriptMethodDemo",
+        &[],
+        &[],
+        [ScriptMethodProxy::new(
+            "getDemoStr1",
+            Arc::new(|_| Ok(json!("hello"))),
+        )],
+    ));
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "scriptMethodDemo2",
+        &[],
+        &[],
+        [ScriptMethodProxy::new(
+            "getDemoStr2",
+            Arc::new(|arguments| {
+                let name = arguments
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                // 对应 Java DemoBean1#getDemoStr2 委托 DemoBean2 的真实返回语义。
+                Ok(json!(format!("hello,{name}")))
+            }),
+        )],
+    ));
+    let bus = FlowBus::new();
+    bus.register_script(
+        "kotlin_script_method_one",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+            import com.example.DemoBean1
+
+            var demo = bindings["scriptMethodDemo"] as DemoBean1
+            var str = demo.getDemoStr1()
+            var context = bindings["defaultContext"] as DefaultContext
+            context.setData("script_method_one", str)
+        "#,
+    )
+    .unwrap();
+    bus.register_script(
+        "kotlin_script_method_two",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+            import com.example.DemoBean1
+
+            var demo2 = bindings["scriptMethodDemo2"] as DemoBean1
+            var str = demo2.getDemoStr2("kobe")
+            var context = bindings["defaultContext"] as DefaultContext
+            context.setData("script_method_two", str)
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "kotlin_script_method_chain",
+        "THEN(kotlin_script_method_one, kotlin_script_method_two)",
+    )
+    .unwrap();
+
+    let response = bus.execute("kotlin_script_method_chain").await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("script_method_one"), Some(json!("hello")));
+    assert_eq!(
+        response.data("script_method_two"),
+        Some(json!("hello,kobe"))
+    );
+    ScriptBeanManager::remove_script_bean("scriptMethodDemo");
+    ScriptBeanManager::remove_script_bean("scriptMethodDemo2");
+}
+
+/// 对应 Java Kotlin `throwException/flow.xml`：脚本抛出的 LiteFlowException
+/// 必须穿过 Node 边界并保留业务错误码，不能退化为普通脚本文本错误。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_liteflow_exception_preserves_business_code_in_response() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "kotlin_throw",
+        "kotlin",
+        r#"
+            import com.example.TestException
+            throw TestException("T01", "测试错误")
+        "#,
+    )
+    .unwrap();
+    bus.add_chain("kotlin_throw_chain", "THEN(kotlin_throw)")
+        .unwrap();
+
+    let response = bus.execute("kotlin_throw_chain").await;
+
+    assert!(!response.is_success());
+    assert_eq!(response.get_code(), Some("T01"));
+    assert!(response.get_message().contains("测试错误"));
+}
+
+/// 对应 Java Kotlin `refresh/flow.xml` 与 `flow_update.xml`：函数内 if/else
+/// 必须参与真实 Switch 路由，刷新 XML 元数据后，既有 chain 应立即切换到新脚本
+/// 并执行新增脚本节点。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_refreshes_switch_control_flow_and_new_script_node() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    register_branch_nodes(&bus);
+    bus.register(
+        "seed_count",
+        cmp(|ctx| async move {
+            ctx.set_data("count", json!(200));
+            Ok(Value::Null)
+        }),
+    );
+
+    let original_rule = r#"
+        <flow>
+            <nodes>
+                <node id="kotlin_refresh_switch" name="选择脚本" type="switch_script" language="kotlin">
+                    <![CDATA[
+                        import com.yomahub.liteflow.slot.DefaultContext
+
+                        fun getId(): String {
+                            val context = bindings["defaultContext"] as DefaultContext
+                            var count = context.getData("count") as Int
+                            if(count > 100) {
+                                return "pass"
+                            } else {
+                                return "fail"
+                            }
+                        }
+                        getId()
+                    ]]>
+                </node>
+            </nodes>
+            <chain id="kotlin_refresh_chain">
+                THEN(seed_count, SWITCH(kotlin_refresh_switch).TO(pass, fail));
+            </chain>
+        </flow>
+    "#;
+    bus.refresh_flow_meta_data(
+        liteflow_core::enums::FlowParserTypeEnum::TypeElXml,
+        original_rule,
+    )
+    .unwrap();
+
+    let original_response = bus.execute("kotlin_refresh_chain").await;
+    assert!(
+        original_response.is_success(),
+        "{:?}",
+        original_response.cause
+    );
+    assert_eq!(original_response.data("branch"), Some(json!("pass")));
+    assert_eq!(original_response.data("s2"), None);
+
+    let updated_rule = r#"
+        <flow>
+            <nodes>
+                <node id="kotlin_refresh_switch" name="选择脚本_改" type="switch_script" language="kotlin">
+                    <![CDATA[
+                        import com.yomahub.liteflow.slot.DefaultContext
+
+                        fun getId(): String {
+                            val context = bindings["defaultContext"] as DefaultContext
+                            var count = context.getData("count") as Int
+                            if(count > 100) {
+                                return "fail"
+                            } else {
+                                return "pass"
+                            }
+                        }
+                        getId()
+                    ]]>
+                </node>
+                <node id="kotlin_refresh_s2" name="普通脚本_新增" type="script" language="kotlin">
+                    <![CDATA[
+                        import com.yomahub.liteflow.slot.DefaultContext
+
+                        var a = 3
+                        var b = 2
+                        var c = 10
+                        (bindings["defaultContext"] as? DefaultContext)?.setData("s2", a*b+c)
+                    ]]>
+                </node>
+            </nodes>
+            <chain id="kotlin_refresh_chain">
+                THEN(seed_count, SWITCH(kotlin_refresh_switch).TO(pass, fail), kotlin_refresh_s2);
+            </chain>
+        </flow>
+    "#;
+    bus.refresh_flow_meta_data(
+        liteflow_core::enums::FlowParserTypeEnum::TypeElXml,
+        updated_rule,
+    )
+    .unwrap();
+
+    let updated_response = bus.execute("kotlin_refresh_chain").await;
+    assert!(
+        updated_response.is_success(),
+        "{:?}",
+        updated_response.cause
+    );
+    assert_eq!(updated_response.data("branch"), Some(json!("fail")));
+    assert_eq!(updated_response.data("s2"), Some(json!(16)));
+    assert!(bus.contain_node("kotlin_refresh_s2"));
+}
+
+/// 对应 Java Kotlin `contextbean/flow.xml`：上下文 Bean 在 bindings 中优先于
+/// 同名全局 ScriptBean，JavaBean getter/setter 必须读写 Slot 内同一个 serde
+/// 对象，不能只修改脚本局部副本。
+#[cfg(feature = "kotlin")]
+#[tokio::test]
+async fn kotlin_context_bean_getters_and_setters_preserve_object_identity() {
+    liteflow_script_plugin::register_all().unwrap();
+    let bus = FlowBus::new();
+    bus.register_script(
+        "kotlin_context_set",
+        "kotlin",
+        r#"
+            import com.example.OrderContext
+            import com.example.CheckContext
+            import com.example.Order2Context
+
+            var order = bindings["order"] as OrderContext
+            var checkContext = bindings["checkContext"] as CheckContext
+            var order2Context = bindings["order2Context"] as Order2Context
+
+            order.setOrderNo("order1")
+            checkContext.setSign("sign1")
+            order2Context.setOrderNo("order2")
+        "#,
+    )
+    .unwrap();
+    bus.register_script(
+        "kotlin_context_get",
+        "kotlin",
+        r#"
+            import com.yomahub.liteflow.slot.DefaultContext
+            import com.example.OrderContext
+            import com.example.CheckContext
+            import com.example.Order2Context
+
+            var order = bindings["order"] as OrderContext
+            var checkContext = bindings["checkContext"] as CheckContext
+            var order2Context = bindings["order2Context"] as Order2Context
+            var context = bindings["defaultContext"] as DefaultContext
+
+            context.setData("read_order", order.getOrderNo())
+            context.setData("read_sign", checkContext.getSign())
+            context.setData("read_order2", order2Context.getOrderNo())
+        "#,
+    )
+    .unwrap();
+    bus.add_chain(
+        "kotlin_context_chain",
+        "THEN(kotlin_context_set, kotlin_context_get)",
+    )
+    .unwrap();
+
+    let order = Arc::new(RwLock::new(json!({"orderNo": null, "orderType": 0})));
+    let check_context = Arc::new(RwLock::new(json!({"sign": null, "randomId": 0})));
+    let order2_context = Arc::new(RwLock::new(json!({"orderNo": null, "orderType": 0})));
+    // Java bindParam 先放上下文 Bean，再以 putIfAbsent 放 ScriptBean；同名全局对象
+    // 不得覆盖本次请求的 order。
+    ScriptBeanManager::add_script_bean(ScriptBeanProxy::new(
+        "order",
+        &["getOrderNo", "setOrderNo"],
+        &[],
+        [
+            ScriptMethodProxy::new("getOrderNo", Arc::new(|_| Ok(json!("global-order")))),
+            ScriptMethodProxy::new("setOrderNo", Arc::new(|_| Ok(Value::Null))),
+        ],
+    ));
+    let context_beans: Vec<(String, Arc<dyn Any + Send + Sync>)> = vec![
+        ("order".to_string(), order.clone()),
+        ("checkContext".to_string(), check_context.clone()),
+        ("order2Context".to_string(), order2_context.clone()),
+    ];
+
+    let response = bus
+        .execute_with("kotlin_context_chain", Value::Null, context_beans)
+        .await;
+
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(order.read().unwrap()["orderNo"], json!("order1"));
+    assert_eq!(check_context.read().unwrap()["sign"], json!("sign1"));
+    assert_eq!(order2_context.read().unwrap()["orderNo"], json!("order2"));
+    assert_eq!(response.data("read_order"), Some(json!("order1")));
+    assert_eq!(response.data("read_sign"), Some(json!("sign1")));
+    assert_eq!(response.data("read_order2"), Some(json!("order2")));
+    assert_eq!(
+        response
+            .get_context_bean::<RwLock<Value>>("order")
+            .expect("响应应保留原始 order 上下文 Bean")
+            .read()
+            .unwrap()["orderNo"],
+        json!("order1")
+    );
+    ScriptBeanManager::remove_script_bean("order");
 }

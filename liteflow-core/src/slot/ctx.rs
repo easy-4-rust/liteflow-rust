@@ -23,6 +23,11 @@ impl Ctx {
     pub fn new(inner: Arc<Slot>) -> Self {
         Self { inner }
     }
+
+    /// 向共享 Slot 追加一条组件执行步骤。
+    ///
+    /// 参数 `step` 包含节点、耗时、结果和异常等快照；承接 Java
+    /// `Slot#addStep` 的内部调用。
     pub fn record_step(&self, step: CmpStep) {
         self.inner.add_step(step);
     }
@@ -73,18 +78,27 @@ impl Ctx {
             step.node_instance_id = Some(node_instance_id);
             step.tag = context.node.tag.clone();
             step.set_instance(component.clone());
-            match component.rollback(&context).await {
+            match component.do_rollback(&context).await {
                 Ok(()) => step.finish_rollback(true, None),
                 Err(error) => step.finish_rollback(false, Some(error.to_string())),
             }
             self.inner.add_rollback_step(step);
         }
     }
+    /// 将异常文本写入共享 Slot。
+    ///
+    /// 参数 `e` 是当前 Chain 或 Condition 失败原因。对应 Java:
+    /// `Slot#setException` 的执行期调用。
     pub fn set_exception(&self, e: &str) {
         if let Ok(mut slot) = self.inner.exception.lock() {
             *slot = Some(e.to_string());
         }
     }
+
+    /// 返回当前 Slot 是否收到主动结束标记。
+    ///
+    /// true 对应组件调用 Java `NodeComponent#setIsEnd(true)` 后的状态。
+    #[must_use]
     pub fn is_ended(&self) -> bool {
         self.inner.ended.load(Ordering::Relaxed)
     }

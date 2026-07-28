@@ -11,12 +11,15 @@
 use crate::el::NodeRef;
 use crate::enums::NodeTypeEnum;
 use crate::exception::LiteflowError;
+use crate::flow::element::NodeHooks;
 use crate::flow::executor::NodeExecutor;
-use crate::slot::{CmpContext, Slot};
+use crate::flow::liteflow_response::LiteflowResponse;
+use crate::slot::{CmpContext, Frame, Slot};
 use crate::util::LiteflowContextRegexMatcher;
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::any::Any;
+use std::any::{Any, TypeId, type_name};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -24,6 +27,64 @@ use std::sync::atomic::Ordering;
 pub trait NodeComponent: Send + Sync + 'static {
     /// process() / processIf() / processSwitch() / processFor() / processIterator()
     async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError>;
+
+    /// 执行组件的完整处理生命周期。
+    ///
+    /// 参数 `ctx` 是 Java 通过 `refNode` 与 `slotIndex` 隐式取得的执行上下文；
+    /// `result_frame` 是当前任务的结果写回目标，避免写入为异步分支隔离而深复制
+    /// 的上下文 Frame；`hooks` 承载 `CmpAroundAspectHolder` 的执行期快照。方法执行：
+    /// 全局前置切面 → `before_process` → `process` → `on_success`；
+    /// 失败时执行 `on_error` 和全局错误切面；最后始终执行组件及全局
+    /// `after_process`。有返回值组件会在 `on_success` 前写入当前 Frame，保持
+    /// Java Boolean/Switch/For/Iterator 组件先写 Slot 结果再回调的顺序。
+    ///
+    /// CmpStep、耗时监控和重试仍由 Rust 的 `Node`/`NodeExecutor` 外层负责。
+    /// 对应 Java: `com.yomahub.liteflow.core.NodeComponent#execute`。
+    async fn execute(
+        &self,
+        ctx: &CmpContext,
+        result_frame: &Frame,
+        hooks: &NodeHooks,
+    ) -> Result<Value, LiteflowError> {
+        for aspect in &hooks.aspects {
+            aspect.before_process(ctx);
+        }
+
+        let result = match self.before_process(ctx).await {
+            Ok(()) => match self.process(ctx).await {
+                Ok(value) => {
+                    // Java 的有返回值组件在 onSuccess 之前把结果写入 Slot。
+                    result_frame.set_node_item_result(ctx.node_id().to_string(), value.clone());
+                    self.on_success(ctx).await.map(|()| value)
+                }
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
+        };
+
+        match &result {
+            Ok(_) => {
+                for aspect in &hooks.aspects {
+                    aspect.on_success(ctx);
+                }
+            }
+            Err(error) => {
+                // Java 会忽略 onError 自身的异常并继续传播主要异常；Rust 钩子
+                // 不返回 Result，因此天然保持该错误优先级。
+                self.on_error(ctx, error).await;
+                for aspect in &hooks.aspects {
+                    aspect.on_error(ctx, error);
+                }
+            }
+        }
+
+        self.after_process(ctx).await;
+        for aspect in &hooks.aspects {
+            aspect.after_process(ctx);
+        }
+
+        result
+    }
 
     /// beforeProcess()
     async fn before_process(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
@@ -67,7 +128,8 @@ pub trait NodeComponent: Send + Sync + 'static {
     ///
     /// Java 构造器通过反射判断组件是否覆盖 `rollback()`；Rust trait 无法在运行时
     /// 可靠判断默认方法是否被覆盖，因此显式返回该能力。后续 `liteflow-derive`
-    /// 会在声明了 rollback 方法时自动生成此标记。
+    /// 会在声明了 rollback 方法时自动生成此标记。该能力标记对应 Java
+    /// `NodeComponent#setRollback` 写入的真实状态，不提供执行后可变空 setter。
     fn is_rollback(&self) -> bool {
         false
     }
@@ -76,6 +138,16 @@ pub trait NodeComponent: Send + Sync + 'static {
     /// 对应 Java: `com.yomahub.liteflow.core.NodeComponent#rollback`。
     async fn rollback(&self, _ctx: &CmpContext) -> Result<(), LiteflowError> {
         Ok(())
+    }
+
+    /// 执行当前组件的回滚入口。
+    ///
+    /// 参数 `ctx` 显式承载 Java ThreadLocal 中的 Slot 与 RefNode。Rust 将
+    /// `doRollback` 中的重复检查和 CmpStep 记录放在 `Ctx`/`Node` 外层，本方法
+    /// 负责调用真实 `rollback` 实现；所有运行时回滚路径均经由此入口。
+    /// 对应 Java: `com.yomahub.liteflow.core.NodeComponent#doRollback`。
+    async fn do_rollback(&self, ctx: &CmpContext) -> Result<(), LiteflowError> {
+        self.rollback(ctx).await
     }
     /// getName()
     fn name(&self) -> &str {
@@ -101,10 +173,12 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn retry_count(&self) -> usize {
         0
     }
-    /// getRetryForExceptions() 语义：判断抛出的异常是否命中组件声明的可重试异常范围
-    /// （Java 用 retryForExceptions 列表 + isAssignableFrom 判定，Rust 化为谓词方法）
+    /// getRetryForExceptions() 语义：判断抛出的异常是否命中组件声明的可重试异常范围。
+    ///
+    /// Java 默认值为 `Exception.class`，因此未声明过滤器时接受所有普通执行错误；
+    /// `#[liteflow_retry]` 会为显式列表生成更精确的谓词。
     fn is_retry_for(&self, _e: &LiteflowError) -> bool {
-        false
+        true
     }
     /// getNodeExecutorClass()：指定自定义节点执行器；None 表示使用 DefaultNodeExecutor
     /// （Java 返回 Class 由 NodeExecutorHelper 经 DI 容器实例化并缓存，
@@ -197,6 +271,20 @@ pub trait NodeComponent: Send + Sync + 'static {
             .into_iter()
             .find(|(name, _)| name == context_name)
             .map(|(_, bean)| bean)
+    }
+
+    /// 按 Rust 运行时类型返回第一个匹配的上下文 Bean。
+    ///
+    /// - `ctx`: 当前组件执行上下文。
+    /// - 返回：与 `T` 类型一致的首个共享 Bean；未找到时返回 `None`。
+    ///
+    /// Java 通过 `Class<T>` 参数检索，Rust 使用 `Any` 的安全向下转型表达相同
+    /// 能力。对应 Java: `NodeComponent#getContextBean(Class<T>)`。
+    fn get_context_bean_by_type<T: Any + Send + Sync>(&self, ctx: &CmpContext) -> Option<Arc<T>>
+    where
+        Self: Sized,
+    {
+        ctx.inner.get_context_bean_by_type::<T>()
     }
 
     /// 返回组件初始化后的节点 ID。对应 Java: `NodeComponent#getNodeId`。
@@ -308,6 +396,23 @@ pub trait NodeComponent: Send + Sync + 'static {
         ctx.cmp_data().map(ToOwned::to_owned)
     }
 
+    /// 将当前节点组件数据反序列化为指定 Rust 类型。
+    ///
+    /// - `ctx`: 当前组件执行上下文。
+    /// - 返回：空数据返回 `Ok(None)`；`String` 保留原文，其他类型通过 serde
+    ///   反序列化；转换失败返回 `ObjectConvertException` 对应错误。
+    ///
+    /// 对应 Java: `NodeComponent#getCmpData(Class<T>)`。
+    fn get_cmp_data_as<T>(&self, ctx: &CmpContext) -> Result<Option<T>, LiteflowError>
+    where
+        Self: Sized,
+        T: DeserializeOwned + Any,
+    {
+        ctx.cmp_data()
+            .map(deserialize_component_text::<T>)
+            .transpose()
+    }
+
     /// 将当前节点组件数据解析为 JSON 数组。
     ///
     /// 非数组或非法 JSON 返回 `None`，对应 Java:
@@ -316,12 +421,66 @@ pub trait NodeComponent: Send + Sync + 'static {
         serde_json::from_str(ctx.cmp_data()?).ok()
     }
 
+    /// 将当前节点组件数据反序列化为指定类型列表。
+    ///
+    /// 空数据返回 `Ok(None)`；非法 JSON 或元素类型不兼容时返回对象转换错误。
+    /// 对应 Java: `NodeComponent#getCmpDataList(Class<T>)`。
+    fn get_cmp_data_list_as<T>(&self, ctx: &CmpContext) -> Result<Option<Vec<T>>, LiteflowError>
+    where
+        Self: Sized,
+        T: DeserializeOwned,
+    {
+        ctx.cmp_data()
+            .map(|data| {
+                serde_json::from_str(data).map_err(|error| {
+                    LiteflowError::ObjectConvert(format!(
+                        "component data cannot convert to List<{}>: {error}",
+                        type_name::<T>()
+                    ))
+                })
+            })
+            .transpose()
+    }
+
     /// 返回指定 key 的绑定数据。
     ///
     /// 先查 Node 级 bind，再从 Condition 栈顶向外查找。对应 Java:
     /// `NodeComponent#getBindData`。
     fn get_bind_data(&self, ctx: &CmpContext, key: &str) -> Option<String> {
-        ctx.bind_data(key).map(ToOwned::to_owned)
+        let bind_data = ctx.bind_data(key)?;
+        let expression = context_search_expression(bind_data)?;
+        if expression == bind_data {
+            return Some(bind_data.to_string());
+        }
+        self.get_context_value(ctx, expression)
+            .and_then(value_to_component_text)
+    }
+
+    /// 将指定 bind 数据转换为目标 Rust 类型。
+    ///
+    /// Node 级 bind 优先于 Condition bind；`${context.path}` 会先从上下文 Bean
+    /// 求值，再通过 serde 转换为 `T`。普通字符串在 `T=String` 时保持原文，其他
+    /// 类型按 JSON 解析。未找到时返回 `Ok(None)`，类型不兼容返回对象转换错误。
+    ///
+    /// 对应 Java: `NodeComponent#getBindData(String, Class<T>)`。
+    fn get_bind_data_as<T>(&self, ctx: &CmpContext, key: &str) -> Result<Option<T>, LiteflowError>
+    where
+        Self: Sized,
+        T: DeserializeOwned + Any,
+    {
+        let Some(bind_data) = ctx.bind_data(key) else {
+            return Ok(None);
+        };
+        let Some(expression) = context_search_expression(bind_data) else {
+            return Ok(None);
+        };
+        if expression != bind_data {
+            return self
+                .get_context_value(ctx, expression)
+                .map(deserialize_component_value::<T>)
+                .transpose();
+        }
+        deserialize_component_text(bind_data).map(Some)
     }
 
     /// 将指定 key 的绑定数据解析为 JSON 数组。
@@ -329,6 +488,32 @@ pub trait NodeComponent: Send + Sync + 'static {
     /// 对应 Java: `NodeComponent#getBindDataList`。
     fn get_bind_data_list(&self, ctx: &CmpContext, key: &str) -> Option<Vec<Value>> {
         serde_json::from_str(ctx.bind_data(key)?).ok()
+    }
+
+    /// 将指定 bind 数据反序列化为目标类型列表。
+    ///
+    /// 与 Java `getBindDataList` 一致，本入口解析 bind 本身的 JSON 数组，不把
+    /// `${...}` 解释为列表表达式。对应 Java:
+    /// `NodeComponent#getBindDataList(String, Class<T>)`。
+    fn get_bind_data_list_as<T>(
+        &self,
+        ctx: &CmpContext,
+        key: &str,
+    ) -> Result<Option<Vec<T>>, LiteflowError>
+    where
+        Self: Sized,
+        T: DeserializeOwned,
+    {
+        ctx.bind_data(key)
+            .map(|bind_data| {
+                serde_json::from_str(bind_data).map_err(|error| {
+                    LiteflowError::ObjectConvert(format!(
+                        "bind data[{key}] cannot convert to List<{}>: {error}",
+                        type_name::<T>()
+                    ))
+                })
+            })
+            .transpose()
     }
 
     /// 使用属性表达式读取 serde JSON 上下文值。
@@ -421,6 +606,57 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn get_curr_chain_runtime_id(&self, ctx: &CmpContext) -> Option<u64> {
         ctx.frame.runtime_id()
     }
+
+    /// 在组件内部执行另一条链路，并把子链执行步骤合并回当前 Slot。
+    ///
+    /// - `ctx`: 当前组件执行上下文，用于继承请求编号、上下文 Bean 和父 Slot。
+    /// - `chain_id`: 待调用的子链标识，对应 Java 参数 `chainId`。
+    /// - `request_data`: 子链请求数据，对应 Java 参数 `requestData`。
+    /// - 返回：子链完整响应；执行器尚未初始化时返回明确错误。
+    ///
+    /// Java 从组件 ThreadLocal 隐式取得 Slot；Rust 显式接收 `CmpContext`，避免
+    /// 共享组件在并发任务间串用上下文。对应 Java:
+    /// `NodeComponent#invoke2Resp(String, Object)`。
+    async fn invoke2_resp(
+        &self,
+        ctx: &CmpContext,
+        chain_id: &str,
+        request_data: Value,
+    ) -> Result<LiteflowResponse, LiteflowError> {
+        self.invoke2_resp_with_slot(chain_id, request_data, self.get_slot(ctx))
+            .await
+    }
+
+    /// 使用指定父 Slot 在组件内部执行另一条链路。
+    ///
+    /// - `chain_id`: 待调用的子链标识，对应 Java 参数 `chainId`。
+    /// - `request_data`: 子链请求数据，对应 Java 参数 `requestData`。
+    /// - `slot`: 继承请求编号、上下文 Bean 并接收子链步骤的父 Slot。
+    /// - 返回：子链完整响应。
+    ///
+    /// 对应 Java: `NodeComponent#invoke2Resp(String, Object, Slot)`。
+    async fn invoke2_resp_with_slot(
+        &self,
+        chain_id: &str,
+        request_data: Value,
+        slot: Arc<Slot>,
+    ) -> Result<LiteflowResponse, LiteflowError> {
+        let executor = crate::core::FlowExecutorHolder::load_instance()?;
+        let response = executor
+            .execute2_resp_with_rid(
+                chain_id,
+                request_data,
+                slot.request_id.clone(),
+                slot.get_context_bean_list(),
+            )
+            .await;
+
+        // Java 将子链响应的执行步骤追加到父 Slot，外层响应因而保留完整调用轨迹。
+        for step in response.get_execute_step_queue() {
+            slot.add_step(step.clone());
+        }
+        Ok(response)
+    }
 }
 
 /// 提取 Slot 中可以通过 serde 安全访问的具名 JSON 上下文。
@@ -434,4 +670,58 @@ fn json_context_list(ctx: &CmpContext) -> Vec<(String, Value)> {
                 .map(|context_value| (context_name, (*context_value).clone()))
         })
         .collect()
+}
+
+/// 提取 Java `${context.path}` 绑定表达式；普通 bind 原样返回。
+fn context_search_expression(bind_data: &str) -> Option<&str> {
+    let trimmed = bind_data.trim();
+    if trimmed.starts_with("${") && trimmed.ends_with('}') {
+        let expression = trimmed[2..trimmed.len() - 1].trim();
+        return (!expression.is_empty()).then_some(expression);
+    }
+    Some(bind_data)
+}
+
+/// 把 serde 值转换为未类型化字符串入口的返回值。
+fn value_to_component_text(value: Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value),
+        Value::Null => None,
+        value => serde_json::to_string(&value).ok(),
+    }
+}
+
+/// 按 Java String/Object 原文分支或 serde JSON 分支转换组件文本。
+fn deserialize_component_text<T>(data: &str) -> Result<T, LiteflowError>
+where
+    T: DeserializeOwned + Any,
+{
+    if TypeId::of::<T>() == TypeId::of::<String>() {
+        let value: Box<dyn Any> = Box::new(data.to_string());
+        return value.downcast::<T>().map(|value| *value).map_err(|_| {
+            LiteflowError::ObjectConvert(format!(
+                "component text cannot convert to {}",
+                type_name::<T>()
+            ))
+        });
+    }
+    serde_json::from_str(data).map_err(|error| {
+        LiteflowError::ObjectConvert(format!(
+            "component text cannot convert to {}: {error}",
+            type_name::<T>()
+        ))
+    })
+}
+
+/// 把上下文搜索得到的 serde 值转换为目标类型。
+fn deserialize_component_value<T>(value: Value) -> Result<T, LiteflowError>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_value(value).map_err(|error| {
+        LiteflowError::ObjectConvert(format!(
+            "context value cannot convert to {}: {error}",
+            type_name::<T>()
+        ))
+    })
 }

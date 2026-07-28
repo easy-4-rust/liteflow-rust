@@ -28,6 +28,7 @@ md-5 = "0.10.6"
 chrono = "0.4.45"
 rand = "0.8.7"
 log = "0.4.29"
+qlexpress.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

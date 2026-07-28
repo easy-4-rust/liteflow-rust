@@ -3,11 +3,8 @@
 //! 串行器：pre → 主体顺序执行 → finally（必执行）。
 //! 异常记入 slot 并向上抛出；ChainEnd 原样上抛。
 //!
-//! 差异说明：
-//! - Java 在 finally 块中执行 FinallyCondition，若 finally 自身抛异常会覆盖主异常上抛；
-//!   Rust 端保留首个异常（finally 异常仅在主流程无异常时生效）。
-//! - Java 按 isSubChain 区分 setException / setSubException；Rust 端 slot 无子链
-//!   异常槽位，统一记 set_exception（见 crate::slot::Ctx）。
+//! Java 在 finally 块中执行 FinallyCondition：若 FINALLY 自身失败，它会覆盖主体
+//! 异常并停止后续 FINALLY；Rust 保留同一异常优先级与停止语义。
 
 use super::{Condition, ConditionBase};
 use crate::enums::ConditionTypeEnum;
@@ -28,6 +25,11 @@ pub struct ThenCondition {
 }
 
 impl ThenCondition {
+    /// 创建空的串行 Condition。
+    ///
+    /// 新对象的 PRE、主体和 FINALLY 列表均为空，后续由 EL Builder 通过
+    /// `add_executable` 装配。对应 Java: `ThenCondition#ThenCondition`。
+    #[must_use]
     pub fn new() -> Self {
         Self {
             base: ConditionBase::default(),
@@ -105,12 +107,13 @@ impl Executable for ThenCondition {
                     }
                 }
             }
-            // finally 必执行
+            // FINALLY 无论主体是否失败都必须执行。Java finally 块中的普通 for
+            // 循环在首个 FINALLY 异常处停止，且该异常覆盖 try/catch 正在传播的
+            // 主体异常；这里显式替换 err 以保留同一优先级。
             for fin in &self.finally_list {
                 if let Err(fe) = fin.execute(ctx, frame).await {
-                    if err.is_none() {
-                        err = Some(fe);
-                    }
+                    err = Some(fe);
+                    break;
                 }
             }
             match err {

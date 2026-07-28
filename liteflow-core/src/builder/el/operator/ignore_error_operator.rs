@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// WHEN/PAR 直接设置并行错误策略，其他表达式包装为 IgnoreErrorCondition。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.IgnoreErrorOperator`。
-pub(crate) struct IgnoreErrorOperator;
+pub struct IgnoreErrorOperator;
 
 impl BaseOperator for IgnoreErrorOperator {
     fn operator_name(&self) -> &'static str {

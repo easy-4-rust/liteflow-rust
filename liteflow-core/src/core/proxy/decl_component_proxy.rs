@@ -80,11 +80,17 @@ impl DeclComponentProxy {
             .iter()
             .find(|candidate| candidate.method().method_name() == method)
     }
-}
 
-#[async_trait]
-impl DeclComponent for DeclComponentProxy {
-    async fn call(&self, method: &str, context: &CmpContext) -> LFResult<Value> {
+    /// 调用声明式组件中与 LiteFlow 方法名匹配的真实业务方法。
+    ///
+    /// 参数 `method` 对应 Java 动态代理收到的 `Method#getName`，`context` 提供
+    /// NodeComponent 自身参数、普通参数和 `@LiteflowFact` 上下文事实。不存在方法
+    /// 时返回代理错误；业务方法错误保持原始 `LiteflowError`。
+    ///
+    /// Rust 不生成 ByteBuddy `InvocationHandler`，该方法直接承担 Java 内部
+    /// `AopInvocationHandler#invoke` 的查找、参数装载与调用职责。
+    /// 对应 Java: `DeclComponentProxy.AopInvocationHandler#invoke`。
+    pub async fn invoke(&self, method: &str, context: &CmpContext) -> LFResult<Value> {
         let method_wrap_bean = self.method_wrap_bean(method).ok_or_else(|| {
             LiteflowError::Proxy(format!(
                 "decl component[{}] has no LiteflowMethod[{method}]",
@@ -94,6 +100,13 @@ impl DeclComponent for DeclComponentProxy {
         method_wrap_bean
             .invoke(self.decl_warp_bean.raw_bean().as_ref(), context)
             .await
+    }
+}
+
+#[async_trait]
+impl DeclComponent for DeclComponentProxy {
+    async fn call(&self, method: &str, context: &CmpContext) -> LFResult<Value> {
+        self.invoke(method, context).await
     }
 
     fn has_method(&self, method: &str) -> bool {

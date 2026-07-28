@@ -59,6 +59,7 @@ members = [
     "liteflow-testcase-el/liteflow-testcase-el-script-aviator-vernal",
     "liteflow-testcase-el/liteflow-testcase-el-script-graaljs-vernal",
     "liteflow-testcase-el/liteflow-testcase-el-script-groovy-vernal",
+    "liteflow-testcase-el/liteflow-testcase-el-script-kotlin-vernal",
     "liteflow-testcase-el/liteflow-testcase-el-script-javascript-vernal",
     "liteflow-testcase-el/liteflow-testcase-el-script-lua-vernal",
     "liteflow-testcase-el/liteflow-testcase-el-script-multi-language-vernal",

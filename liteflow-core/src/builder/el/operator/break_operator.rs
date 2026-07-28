@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 只允许用于 FOR/WHILE/ITERATOR，并接收一个布尔表达式。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.BreakOperator`。
-pub(crate) struct BreakOperator;
+pub struct BreakOperator;
 
 impl BaseOperator for BreakOperator {
     fn operator_name(&self) -> &'static str {

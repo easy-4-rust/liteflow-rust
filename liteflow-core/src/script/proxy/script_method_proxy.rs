@@ -34,6 +34,19 @@ impl ScriptMethodProxy {
         &self.exposed_name
     }
 
+    /// 生成只允许调用已注册脚本方法的代理对象。
+    ///
+    /// Java 通过 ByteBuddy 创建一个新运行期类型；Rust 的 `ScriptMethodProxy`
+    /// 本身已经持有类型擦除后的真实 callable，因此所有权转移后直接成为最终代理，
+    /// 不需要反射或运行期代码生成。
+    ///
+    /// 返回值保留真实业务闭包及暴露名称。对应 Java:
+    /// `ScriptMethodProxy#getProxyScriptMethod`。
+    #[must_use]
+    pub fn get_proxy_script_method(self) -> Self {
+        self
+    }
+
     /// 调用被代理的真实方法。
     pub fn invoke(&self, arguments: &[Value]) -> LFResult<Value> {
         (self.callable)(arguments)

@@ -16,6 +16,9 @@ pub enum LiteflowVernalError {
         /// 脱离具体错误类型后的诊断。
         message: String,
     },
+    /// Vernal 托管组件初始化失败。
+    #[error("liteflow managed component initialization failed: {0}")]
+    ManagedComponentInitialization(String),
     /// 规则解析或装载失败。
     #[error("liteflow rule initialization failed: {0}")]
     RuleInitialization(String),

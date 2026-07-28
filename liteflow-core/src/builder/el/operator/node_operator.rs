@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// 将一个字符串节点 id 转换为 NodeRef。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.NodeOperator`。
-pub(crate) struct NodeOperator;
+pub struct NodeOperator;
 
 impl BaseOperator for NodeOperator {
     fn operator_name(&self) -> &'static str {

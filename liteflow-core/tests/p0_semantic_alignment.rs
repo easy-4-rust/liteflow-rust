@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 use liteflow_core::aop::ICmpAroundAspect;
 use liteflow_core::lifecycle::PostProcessFlowExecuteLifeCycle;
-use liteflow_core::{CmpContext, FlowBus, LiteflowError, NodeComponent, rule};
+use liteflow_core::{CmpContext, FlowBus, LiteflowError, NodeComponent, Slot, rule};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -53,21 +53,20 @@ struct OrderedAspect {
     events: Arc<Mutex<Vec<String>>>,
 }
 
-#[async_trait]
 impl ICmpAroundAspect for OrderedAspect {
-    async fn before_process(&self, _ctx: &CmpContext) {
+    fn before_process(&self, _ctx: &CmpContext) {
         self.events.lock().unwrap().push("aspect_before".into());
     }
 
-    async fn on_success(&self, _ctx: &CmpContext) {
+    fn on_success(&self, _ctx: &CmpContext) {
         self.events.lock().unwrap().push("aspect_success".into());
     }
 
-    async fn on_error(&self, _ctx: &CmpContext, _e: &LiteflowError) {
+    fn on_error(&self, _ctx: &CmpContext, _e: &LiteflowError) {
         self.events.lock().unwrap().push("aspect_error".into());
     }
 
-    async fn after_process(&self, _ctx: &CmpContext) {
+    fn after_process(&self, _ctx: &CmpContext) {
         self.events.lock().unwrap().push("aspect_after".into());
     }
 }
@@ -212,18 +211,19 @@ struct FlowHook {
 
 #[async_trait]
 impl PostProcessFlowExecuteLifeCycle for FlowHook {
-    async fn post_process_before_flow_execute(&self, chain_id: &str) {
+    async fn post_process_before_flow_execute(&self, chain_id: &str, slot: &Slot) {
         self.events
             .lock()
             .unwrap()
-            .push(format!("before:{chain_id}"));
+            .push(format!("before:{chain_id}:{}", slot.get_chain_id()));
     }
 
-    async fn post_process_after_flow_execute(&self, chain_id: &str) {
-        self.events
-            .lock()
-            .unwrap()
-            .push(format!("after:{chain_id}"));
+    async fn post_process_after_flow_execute(&self, chain_id: &str, slot: &Slot) {
+        self.events.lock().unwrap().push(format!(
+            "after:{chain_id}:{}:{}",
+            slot.get_chain_id(),
+            slot.get_exception().is_some()
+        ));
     }
 }
 
@@ -246,7 +246,10 @@ async fn after_lifecycle_runs_when_chain_is_missing() {
 
     let response = bus.execute("missing").await;
     assert!(!response.is_success());
-    assert_eq!(*events.lock().unwrap(), ["before:missing", "after:missing"]);
+    assert_eq!(
+        *events.lock().unwrap(),
+        ["before:missing:missing", "after:missing:missing:true"]
+    );
 }
 
 struct RouteRecorder {

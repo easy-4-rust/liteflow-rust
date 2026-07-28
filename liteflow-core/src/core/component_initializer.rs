@@ -7,6 +7,7 @@ use std::sync::{Arc, OnceLock};
 use crate::enums::NodeTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::executor::NodeExecutor;
+use crate::spi::LiteflowComponentSupportHolder;
 
 use super::NodeComponent;
 use super::initialized_node_component::InitializedNodeComponent;
@@ -17,7 +18,8 @@ use super::initialized_node_component::InitializedNodeComponent;
 /// 既保留共享 `Arc` 的线程安全，又让所有注册入口复用同一初始化算法。
 #[derive(Clone, Default)]
 pub struct ComponentInitializer {
-    default_retry_count: usize,
+    /// 显式覆盖的全局重试次数；`None` 时在组件执行期读取 LiteflowConfigGetter。
+    default_retry_count: Option<usize>,
     default_node_executor: Option<Arc<dyn NodeExecutor>>,
 }
 
@@ -37,7 +39,7 @@ impl ComponentInitializer {
     #[must_use]
     pub fn with_default_retry_count(default_retry_count: usize) -> Self {
         Self {
-            default_retry_count,
+            default_retry_count: Some(default_retry_count),
             default_node_executor: None,
         }
     }
@@ -93,16 +95,25 @@ impl ComponentInitializer {
         if node_id.is_empty() {
             return Err(LiteflowError::NodeBuild("[id is blank]".to_string()));
         }
-        let name = name.map(str::trim).unwrap_or_default().to_string();
+        let configured_name = name.map(str::trim).unwrap_or_default();
+        let component_name = if configured_name.is_empty() && !node_type.is_script() {
+            // Java 先采用规则文件显式 name；普通组件仍为空时，再由当前容器的
+            // LiteflowComponentSupport 解析 @LiteflowComponent 名称。
+            LiteflowComponentSupportHolder::load_liteflow_component_support()
+                .get_cmp_name(node_component.as_ref())
+                .unwrap_or_default()
+        } else {
+            configured_name.to_string()
+        };
 
-        // Java 优先采用规则文件显式 name；空白时回退组件自身名称。
+        // 名称已经按 Java 顺序完成“规则配置 → 容器注解 SPI”解析；
         // 重试次数同样优先采用组件声明，委托对象只保存全局缺省值。
         Ok(Arc::new(InitializedNodeComponent::new(
             node_component,
             node_id.to_string(),
             node_type,
             node_type_explicit,
-            name,
+            component_name,
             self.default_retry_count,
             self.default_node_executor.clone(),
         )))

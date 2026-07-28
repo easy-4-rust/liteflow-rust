@@ -7,7 +7,7 @@ use crate::exception::LFResult;
 /// Node 直接保存 tag；Condition 与运行期解析为 Chain 的引用通过属性包装
 /// 保存，避免修改全局唯一的 Chain 对象。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.TagOperator`。
-pub(crate) struct TagOperator;
+pub struct TagOperator;
 
 impl BaseOperator for TagOperator {
     fn operator_name(&self) -> &'static str {

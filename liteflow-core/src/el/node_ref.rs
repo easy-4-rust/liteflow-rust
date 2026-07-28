@@ -1,7 +1,7 @@
 //! EL 节点引用。
 
 /// 节点引用，对应 Java 的 Node 元素与 id/tag/data/bind 修饰。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct NodeRef {
     /// 节点 id。
     pub id: String,

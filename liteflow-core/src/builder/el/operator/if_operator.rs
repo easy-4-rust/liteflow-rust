@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// 第一个参数为布尔可执行项，第二个参数为 true 分支，第三个可选参数为
 /// false 分支。后续还可通过 ELIF/ELSE 追加分支。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.IfOperator`。
-pub(crate) struct IfOperator;
+pub struct IfOperator;
 
 impl BaseOperator for IfOperator {
     fn operator_name(&self) -> &'static str {

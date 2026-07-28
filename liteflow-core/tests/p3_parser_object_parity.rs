@@ -131,15 +131,60 @@ async fn rule_parse_plugin_xml_round_trips_through_real_xml_parser() {
     assert!(bus.execute("pluginChain").await.is_success());
 }
 
+#[tokio::test]
+async fn xml_rule_plan_replaces_existing_script_nodes_and_chain_on_refresh() {
+    let bus = FlowBus::new();
+    let original = r#"
+        <flow>
+          <nodes>
+            <node id="refreshScript" type="script" language="rhai"><![CDATA[
+              data["version"] = 1;
+            ]]></node>
+          </nodes>
+          <chain id="refreshChain">THEN(refreshScript)</chain>
+        </flow>
+    "#;
+    BaseXmlFlowParser::new(bus.clone())
+        .parse(&[original.to_string()])
+        .unwrap();
+    assert_eq!(
+        bus.execute("refreshChain").await.data("version"),
+        Some(json!(1))
+    );
+
+    let updated = r#"
+        <flow>
+          <nodes>
+            <node id="refreshScript" type="script" language="rhai"><![CDATA[
+              data["version"] = 2;
+            ]]></node>
+            <node id="addedScript" type="script" language="rhai"><![CDATA[
+              data["added"] = true;
+            ]]></node>
+          </nodes>
+          <chain id="refreshChain">THEN(refreshScript, addedScript)</chain>
+        </flow>
+    "#;
+    BaseXmlFlowParser::new(bus.clone())
+        .parse(&[updated.to_string()])
+        .unwrap();
+
+    let response = bus.execute("refreshChain").await;
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("version"), Some(json!(2)));
+    assert_eq!(response.data("added"), Some(json!(true)));
+}
+
 #[test]
 fn rule_parse_plugin_key_flags_match_java_defaults() {
     let disabled = RuleParsePluginUtil::parse_chain_key("chainA:false");
-    assert_eq!(disabled.id(), "chainA");
+    assert_eq!(disabled.get_id(), "chainA");
     assert!(disabled.is_disable());
-    assert_eq!(disabled.enable(), "false");
+    assert_eq!(disabled.get_enable(), "false");
 
     let malformed = RuleParsePluginUtil::parse_chain_key("chain:A:true");
-    assert_eq!(malformed.id(), "chain:A:true");
+    assert_eq!(malformed.get_id(), "chain:A:true");
+    assert_eq!(malformed.get_enable(), "true");
     assert!(malformed.is_enable());
 
     assert_eq!(

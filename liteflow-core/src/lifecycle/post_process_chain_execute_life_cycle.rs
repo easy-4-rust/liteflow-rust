@@ -1,20 +1,31 @@
-//! 对应 com.yomahub.liteflow.lifecycle.PostProcessChainExecuteLifeCycle（2.11+）：
-//! 链路执行前后的生命周期钩子（postProcessBeforeChainExecute / postProcessAfterChainExecute）。
+//! Chain 执行前后的生命周期钩子。
+//!
+//! 对应 Java:
+//! `com.yomahub.liteflow.lifecycle.PostProcessChainExecuteLifeCycle`。
 
 use super::life_cycle::LifeCycle;
+use crate::slot::Slot;
 use async_trait::async_trait;
 
-/// 链路执行生命周期钩子
+/// 在每个主体 Chain 执行前后接收 Chain ID 与本次共享数据槽。
+///
+/// 子 Chain 与主 Chain 都会触发本接口；决策路由 `executeRoute` 不触发，与 Java
+/// `Chain#execute` 和 `Chain#executeRoute` 的边界一致。
+/// 对应 Java:
+/// `com.yomahub.liteflow.lifecycle.PostProcessChainExecuteLifeCycle`。
 #[async_trait]
 pub trait PostProcessChainExecuteLifeCycle: LifeCycle {
-    /// postProcessBeforeChainExecute(chainId)
-    async fn post_process_before_chain_execute(&self, chain_id: &str) {
-        // 默认生命周期不改变执行状态；显式消费参数，表明这是有意的 no-op。
-        let _ = chain_id;
-    }
-    /// postProcessAfterChainExecute(chainId)
-    async fn post_process_after_chain_execute(&self, chain_id: &str) {
-        // 默认生命周期不改变执行状态；实现方可按需覆盖。
-        let _ = chain_id;
-    }
+    /// 在指定 Chain 的主体 Condition 开始执行前调用。
+    ///
+    /// 参数 `chain_id` 是当前主链或子链 ID；`slot` 是所有嵌套执行共享的数据槽。
+    /// 对应 Java:
+    /// `PostProcessChainExecuteLifeCycle#postProcessBeforeChainExecute`。
+    async fn post_process_before_chain_execute(&self, chain_id: &str, slot: &Slot);
+
+    /// 在指定 Chain 的主体 Condition 执行结束后调用。
+    ///
+    /// 成功、组件异常与主动结束都会进入该回调。参数 `slot` 可读取执行结果和异常。
+    /// 对应 Java:
+    /// `PostProcessChainExecuteLifeCycle#postProcessAfterChainExecute`。
+    async fn post_process_after_chain_execute(&self, chain_id: &str, slot: &Slot);
 }

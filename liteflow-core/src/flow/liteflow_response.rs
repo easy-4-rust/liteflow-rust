@@ -129,6 +129,11 @@ impl LiteflowResponse {
         )
     }
 
+    /// 返回本次流程执行是否成功。
+    ///
+    /// Slot 没有主链或子链异常时返回 true。对应 Java:
+    /// `LiteflowResponse#isSuccess`。
+    #[must_use]
     pub fn is_success(&self) -> bool {
         self.success
     }
@@ -390,9 +395,19 @@ impl LiteflowResponse {
         self.get_context_bean(name)
     }
 
+    /// 返回 Slot 中指定共享数据的 JSON 快照。
+    ///
+    /// 参数 `key` 是组件写入的数据键；不存在时返回 `None`。这是 Rust 对
+    /// Java 通过上下文 Bean/Slot 读取动态数据的便利入口。
+    #[must_use]
     pub fn data(&self, key: &str) -> Option<Value> {
         self.slot.data.get(key).map(|v| v.clone())
     }
+
+    /// 将 Slot 中指定共享数据反序列化为目标类型。
+    ///
+    /// 参数 `key` 是数据键；键不存在或 serde 转换失败时返回 `None`。
+    #[must_use]
     pub fn data_as<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
         self.slot
             .data

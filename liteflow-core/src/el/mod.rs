@@ -4,14 +4,13 @@ mod lexer;
 mod mods;
 mod node_ref;
 mod parser;
-mod token;
 mod when_opts;
 
-pub(crate) use arg::Arg;
+pub use arg::Arg;
 pub use el::El;
-pub(crate) use lexer::{SpannedTok, format_el_parse_error, lex};
+pub(crate) use lexer::format_el_parse_error;
 pub use mods::Mods;
 pub use node_ref::NodeRef;
 pub use parser::parse_el;
-pub(crate) use token::Tok;
+pub(crate) use parser::{apply_el_method, apply_el_method_ref};
 pub use when_opts::WhenOpts;

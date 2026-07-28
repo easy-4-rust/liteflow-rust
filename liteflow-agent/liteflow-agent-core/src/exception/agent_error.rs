@@ -36,7 +36,11 @@ pub enum AgentError {
     /// Skills 目录、技能声明或技能文件加载失败。
     #[error("{0}")]
     SkillsLoad(String),
-    /// Redis/MySQL 客户端必须由宿主构造并显式注入 AgentScope Session。
+    /// 兼容旧版“远端 Session 必须逐组件注入”的错误分支。
+    ///
+    /// 新代码应注册命名 AgentScope Session；保留该变体避免破坏已经对其做模式
+    /// 匹配的调用方。
+    #[deprecated(note = "register a named Redis/MySQL AgentScope Session instead")]
     #[error("memory backend {0:?} requires an explicitly injected AgentScope Session")]
     SessionBackendRequiresInjection(MemoryStorageMode),
     /// AgentScope 执行失败。

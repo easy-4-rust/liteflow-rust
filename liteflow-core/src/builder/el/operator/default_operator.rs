@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 只允许跟在 SWITCH/TO 后，并设置一个默认目标。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.DefaultOperator`。
-pub(crate) struct DefaultOperator;
+pub struct DefaultOperator;
 
 impl BaseOperator for DefaultOperator {
     fn operator_name(&self) -> &'static str {

@@ -4,19 +4,19 @@
 //! 字段对齐 Java：ignoreError / any / percentage / specifyIdSet(must) /
 //! maxWaitTime / threadExecutorClass。
 //!
-//! 差异说明：
-//! - Java 的 group 字段在 2.10.0 已弃用，未迁移。
+//! Rust 映射与剩余边界：
+//! - Java 已弃用的 group 字段仍保留 getter/setter 与默认值兼容。
 //! - Java 用独立线程池（threadExecutorClass）+ CompletableFuture；Rust 通过
 //!   ExecutorHelper 选择有界 Tokio 执行器，并保持 Condition > Chain > 全局优先级。
-//! - Java 超时以 WhenFutureObj.timeOut 标记并 warn；Rust 整体超时返回
-//!   LiteflowError::WhenTimeout。
+//! - Java 为每个分支生成 WhenFutureObj 超时结果；Rust 同样在并行策略层为每个
+//!   分支独立结算成功、失败或超时，只把真正超时的分支写入 Slot。
 
 use super::{Condition, ConditionBase};
 use crate::enums::{ConditionTypeEnum, ParallelStrategyEnum};
-use crate::exception::{LFResult, LiteflowError};
+use crate::exception::LFResult;
 use crate::flow::element::executable::Executable;
 use crate::flow::parallel::strategy::{ParallelOpts, ParallelStrategyHelper};
-use crate::property::TimeUnit;
+use crate::property::{LiteflowConfigGetter, TimeUnit};
 use crate::slot::{Ctx, Frame};
 use crate::thread::ExecutorHelper;
 use async_trait::async_trait;
@@ -48,6 +48,11 @@ pub struct WhenCondition {
 }
 
 impl WhenCondition {
+    /// 创建并行执行 Condition。
+    ///
+    /// 参数 `executable_list` 是全部并行分支；策略、等待时间和错误处理保持 Java
+    /// 默认值，后续由对应 setter 修改。对应 Java: `WhenCondition#WhenCondition`。
+    #[must_use]
     pub fn new(executable_list: Vec<Arc<dyn Executable>>) -> Self {
         Self {
             base: ConditionBase::default(),
@@ -87,6 +92,26 @@ impl WhenCondition {
             .filter(|(_, e)| must.iter().any(|m| m == e.id()))
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// 解析每个 WHEN 分支的最大等待时长。
+    ///
+    /// 对应 Java: `ParallelStrategyExecutor#setWhenConditionParams`。条件未显式设置
+    /// 时依次读取已弃用的 `whenMaxWaitSeconds` 和当前
+    /// `whenMaxWaitTime + whenMaxWaitTimeUnit` 全局配置。
+    fn max_wait_duration(&self) -> Duration {
+        if let Some(max_wait_ms) = self.max_wait_ms {
+            return Duration::from_millis(max_wait_ms);
+        }
+        let liteflow_config = LiteflowConfigGetter::get();
+        #[allow(deprecated)]
+        if let Some(when_max_wait_seconds) = liteflow_config.get_when_max_wait_seconds() {
+            Duration::from_secs(when_max_wait_seconds)
+        } else {
+            liteflow_config
+                .get_when_max_wait_time_unit()
+                .to_duration(liteflow_config.get_when_max_wait_time())
+        }
     }
 
     /// 执行 WHEN 并行条件。
@@ -251,14 +276,17 @@ impl Executable for WhenCondition {
         super::execute_condition_with_lifecycle(self, ctx, frame, async {
             // 对应 Java WhenCondition#executeAsyncCondition 的 stream 过滤：
             // 1. 过滤掉 PreCondition / FinallyCondition（EL Chain 处理时已提出）
-            // 2. 过滤 isAccess 为 false 的分支（不过滤的话 any 模式下它会最快返回）
+            // 2. 非 ALL 策略过滤 isAccess=false，避免 ANY 把跳过项当作最快完成项
+            let parallel_strategy = self.strategy();
             let mut items: Vec<Arc<dyn Executable>> =
                 Vec::with_capacity(self.executable_list.len());
             for e in &self.executable_list {
                 if e.is_pre_or_finally() {
                     continue;
                 }
-                if e.is_access(ctx, frame).await {
+                // Java AllOfParallelExecutor 明确覆盖 filterAccess 并保留全部分支；
+                // 其余策略先过滤 isAccess=false，避免 ANY 把跳过项当作最快完成项。
+                if parallel_strategy == ParallelStrategyEnum::All || e.is_access(ctx, frame).await {
                     items.push(e.clone());
                 }
             }
@@ -277,31 +305,15 @@ impl Executable for WhenCondition {
                 ignore_error: self.ignore_error,
                 must_idx: Self::must_idx(&items, &self.must),
                 percentage: self.percentage,
+                max_wait: self.max_wait_duration(),
                 executor_service,
             };
             let executor = ParallelStrategyHelper::load_instance()
-                .build_parallel_executor(Some(self.strategy()));
-            let timeout_item_ids = items
-                .iter()
-                .map(|executable| executable.id().to_string())
-                .collect::<Vec<_>>();
-            // 并行分支共享同一 slot（Java 同一 slotIndex）
-            let fut = executor.execute(items, &opts, ctx.clone(), frame.clone());
-            match self.max_wait_ms {
-                Some(ms) => match tokio::time::timeout(Duration::from_millis(ms), fut).await {
-                    Ok(r) => r,
-                    Err(_) => {
-                        // Java 会把超时的 WHEN 执行项写入 Slot.timeoutItemList。Rust 的
-                        // 整体 timeout 会取消仍在运行的 Future，因此把本次参与并行的
-                        // 分支标识全部登记为未在期限内完成的候选项。
-                        for executor_item in timeout_item_ids {
-                            ctx.inner.add_timeout_item(executor_item);
-                        }
-                        Err(LiteflowError::WhenTimeout("when timeout".to_string()))
-                    }
-                },
-                None => fut.await,
-            }
+                .build_parallel_executor(Some(parallel_strategy));
+            // 并行分支共享同一 Slot；逐分支等待与超时归因由策略层完成。
+            executor
+                .execute(items, &opts, ctx.clone(), frame.clone())
+                .await
         })
         .await
     }

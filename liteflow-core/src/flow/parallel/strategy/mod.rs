@@ -14,4 +14,4 @@ pub use parallel_opts::ParallelOpts;
 pub use parallel_outcome::ParallelOutcome;
 pub use parallel_strategy_executor::ParallelStrategyExecutor;
 pub use parallel_strategy_helper::ParallelStrategyHelper;
-pub use parallel_strategy_support::{collect, spawn_all};
+pub use parallel_strategy_support::{collect, record_timeout_items, spawn_all};

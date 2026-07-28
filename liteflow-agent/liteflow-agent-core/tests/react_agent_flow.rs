@@ -12,10 +12,12 @@ use agentscope_core::message::{ChatUsage, ToolUseBlock};
 use agentscope_core::model::{
     ChatResponse, GenerateOptions, ModelCapabilities, ModelError, ToolSchema,
 };
+use agentscope_core::session::{InMemorySession, Session};
 use agentscope_core::{ContentBlock, Model, Msg};
 use futures::Stream;
 use liteflow_agent_core::{
-    AgentConfig, AgentError, AgentEventType, MemoryStorageMode, ReActAgentComponent,
+    AgentConfig, AgentEventType, AgentSessionFactoryRegistry, MemoryStorageMode,
+    MysqlAgentSessionFactory, ReActAgentComponent, RedisAgentSessionFactory,
 };
 use liteflow_core::{ExecuteOption, FlowBus, FlowEvent, listener};
 use serde_json::{Value, json};
@@ -881,6 +883,9 @@ async fn shared_workspace_survives_one_agent_eviction_and_is_deleted_by_last_own
 
     let shared_workspace = workspace_root.path().join("shared-conversation");
     assert!(shared_workspace.is_dir());
+    // 双 Agent 响应的 CmpStep 同时持有两个组件实例；完成结果断言后释放它，避免
+    // 旧响应把第二个会话管理器延长到测试作用域末尾。
+    drop(response);
     tokio::time::sleep(Duration::from_millis(25)).await;
 
     let response = bus
@@ -900,6 +905,9 @@ async fn shared_workspace_survives_one_agent_eviction_and_is_deleted_by_last_own
         "第二个 Agent 的会话必须继续存活"
     );
 
+    // LiteflowResponse 的 CmpStep 按 Java 语义保存组件实例；响应仍存活时组件就不能
+    // Drop。先释放响应，再验证最后一个组件持有者退出后的工作区清理。
+    drop(response);
     drop(bus);
     drop(first_component);
     drop(second_component);
@@ -910,17 +918,67 @@ async fn shared_workspace_survives_one_agent_eviction_and_is_deleted_by_last_own
 }
 
 #[test]
-fn remote_memory_backends_require_explicit_agentscope_session() {
-    for mode in [MemoryStorageMode::Redis, MemoryStorageMode::Mysql] {
+fn remote_memory_backends_resolve_named_agentscope_sessions() {
+    let cases = [
+        (MemoryStorageMode::Redis, "redisClient"),
+        (MemoryStorageMode::Mysql, "agentDataSource"),
+    ];
+
+    for (mode, bean_name) in cases {
+        let session: Arc<dyn Session> = Arc::new(InMemorySession::new());
         let mut config = AgentConfig::default();
         config.session.memory.mode = mode;
-        let model = Arc::new(CountingModel::new(Duration::ZERO));
-        let result = ReActAgentComponent::builder("remote_agent", model)
-            .config(config)
-            .build();
-        assert!(matches!(
-            result,
-            Err(AgentError::SessionBackendRequiresInjection(actual)) if actual == mode
-        ));
+
+        match mode {
+            MemoryStorageMode::Redis => {
+                config.session.memory.redis.bean_name = Some(bean_name.to_string());
+                RedisAgentSessionFactory::register_session(bean_name, session.clone())
+                    .expect("Redis Session 应能按 beanName 注册");
+            }
+            MemoryStorageMode::Mysql => {
+                config.session.memory.mysql.data_source_bean_name = Some(bean_name.to_string());
+                MysqlAgentSessionFactory::register_session(bean_name, session.clone())
+                    .expect("MySQL Session 应能按 DataSource 名称注册");
+            }
+            _ => unreachable!("测试仅覆盖两个远端记忆后端"),
+        }
+
+        let resolved = AgentSessionFactoryRegistry::new()
+            .create_session(&config)
+            .expect("命名后端应能从配置解析")
+            .expect("远端模式应返回 Session");
+        assert!(
+            Arc::ptr_eq(&session, &resolved),
+            "工厂必须返回宿主注册的同一真实 Session"
+        );
+
+        match mode {
+            MemoryStorageMode::Redis => {
+                RedisAgentSessionFactory::unregister_session(bean_name);
+            }
+            MemoryStorageMode::Mysql => {
+                MysqlAgentSessionFactory::unregister_session(bean_name);
+            }
+            _ => unreachable!("测试仅覆盖两个远端记忆后端"),
+        }
     }
+}
+
+#[test]
+fn remote_memory_backends_reject_missing_named_resources() {
+    let mut redis_config = AgentConfig::default();
+    redis_config.session.memory.mode = MemoryStorageMode::Redis;
+    let redis_error = match AgentSessionFactoryRegistry::new().create_session(&redis_config) {
+        Err(error) => error,
+        Ok(_) => panic!("REDIS 模式必须配置 beanName"),
+    };
+    assert!(redis_error.to_string().contains("redis.beanName"));
+
+    let mut mysql_config = AgentConfig::default();
+    mysql_config.session.memory.mode = MemoryStorageMode::Mysql;
+    let mysql_error = match AgentSessionFactoryRegistry::new().create_session(&mysql_config) {
+        Err(error) => error,
+        Ok(_) => panic!("MYSQL 模式必须配置 dataSourceBeanName"),
+    };
+    assert!(mysql_error.to_string().contains("mysql.dataSourceBeanName"));
 }

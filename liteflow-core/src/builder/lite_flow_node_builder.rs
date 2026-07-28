@@ -241,7 +241,7 @@ impl LiteFlowNodeBuilder {
 
     fn build_script_node(self, node_id: String, node_type: NodeTypeEnum) -> LFResult<()> {
         let script = if let Some(file) = self.file {
-            let parser = PathContentParserHolder::load_path_content_parser();
+            let parser = PathContentParserHolder::load_context_aware();
             parser
                 .parse_content(&[file])?
                 .into_iter()

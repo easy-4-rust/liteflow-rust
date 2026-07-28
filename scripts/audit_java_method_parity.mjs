@@ -18,11 +18,84 @@ function isPublicRustTraitDeclaration(sourceLine, traitName) {
   ).test(sourceLine ?? "");
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isPublicRustObjectDeclaration(source, objectName) {
+  const escapedObjectName = escapeRegExp(objectName);
+  return new RegExp(
+    `^\\s*pub\\s+(?:struct|enum)\\s+${escapedObjectName}(?:\\s|<|\\{|\\(|;)`,
+    "m",
+  ).test(source);
+}
+
+function implementsTrait(source, objectName, traitName) {
+  const escapedObjectName = escapeRegExp(objectName);
+  const escapedTraitName = escapeRegExp(traitName);
+  return new RegExp(
+    `impl(?:\\s*<[^>{}]*>)?\\s+${escapedTraitName}(?:\\s*<[^>{}]*>)?\\s+for\\s+${escapedObjectName}\\b`,
+    "m",
+  ).test(source);
+}
+
+function isDirectJavaMethod(qualifiedName, className) {
+  const ownerMarker = `::${className}::`;
+  const ownerIndex = qualifiedName.indexOf(ownerMarker);
+  if (ownerIndex < 0) {
+    return false;
+  }
+  const ownerTail = qualifiedName.slice(ownerIndex + ownerMarker.length);
+  return !ownerTail.includes("::") && !ownerTail.includes("::<");
+}
+
+function rustTraitParents(declaration, traitName) {
+  const escapedTraitName = escapeRegExp(traitName);
+  const match = declaration.match(
+    new RegExp(`\\btrait\\s+${escapedTraitName}(?:\\s*<[^>{}]*>)?\\s*:\\s*([^\\{]+)`),
+  );
+  if (!match) {
+    return [];
+  }
+  return match[1]
+    .split("+")
+    .map((parent) => parent.trim())
+    .filter((parent) => parent.length > 0 && !parent.startsWith("'"))
+    .map((parent) => parent.replace(/<.*$/, "").split("::").at(-1).trim());
+}
+
 if (process.argv.includes("--self-test")) {
   assert.equal(isPublicRustTraitDeclaration("pub trait Condition: Executable {", "Condition"), true);
   assert.equal(isPublicRustTraitDeclaration("pub unsafe trait Guard<T> {", "Guard"), true);
   assert.equal(isPublicRustTraitDeclaration("pub(crate) trait Internal {", "Internal"), false);
   assert.equal(isPublicRustTraitDeclaration("trait Private {", "Private"), false);
+  assert.equal(isPublicRustObjectDeclaration("pub struct ThenOperator;", "ThenOperator"), true);
+  assert.equal(isPublicRustObjectDeclaration("pub(crate) struct Hidden;", "Hidden"), false);
+  assert.equal(implementsTrait("impl BaseOperator for ThenOperator {", "ThenOperator", "BaseOperator"), true);
+  assert.equal(implementsTrait("impl Other for ThenOperator {", "ThenOperator", "BaseOperator"), false);
+  assert.equal(
+    isDirectJavaMethod("com.yomahub.liteflow::ForOperator::build", "ForOperator"),
+    true,
+  );
+  assert.equal(
+    isDirectJavaMethod(
+      "com.yomahub.liteflow::ForOperator::build::<NodeForComponent$anon@36>::processFor",
+      "ForOperator",
+    ),
+    false,
+  );
+  assert.equal(
+    isDirectJavaMethod(
+      "com.yomahub.liteflow::RuleParsePluginUtil::ChainDto::ChainDto",
+      "RuleParsePluginUtil",
+    ),
+    false,
+  );
+  assert.deepEqual(
+    rustTraitParents("pub trait Condition: Executable + Send + Sync {", "Condition"),
+    ["Executable", "Send", "Sync"],
+  );
+  assert.deepEqual(rustTraitParents("pub trait Standalone {", "Standalone"), []);
   console.log("audit_java_method_parity self-test: ok");
   process.exit(0);
 }
@@ -119,24 +192,70 @@ const rustTraits = query(
    FROM nodes
    WHERE kind = 'trait'`,
 );
+const publicRustTraitNodes = rustTraits
+  .map((traitNode) => {
+    const sourceLines = readFileSync(join(rustRoot, traitNode.filePath), "utf8").split(/\r?\n/);
+    const sourceLine = sourceLines.at(traitNode.startLine - 1);
+    const declaration = sourceLines
+      .slice(traitNode.startLine - 1, traitNode.startLine + 8)
+      .join(" ")
+      .split("{", 1)[0];
+    return { ...traitNode, sourceLine, declaration };
+  })
+  .filter((traitNode) => isPublicRustTraitDeclaration(traitNode.sourceLine, traitNode.name));
 const publicRustTraits = new Set(
-  rustTraits
-    .filter((traitNode) => {
-      const sourceLine = readFileSync(join(rustRoot, traitNode.filePath), "utf8")
-        .split(/\r?\n/)
-        .at(traitNode.startLine - 1);
-      return isPublicRustTraitDeclaration(sourceLine, traitNode.name);
-    })
-    .map((traitNode) => `${traitNode.filePath}\0${traitNode.name}`),
+  publicRustTraitNodes.map((traitNode) => `${traitNode.filePath}\0${traitNode.name}`),
 );
-const rustCallables = query(
+const publicRustTraitParents = new Map(
+  publicRustTraitNodes.map((traitNode) => [
+    traitNode.name,
+    rustTraitParents(traitNode.declaration, traitNode.name),
+  ]),
+);
+const allRustCallables = query(
   rustDb,
   `SELECT name, qualified_name AS qualifiedName, file_path AS filePath,
           visibility
    FROM nodes
    WHERE kind IN ('method', 'function')
   `,
-).filter((callable) => {
+);
+const publicTraitMethods = new Map();
+for (const callable of allRustCallables) {
+  const owner = callable.qualifiedName.includes("::")
+    ? callable.qualifiedName.slice(0, callable.qualifiedName.indexOf("::"))
+    : "";
+  if (!publicRustTraits.has(`${callable.filePath}\0${owner}`)) {
+    continue;
+  }
+  const methods = publicTraitMethods.get(owner) ?? new Set();
+  methods.add(callable.name.replace(/^r#/, ""));
+  publicTraitMethods.set(owner, methods);
+}
+
+// Rust 子 trait 会把父 trait 的公开方法作为同一对象的可调用 API 暴露；把这层
+// 继承闭包纳入审计，避免把 `Condition: Executable` 的 execute 误报成缺口。
+let inheritedTraitMethodAdded = true;
+while (inheritedTraitMethodAdded) {
+  inheritedTraitMethodAdded = false;
+  for (const [traitName, parentNames] of publicRustTraitParents) {
+    const methods = publicTraitMethods.get(traitName) ?? new Set();
+    const previousSize = methods.size;
+    for (const parentName of parentNames) {
+      for (const method of publicTraitMethods.get(parentName) ?? []) {
+        methods.add(method);
+      }
+    }
+    if (methods.size > previousSize) {
+      inheritedTraitMethodAdded = true;
+    }
+    if (methods.size > 0) {
+      publicTraitMethods.set(traitName, methods);
+    }
+  }
+}
+
+const rustCallables = allRustCallables.filter((callable) => {
   if (callable.visibility === "public") {
     return true;
   }
@@ -151,7 +270,7 @@ const rustCallables = query(
 const javaByClass = new Map();
 for (const method of javaMethods) {
   const className = javaClassNameFromFile(method.filePath);
-  if (method.name === className) {
+  if (method.name === className || !isDirectJavaMethod(method.qualifiedName, className)) {
     continue;
   }
   const key = `${className}\0${method.filePath}`;
@@ -167,6 +286,42 @@ for (const callable of rustCallables) {
   // `pub fn r#type`）；对外方法名仍是 `type`，审计时应去掉语法前缀。
   methods.add(callable.name.replace(/^r#/, ""));
   rustByFile.set(callable.filePath, methods);
+}
+
+for (const traitNode of publicRustTraitNodes) {
+  const methods = rustByFile.get(traitNode.filePath) ?? new Set();
+  for (const method of publicTraitMethods.get(traitNode.name) ?? []) {
+    methods.add(method);
+  }
+  if (methods.size > 0) {
+    rustByFile.set(traitNode.filePath, methods);
+  }
+}
+
+// CodeGraph 当前不为零大小 struct 建立类型节点，并把 trait impl 中的方法标记为
+// private。公开对象实现公开 trait 时，这些方法仍是其真实公开 API；从源码补齐
+// 继承/实现方法，避免要求每个对象再写一层无意义的固有方法代理。
+for (const mapping of mappingRows) {
+  const absoluteRustFile = join(rustRoot, mapping.rustFile);
+  if (!existsSync(absoluteRustFile)) {
+    continue;
+  }
+  const source = readFileSync(absoluteRustFile, "utf8");
+  if (!isPublicRustObjectDeclaration(source, mapping.javaObject)) {
+    continue;
+  }
+  const methods = rustByFile.get(mapping.rustFile) ?? new Set();
+  for (const [traitName, traitMethods] of publicTraitMethods) {
+    if (!implementsTrait(source, mapping.javaObject, traitName)) {
+      continue;
+    }
+    for (const method of traitMethods) {
+      methods.add(method);
+    }
+  }
+  if (methods.size > 0) {
+    rustByFile.set(mapping.rustFile, methods);
+  }
 }
 
 const rows = [];

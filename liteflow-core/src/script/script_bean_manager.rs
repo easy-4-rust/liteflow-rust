@@ -20,6 +20,7 @@ pub struct ScriptBeanManager;
 impl ScriptBeanManager {
     /// 添加或覆盖脚本 Bean。对应 Java `addScriptBean`。
     pub fn add_script_bean(proxy: ScriptBeanProxy) {
+        let proxy = proxy.get_proxy_script_bean();
         script_beans().insert(proxy.bean_name().to_string(), Arc::new(proxy));
     }
 

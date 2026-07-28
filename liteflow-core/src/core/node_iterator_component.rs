@@ -40,6 +40,27 @@ impl<F> NodeIteratorComponent<F> {
     {
         (self.process_iterator)(ctx).await
     }
+
+    /// 执行 ITERATOR 组件并转换为统一节点结果。
+    ///
+    /// 参数 `ctx` 为当前节点执行上下文；返回 `Value::Array`，由迭代条件逐项消费。
+    /// 对应 Java: `NodeIteratorComponent#process`。
+    pub async fn process<Fut>(&self, ctx: &CmpContext) -> Result<Value, LiteflowError>
+    where
+        F: Fn(CmpContext) -> Fut,
+        Fut: Future<Output = Result<Vec<Value>, LiteflowError>>,
+    {
+        self.process_iterator(ctx.clone()).await.map(Value::Array)
+    }
+
+    /// 返回当前节点最近一次成功执行的迭代数据。
+    ///
+    /// 参数 `ctx` 提供任务 Frame 与节点实例标识；尚未执行时返回 `None`。
+    /// 对应 Java: `NodeIteratorComponent#getItemResultMetaValue`。
+    #[must_use]
+    pub fn get_item_result_meta_value(&self, ctx: &CmpContext) -> Option<Value> {
+        ctx.frame.get_node_item_result(ctx.node.display())
+    }
 }
 
 #[async_trait]
@@ -49,7 +70,7 @@ where
     Fut: Future<Output = Result<Vec<Value>, LiteflowError>> + Send,
 {
     async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
-        self.process_iterator(ctx.clone()).await.map(Value::Array)
+        NodeIteratorComponent::process(self, ctx).await
     }
 
     fn name(&self) -> &str {

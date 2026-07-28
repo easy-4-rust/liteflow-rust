@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// 接受一个或多个普通可执行项，并构造 THEN 主流程可识别的前置流程。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.PreOperator`。
-pub(crate) struct PreOperator;
+pub struct PreOperator;
 
 impl BaseOperator for PreOperator {
     fn operator_name(&self) -> &'static str {

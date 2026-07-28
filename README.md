@@ -122,7 +122,8 @@ CPython，均经过真实引擎执行测试。QLExpress 直接依赖 crates.io �
 `qlexpress 0.1.0-alpha.1`，由真实 lexer/parser/compiler/QVM 执行脚本，并缓存
 `SerializableParseCache`；LiteFlow 适配层只负责 DefaultContext、`_meta`、JSON
 值和 ScriptBean 桥接。FlowBus 端到端测试已覆盖赋值、循环、复合赋值、条件分支、
-五类节点返回和上下文写回，并与 Java QLExpress 4.1.0 做差分验证。Groovy、
+五类节点返回和上下文写回，并与 Java QLExpress 4.1.0 做差分验证；独立
+QlExpress + Vernal testcase 与工作区 benchmark 也会执行真实 QVM。Groovy、
 Aviator、Kotlin 的 JVM 专属动态能力仍有明确适配边界。
 
 ## 决策表链路（route，2.12+）

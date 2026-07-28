@@ -109,6 +109,14 @@ impl<T: Clone> BoundedPriorityBlockingQueue<T> {
         values.sort_by(|left, right| (self.comparator)(left, right));
         values
     }
+
+    /// 返回按优先级排序的独立快照迭代器。
+    ///
+    /// 返回的迭代器不持有内部互斥锁；创建迭代器后的并发写入不会改变本次遍历。
+    /// 对应 Java: `BoundedPriorityBlockingQueue#iterator`。
+    pub fn iterator(&self) -> std::vec::IntoIter<T> {
+        self.to_list().into_iter()
+    }
 }
 
 impl<T: Clone> IntoIterator for &BoundedPriorityBlockingQueue<T> {
@@ -117,6 +125,6 @@ impl<T: Clone> IntoIterator for &BoundedPriorityBlockingQueue<T> {
 
     /// 返回有序快照迭代器。对应 Java 覆盖的 `iterator`。
     fn into_iter(self) -> Self::IntoIter {
-        self.to_list().into_iter()
+        self.iterator()
     }
 }

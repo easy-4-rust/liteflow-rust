@@ -4,6 +4,14 @@
 
 use crate::exception::{LFResult, LiteflowError};
 
+/// LiteFlow EL 正则与抽象链处理工具。
+///
+/// 负责识别、替换抽象链占位符，并规范化动态执行的 EL 文本。所有公开入口均保留
+/// Java 工具类的静态方法语义。
+///
+/// 对应 Java: `com.yomahub.liteflow.util.ElRegexUtil`。
+pub struct ElRegexUtil;
+
 /// REGEX_ABSTRACT_HOLDER 语义：{{name}} 且后不接 =
 fn find_placeholders(el: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -40,28 +48,6 @@ fn find_placeholders(el: &str) -> Vec<String> {
         i += 1;
     }
     out
-}
-
-/// isAbstractChain
-pub fn is_abstract_chain(el: &str) -> bool {
-    !find_placeholders(el).is_empty()
-}
-
-/// replaceAbstractChain：把父链 EL 中的 {{holder}} 替换为子链 EL 中的
-/// {{holder}} = 实现; 赋值。缺少实现时报 ParseException（语义对齐 Java）。
-pub fn replace_abstract_chain(abstract_el: &str, impl_el: &str) -> LFResult<String> {
-    let mut result = abstract_el.to_string();
-    for holder in find_placeholders(abstract_el) {
-        // 在 impl 中找 "{{holder}} = ...;" 赋值
-        let assign = find_assignment(impl_el, &holder).ok_or_else(|| {
-            LiteflowError::Parse(format!(
-                "missing implementation of {{{{{holder}}}}} in expression \r\n{impl_el}"
-            ))
-        })?;
-        // 替换所有出现的 {{holder}}（含空白变体）
-        result = replace_placeholder(&result, &holder, &assign);
-    }
-    Ok(result)
 }
 
 /// 提取 "{{holder}} = xxx;" 中的 xxx
@@ -111,27 +97,62 @@ fn replace_placeholder(el: &str, holder: &str, replacement: &str) -> String {
     out
 }
 
-/// 对应 ElRegexUtil.normalize（2.16，execute2RespWithEL 用）：
-/// 剔除 EL 中多余空格，将单引号变为双引号，并在末尾保留一个分号
-pub fn normalize_el(el_str: &str) -> String {
-    let s: String = el_str
-        .replace('\'', "\"")
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    let trimmed = s.trim_end_matches(';');
-    format!("{trimmed};")
+impl ElRegexUtil {
+    /// 判断 EL 是否包含尚未实现的抽象链占位符。
+    ///
+    /// 参数 `el` 为待检查的链路表达式；包含 `{{name}}` 且其后不是赋值符号时返回
+    /// `true`。对应 Java: `ElRegexUtil#isAbstractChain`。
+    #[must_use]
+    pub fn is_abstract_chain(el: &str) -> bool {
+        !find_placeholders(el).is_empty()
+    }
+
+    /// 使用子链实现替换父链中的抽象占位符。
+    ///
+    /// 参数 `abstract_el` 为父链 EL，`impl_el` 为包含 `{{holder}} = expression;`
+    /// 赋值的子链 EL；缺少任一实现时返回解析错误。
+    /// 对应 Java: `ElRegexUtil#replaceAbstractChain`。
+    pub fn replace_abstract_chain(abstract_el: &str, impl_el: &str) -> LFResult<String> {
+        let mut result = abstract_el.to_string();
+        for holder in find_placeholders(abstract_el) {
+            // 逐个解析实现赋值，避免未实现占位符进入后续 EL 解析器。
+            let assign = find_assignment(impl_el, &holder).ok_or_else(|| {
+                LiteflowError::Parse(format!(
+                    "missing implementation of {{{{{holder}}}}} in expression \r\n{impl_el}"
+                ))
+            })?;
+            // 替换所有出现的同名占位符，并兼容花括号内的空白。
+            result = replace_placeholder(&result, &holder, &assign);
+        }
+        Ok(result)
+    }
+
+    /// 规范化用于动态执行的 EL 文本。
+    ///
+    /// 参数 `el_str` 为原始 EL；返回值会把单引号替换为双引号、删除全部空白，并
+    /// 把任意数量的尾部分号收敛为一个分号。
+    /// 对应 Java: `ElRegexUtil#normalize`。
+    #[must_use]
+    pub fn normalize(el_str: &str) -> String {
+        let normalized: String = el_str
+            .replace('\'', "\"")
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
+        let trimmed = normalized.trim_end_matches(';');
+        format!("{trimmed};")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::replace_abstract_chain;
+    use super::ElRegexUtil;
 
     #[test]
     fn abstract_chain_replace() {
         let parent = "THEN(a, {{x}}, WHEN({{y}}, d))";
         let child = "{{x}} = b; {{y}} = IF(c1, c2);";
-        let r = replace_abstract_chain(parent, child).unwrap();
+        let r = ElRegexUtil::replace_abstract_chain(parent, child).unwrap();
         assert_eq!(r, "THEN(a, b, WHEN(IF(c1, c2), d))");
     }
 
@@ -139,6 +160,14 @@ mod tests {
     fn missing_impl_error() {
         let parent = "THEN(a, {{x}})";
         let child = "THEN(b)";
-        assert!(replace_abstract_chain(parent, child).is_err());
+        assert!(ElRegexUtil::replace_abstract_chain(parent, child).is_err());
+    }
+
+    #[test]
+    fn normalize_matches_java_replacement_order() {
+        assert_eq!(
+            ElRegexUtil::normalize(" THEN( a.tag('A B') ) ;;; \n"),
+            "THEN(a.tag(\"AB\"));"
+        );
     }
 }

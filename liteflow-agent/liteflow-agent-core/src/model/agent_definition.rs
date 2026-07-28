@@ -98,7 +98,7 @@ impl AgentDefinition {
         ),
         AgentError,
     > {
-        let mut toolkit = Toolkit::new();
+        let toolkit = Toolkit::new();
         let mut conversation_workspace = None;
         for tool in &self.tools {
             toolkit.register_agent_tool(Arc::clone(tool));

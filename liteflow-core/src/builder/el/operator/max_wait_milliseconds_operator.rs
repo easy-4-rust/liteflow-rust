@@ -7,7 +7,7 @@ use crate::exception::LFResult;
 ///
 /// 以毫秒为单位交给公共超时操作符处理。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.MaxWaitMillisecondsOperator`。
-pub(crate) struct MaxWaitMillisecondsOperator;
+pub struct MaxWaitMillisecondsOperator;
 
 impl BaseOperator for MaxWaitMillisecondsOperator {
     fn operator_name(&self) -> &'static str {

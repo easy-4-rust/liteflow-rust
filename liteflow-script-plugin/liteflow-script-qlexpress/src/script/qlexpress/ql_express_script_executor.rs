@@ -74,7 +74,7 @@ impl QlExpressScriptExecutor {
     fn compile(&self, script: &str) -> Result<SerializableParseCache, QLException> {
         let source = normalize_liteflow_calls(script);
         let runner = create_runner();
-        register_context_functions(&runner, None);
+        register_context_functions(&runner, None, None);
         register_global_script_bean_functions(&runner);
         runner.export_parse_cache(&source)
     }
@@ -166,9 +166,14 @@ impl ScriptExecutor for QlExpressScriptExecutor {
 
         // Runner 含 Rc/RefCell，只在当前执行线程内创建和销毁；缓存本身是纯 serde 数据。
         let runner = create_runner();
-        register_context_functions(&runner, Some(context.clone()));
+        let bindings = self.bind_param(context);
+        register_context_functions(
+            &runner,
+            Some(context.clone()),
+            bindings.get("_meta").cloned(),
+        );
         register_global_script_bean_functions(&runner);
-        let ql_context = build_ql_context(&cache, context);
+        let ql_context = build_ql_context(&cache, context, bindings)?;
         let result = runner
             .execute_with_cache(
                 &cache,
@@ -253,7 +258,11 @@ fn create_runner() -> Express4Runner {
     Express4Runner::with_init_options(options)
 }
 
-fn register_context_functions(runner: &Express4Runner, context: Option<CmpContext>) {
+fn register_context_functions(
+    runner: &Express4Runner,
+    context: Option<CmpContext>,
+    meta: Option<Value>,
+) {
     let get_context = context.clone();
     runner.add_function_unary(GET_DATA_FUNCTION, move |key| {
         let Some(context) = &get_context else {
@@ -285,13 +294,16 @@ fn register_context_functions(runner: &Express4Runner, context: Option<CmpContex
         value
     });
 
-    let meta_context = context;
+    let meta_context = meta;
     runner.add_function_unary(META_FUNCTION, move |key| {
         meta_context
             .as_ref()
             .zip(key.as_str())
-            .map_or(DataValue::Null, |(context, key)| {
-                json_to_data_value(&meta_value(context, key)).unwrap_or(DataValue::Null)
+            .map_or(DataValue::Null, |(meta, key)| {
+                meta.as_object()
+                    .and_then(|meta| meta.get(key))
+                    .and_then(|value| json_to_data_value(value).ok())
+                    .unwrap_or(DataValue::Null)
             })
     });
 
@@ -322,27 +334,20 @@ fn register_global_script_bean_functions(runner: &Express4Runner) {
 fn build_ql_context(
     cache: &SerializableParseCache,
     context: &CmpContext,
-) -> HashMap<String, DataValue> {
+    bindings: Map<String, Value>,
+) -> LFResult<HashMap<String, DataValue>> {
     let mut values = HashMap::new();
-    let request_data = context.request_data::<Value>().unwrap_or(Value::Null);
-    let request_value = json_to_data_value(&request_data).unwrap_or(DataValue::Null);
-    values.insert("requestData".to_string(), request_value.clone());
-    values.insert("input".to_string(), request_value);
-    values.insert(
-        "cmp_data".to_string(),
-        context
-            .cmp_data()
-            .and_then(|value| serde_json::from_str::<Value>(value).ok())
-            .and_then(|value| json_to_data_value(&value).ok())
-            .unwrap_or(DataValue::Null),
-    );
-    values.insert(
-        "loop_object".to_string(),
-        context
-            .loop_object::<Value>()
-            .and_then(|value| json_to_data_value(&value).ok())
-            .unwrap_or(DataValue::Null),
-    );
+    // 完整消费公共 bindParam 表；任何无法进入 QLExpress 的值都显式报错，禁止静默
+    // 丢弃某个上下文 Bean 或元数据后继续执行出不完整结果。
+    for (name, value) in bindings {
+        let value = json_to_data_value(&value).map_err(|message| LiteflowError::Script {
+            node: context.node_id().to_string(),
+            msg: format!("cannot bind Java ScriptExecutor parameter [{name}]: {message}"),
+        })?;
+        values.insert(name, value);
+    }
+    let request_value = values.get("input").cloned().unwrap_or(DataValue::Null);
+    values.insert("requestData".to_string(), request_value);
 
     // 进程级 Bean 先绑定；同名的执行级 context bean 随后覆盖，保持 Java bindParam 语义。
     for (bean_name, proxy) in ScriptBeanManager::get_script_bean_map() {
@@ -355,7 +360,7 @@ fn build_ql_context(
             }
         }
     }
-    values
+    Ok(values)
 }
 
 fn script_bean_value(proxy: Arc<ScriptBeanProxy>) -> DataValue {
@@ -649,9 +654,9 @@ fn number_to_data_value(value: &Number) -> Result<DataValue, String> {
             .unwrap_or_else(|_| DataValue::Long(value)));
     }
     if let Some(value) = value.as_u64() {
-        return i64::try_from(value)
+        return Ok(i64::try_from(value)
             .map(DataValue::Long)
-            .map_err(|_| format!("JSON unsigned integer [{value}] exceeds QLExpress Long"));
+            .unwrap_or_else(|_| DataValue::big_int(value)));
     }
     value
         .as_f64()
@@ -709,23 +714,6 @@ fn data_value_to_json(value: &DataValue) -> Result<Value, String> {
         DataValue::Object(_) => {
             Err("QLExpress native object result cannot be converted to JSON".to_string())
         }
-    }
-}
-
-fn meta_value(context: &CmpContext, key: &str) -> Value {
-    match key {
-        "nodeId" => json!(context.node_id()),
-        "tag" => context.tag().map_or(Value::Null, |tag| json!(tag)),
-        "cmpData" => context
-            .cmp_data()
-            .and_then(|value| serde_json::from_str(value).ok())
-            .unwrap_or_else(|| context.cmp_data().map_or(Value::Null, |value| json!(value))),
-        "loopIndex" => context
-            .loop_index()
-            .map_or(Value::Null, |loop_index| json!(loop_index)),
-        "loopObject" => context.loop_object::<Value>().unwrap_or(Value::Null),
-        "requestData" => context.request_data::<Value>().unwrap_or(Value::Null),
-        _ => Value::Null,
     }
 }
 

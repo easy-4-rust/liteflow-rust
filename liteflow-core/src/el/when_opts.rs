@@ -1,7 +1,7 @@
 //! WHEN 条件选项。
 
 /// WHEN 的执行选项，对应 Java `WhenCondition` 字段。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct WhenOpts {
     /// 任一分支完成即返回。
     pub any: bool,

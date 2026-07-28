@@ -8,6 +8,27 @@ use liteflow_core::flow::element::condition::then_condition::ThenCondition;
 use liteflow_core::{CmpStep, CmpStepTypeEnum, ConditionTypeEnum, Frame, Slot};
 use serde_json::json;
 
+/// 验证主链请求数据由 Slot 初始化阶段自动登记。
+///
+/// 对应 Java: `FlowExecutor#doExecute` 调用 `Slot#setChainReqData`。
+#[test]
+fn slot_initializes_main_chain_request_data_like_java_flow_executor() {
+    let slot = Slot::new("request-main".to_string(), "main", json!({"order_id": 7}));
+
+    assert_eq!(
+        slot.get_chain_req_data("main"),
+        Some(json!({"order_id": 7}))
+    );
+}
+
+/// 验证空请求不创建主链请求数据，对齐 Java 对 `null` 参数的判断。
+#[test]
+fn slot_does_not_register_null_main_chain_request_data() {
+    let slot = Slot::new("request-null".to_string(), "main", json!(null));
+
+    assert_eq!(slot.get_chain_req_data("main"), None);
+}
+
 /// 验证节点数据、响应数据、子链请求和私有传递队列的真实读写语义。
 #[test]
 fn slot_data_and_queue_methods_preserve_java_semantics() {

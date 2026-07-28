@@ -32,6 +32,6 @@ impl SpiFactoryInitializing {
         let _ = ContextCmpInitHolder::load_context_cmp_init();
         let _ = DeclComponentParserHolder::load_decl_component_parser();
         let _ = LiteflowComponentSupportHolder::load_liteflow_component_support();
-        let _ = PathContentParserHolder::load_path_content_parser();
+        let _ = PathContentParserHolder::load_context_aware();
     }
 }

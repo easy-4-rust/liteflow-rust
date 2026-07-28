@@ -7,7 +7,7 @@ use crate::exception::{LFResult, LiteflowError};
 /// 支持布尔可执行项，也支持 Java 中由匿名 NodeBooleanComponent 实现的
 /// 布尔字面量重载。DO/BREAK/PARALLEL 后缀会继续完善循环 AST。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.WhileOperator`。
-pub(crate) struct WhileOperator;
+pub struct WhileOperator;
 
 impl BaseOperator for WhileOperator {
     fn operator_name(&self) -> &'static str {

@@ -1,0 +1,15 @@
+[package]
+name = "liteflow-testcase-el-script-kotlin-vernal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+liteflow-core = { path = "../../liteflow-core" }
+liteflow-script-kotlin = { path = "../../liteflow-script-plugin/liteflow-script-kotlin" }
+liteflow-vernal = { path = "../../liteflow-vernal" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

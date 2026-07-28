@@ -9,7 +9,7 @@ use liteflow_core::exception::{
     EmptyConditionValueException, ErrorSupportPathException, ExecutableItemNotFoundException,
     FallbackCmpNotFoundException, FlowExecutorNotInitException, FlowSystemException,
     IfTargetCannotBePreOrFinallyException, IfTypeErrorException, JsonProcessException,
-    LiteflowError, MissMavenDependencyException, MonitorFileInitErrorException,
+    LiteFlowException, LiteflowError, MissMavenDependencyException, MonitorFileInitErrorException,
     MultipleParsersException, NoAvailableSlotException, NoForNodeException, NoIfTrueNodeException,
     NoIteratorNodeException, NoMatchedRouteChainException, NoSuchContextBeanException,
     NoSwitchTargetNodeException, NoWhileNodeException, NodeBuildException,
@@ -23,6 +23,26 @@ use liteflow_core::exception::{
     ThreadExecutorServiceCreateException, WhenExecuteException, WhenTimeoutException,
 };
 use liteflow_core::script::exception::{ScriptLoadException, ScriptSpiException};
+
+#[test]
+fn lite_flow_exception_preserves_code_message_cause_and_unified_conversion() {
+    let exception = LiteFlowException::with_code_and_cause(
+        "E_ORDER",
+        "order failed",
+        std::io::Error::other("database unavailable"),
+    );
+    assert_eq!(exception.get_code(), Some("E_ORDER"));
+    assert_eq!(exception.get_message(), "order failed");
+    assert_eq!(
+        exception.get_cause().expect("应保留底层异常").to_string(),
+        "database unavailable"
+    );
+    assert_eq!(exception.to_string(), "order failed");
+
+    let unified_error = LiteflowError::from(exception);
+    assert_eq!(unified_error.get_code(), Some("E_ORDER"));
+    assert_eq!(unified_error.to_string(), "order failed");
+}
 
 macro_rules! assert_message_round_trip {
     ($exception_type:ty) => {{

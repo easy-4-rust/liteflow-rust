@@ -41,6 +41,27 @@ impl<F> NodeSwitchComponent<F> {
         (self.process_switch)(ctx).await
     }
 
+    /// 执行 SWITCH 组件并转换为统一节点结果。
+    ///
+    /// 参数 `ctx` 为当前节点执行上下文；返回 `Value::String` 形式的目标节点 id
+    /// 或 `node_id:tag`。对应 Java: `NodeSwitchComponent#process`。
+    pub async fn process<Fut>(&self, ctx: &CmpContext) -> Result<Value, LiteflowError>
+    where
+        F: Fn(CmpContext) -> Fut,
+        Fut: Future<Output = Result<String, LiteflowError>>,
+    {
+        self.process_switch(ctx.clone()).await.map(Value::String)
+    }
+
+    /// 返回当前节点最近一次成功执行的路由目标。
+    ///
+    /// 参数 `ctx` 提供任务 Frame 与节点实例标识；尚未执行时返回 `None`。
+    /// 对应 Java: `NodeSwitchComponent#getItemResultMetaValue`。
+    #[must_use]
+    pub fn get_item_result_meta_value(&self, ctx: &CmpContext) -> Option<Value> {
+        ctx.frame.get_node_item_result(ctx.node.display())
+    }
+
     /// 返回当前 SWITCH 表达式允许跳转的目标节点 ID。
     ///
     /// 参数 `ctx` 是当前路由节点的组件上下文；返回值对应 Java
@@ -59,7 +80,7 @@ where
     Fut: Future<Output = Result<String, LiteflowError>> + Send,
 {
     async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
-        self.process_switch(ctx.clone()).await.map(Value::String)
+        NodeSwitchComponent::process(self, ctx).await
     }
 
     fn name(&self) -> &str {

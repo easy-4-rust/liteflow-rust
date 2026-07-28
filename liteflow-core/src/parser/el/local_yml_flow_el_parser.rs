@@ -32,8 +32,7 @@ impl LocalYmlFlowElParser {
     /// 路径读取失败或 YML 规则非法时返回对应 `LiteflowError`。对应 Java:
     /// `LocalYmlFlowELParser#parseMain`。
     pub fn parse_main(&self, path_list: &[String]) -> LFResult<Vec<String>> {
-        let contents =
-            PathContentParserHolder::load_path_content_parser().parse_content(path_list)?;
+        let contents = PathContentParserHolder::load_context_aware().parse_content(path_list)?;
         self.parse(&contents)
     }
 }

@@ -1,6 +1,9 @@
 //! P2 迁移项测试：YML 规则 / 链继承 / 子链嵌套 / 声明式组件 / AOP / 监控 / 生命周期 / 实例编号。
 
-use liteflow_core::{CmpContext, FlowBus, LiteflowError, MonitorFile, MonitorTimeTask, cmp, rule};
+use liteflow_core::flow::element::chain::Chain;
+use liteflow_core::{
+    CmpContext, FlowBus, LiteflowError, MonitorFile, MonitorTimeTask, Slot, cmp, rule,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -291,15 +294,14 @@ struct CountAspect {
     errors: Arc<AtomicUsize>,
 }
 
-#[async_trait::async_trait]
 impl liteflow_core::aop::ICmpAroundAspect for CountAspect {
-    async fn before_process(&self, _ctx: &CmpContext) {
+    fn before_process(&self, _ctx: &CmpContext) {
         self.before.fetch_add(1, Ordering::SeqCst);
     }
-    async fn after_process(&self, _ctx: &CmpContext) {
+    fn after_process(&self, _ctx: &CmpContext) {
         self.after.fetch_add(1, Ordering::SeqCst);
     }
-    async fn on_error(&self, _ctx: &CmpContext, _e: &LiteflowError) {
+    fn on_error(&self, _ctx: &CmpContext, _e: &LiteflowError) {
         self.errors.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -400,27 +402,40 @@ impl liteflow_core::LifeCycle for HookLog {
 }
 
 impl liteflow_core::lifecycle::PostProcessChainBuildLifeCycle for HookLog {
-    fn post_process_after_chain_build(&self, chain_id: &str) {
-        self.events
-            .lock()
-            .unwrap()
-            .push(format!("chain_build:{chain_id}"));
+    fn post_process_before_chain_build(&self, chain: &mut Chain) {
+        self.events.lock().unwrap().push(format!(
+            "before_build:{}:{}:{}",
+            chain.get_chain_id(),
+            chain.get_el().unwrap_or_default(),
+            chain.is_compiled()
+        ));
+        chain.set_namespace("lifecycle");
+    }
+
+    fn post_process_after_chain_build(&self, chain: &Chain) {
+        self.events.lock().unwrap().push(format!(
+            "after_build:{}:{}:{}:{}",
+            chain.get_chain_id(),
+            chain.get_el().unwrap_or_default(),
+            chain.is_compiled(),
+            chain.get_namespace()
+        ));
     }
 }
 
 #[async_trait::async_trait]
 impl liteflow_core::lifecycle::PostProcessFlowExecuteLifeCycle for HookLog {
-    async fn post_process_before_flow_execute(&self, chain_id: &str) {
+    async fn post_process_before_flow_execute(&self, chain_id: &str, slot: &Slot) {
         self.events
             .lock()
             .unwrap()
-            .push(format!("before_exec:{chain_id}"));
+            .push(format!("before_exec:{chain_id}:{}", slot.get_chain_id()));
     }
-    async fn post_process_after_flow_execute(&self, chain_id: &str) {
+    async fn post_process_after_flow_execute(&self, chain_id: &str, slot: &Slot) {
         self.events
             .lock()
             .unwrap()
-            .push(format!("after_exec:{chain_id}"));
+            .push(format!("after_exec:{chain_id}:{}", slot.get_chain_id()));
     }
 }
 
@@ -437,9 +452,20 @@ async fn lifecycle_hooks() {
     bus.add_chain("c1", "THEN(a)").unwrap();
     bus.execute("c1").await;
     let log = events.lock().unwrap().clone();
-    assert!(log.contains(&"chain_build:c1".to_string()));
-    assert!(log.contains(&"before_exec:c1".to_string()));
-    assert!(log.contains(&"after_exec:c1".to_string()));
+    assert_eq!(
+        log,
+        vec![
+            "before_build:c1:THEN(a):true",
+            "after_build:c1:THEN(a):true:lifecycle",
+            "before_exec:c1:c1",
+            "after_exec:c1:c1"
+        ]
+    );
+    assert_eq!(
+        bus.get_chain_map()["c1"].get_namespace(),
+        "lifecycle",
+        "before 构建生命周期对 Chain 的修改必须进入注册表"
+    );
 }
 
 // ---------- NodeInstanceId ----------

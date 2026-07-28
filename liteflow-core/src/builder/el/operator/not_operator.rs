@@ -6,7 +6,7 @@ use crate::exception::LFResult;
 ///
 /// 只允许一个能产生布尔结果的表达式。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.NotOperator`。
-pub(crate) struct NotOperator;
+pub struct NotOperator;
 
 impl BaseOperator for NotOperator {
     fn operator_name(&self) -> &'static str {

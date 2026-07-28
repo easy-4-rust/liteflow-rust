@@ -6,7 +6,7 @@ use crate::exception::{LFResult, LiteflowError};
 ///
 /// 支持 FOR/WHILE/ITERATOR 循环体和 CATCH 降级体两类调用。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.DoOperator`。
-pub(crate) struct DoOperator;
+pub struct DoOperator;
 
 impl BaseOperator for DoOperator {
     fn operator_name(&self) -> &'static str {

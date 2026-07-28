@@ -1,7 +1,8 @@
 //! 对应 Java 包：com.yomahub.liteflow.exception
 //!
-//! 异常体系：LiteFlowException 基类对应 lite_flow_exception.rs 中的统一枚举
-//! LiteflowError；每个具体 Java 异常对应一个同名单文件 struct（一文件一对象）。
+//! 异常体系：LiteFlowException 基类位于 lite_flow_exception.rs；Rust `Result`
+//! 主干使用独立 liteflow_error.rs 中的统一 LiteflowError 枚举。
+//! 每个具体 Java 异常对应一个同名单文件 struct（一文件一对象）。
 //! v2.10.0 基线 45 个具体异常 + v2.16.0 新增 14 个，共 59 个。
 //! 已有 LiteflowError 变体的异常提供 From 转换；暂无对应变体的（标注 S2 挂接）
 //! 将在 NodeExecutor 主干层落地时接入。
@@ -32,6 +33,7 @@ pub mod if_type_error_exception;
 pub mod json_process_exception;
 mod lf_result;
 pub mod lite_flow_exception;
+mod liteflow_error;
 pub mod miss_maven_dependency_exception;
 pub mod monitor_file_init_error_exception;
 pub mod multiple_parsers_exception;
@@ -93,7 +95,8 @@ pub use if_target_cannot_be_pre_or_finally_exception::IfTargetCannotBePreOrFinal
 pub use if_type_error_exception::IfTypeErrorException;
 pub use json_process_exception::JsonProcessException;
 pub use lf_result::LFResult;
-pub use lite_flow_exception::LiteflowError;
+pub use lite_flow_exception::LiteFlowException;
+pub use liteflow_error::LiteflowError;
 pub use miss_maven_dependency_exception::MissMavenDependencyException;
 pub use monitor_file_init_error_exception::MonitorFileInitErrorException;
 pub use multiple_parsers_exception::MultipleParsersException;

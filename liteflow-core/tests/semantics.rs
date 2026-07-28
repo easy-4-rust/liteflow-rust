@@ -103,8 +103,252 @@ async fn when_timeout() {
         .unwrap();
     let resp = bus.execute("c1").await;
     assert!(!resp.is_success());
-    assert!(resp.message.contains("timeout"));
+    assert!(
+        resp.message
+            .contains("Timed out when executing the component[slow]")
+    );
     assert_eq!(resp.get_timeout_items(), ["slow"]);
+}
+
+#[tokio::test]
+async fn when_timeout_records_only_the_actual_slow_branch() {
+    let bus = FlowBus::new();
+    let fast_calls = Arc::new(AtomicUsize::new(0));
+    let fast_calls_for_component = Arc::clone(&fast_calls);
+    bus.register(
+        "fast",
+        cmp(move |_| {
+            let fast_calls = Arc::clone(&fast_calls_for_component);
+            async move {
+                fast_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }),
+    );
+    bus.register(
+        "slow",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain(
+        "precise-timeout",
+        "WHEN(fast, slow).MAX_WAIT_MILLISECONDS(60)",
+    )
+    .unwrap();
+    bus.add_chain(
+        "ignored-precise-timeout",
+        "WHEN(fast, slow).MAX_WAIT_MILLISECONDS(60).ignore_error(true)",
+    )
+    .unwrap();
+
+    let failed = bus.execute("precise-timeout").await;
+    assert!(!failed.is_success());
+    assert_eq!(failed.get_timeout_items(), ["slow"]);
+    assert_eq!(fast_calls.load(Ordering::SeqCst), 1);
+
+    // Java 在 ignoreError=true 时仍记录超时分支，但不把 WhenTimeoutException
+    // 传播到流程响应。
+    let ignored = bus.execute("ignored-precise-timeout").await;
+    assert!(ignored.is_success());
+    assert_eq!(ignored.get_timeout_items(), ["slow"]);
+    assert_eq!(fast_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn when_all_preserves_java_branch_order_for_failures_and_timeouts() {
+    let bus = FlowBus::new();
+    bus.register(
+        "late_first",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            Err(LiteflowError::Custom("first list failure".into()))
+        }),
+    );
+    bus.register(
+        "early_second",
+        cmp(|_| async { Err(LiteflowError::Custom("second list failure".into())) }),
+    );
+    bus.register(
+        "slow_a",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.register(
+        "slow_b",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain("ordered-failures", "WHEN(late_first, early_second)")
+        .unwrap();
+    bus.add_chain(
+        "ordered-timeouts",
+        "WHEN(slow_a, slow_b).MAX_WAIT_MILLISECONDS(40)",
+    )
+    .unwrap();
+
+    // Java handleTaskResult 按 whenAllFutureList 原始顺序抛首错，而不是按完成顺序。
+    let failed = bus.execute("ordered-failures").await;
+    assert!(!failed.is_success());
+    assert!(failed.message.contains("first list failure"));
+    assert!(!failed.message.contains("second list failure"));
+
+    let timed_out = bus.execute("ordered-timeouts").await;
+    assert!(!timed_out.is_success());
+    assert_eq!(timed_out.get_timeout_items(), ["slow_a", "slow_b"]);
+}
+
+#[tokio::test]
+async fn when_any_finishes_on_the_first_failure_like_java_any_of() {
+    let bus = FlowBus::new();
+    bus.register(
+        "bad",
+        cmp(|_| async { Err(LiteflowError::Custom("first failure".into())) }),
+    );
+    bus.register(
+        "slow",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain(
+        "any-first-failure",
+        "WHEN(bad, slow).ANY(true).MAX_WAIT_MILLISECONDS(400)",
+    )
+    .unwrap();
+
+    let start = std::time::Instant::now();
+    let response = bus.execute("any-first-failure").await;
+    assert!(!response.is_success());
+    assert!(response.message.contains("first failure"));
+    assert!(response.get_timeout_items().is_empty());
+    assert!(start.elapsed() < Duration::from_millis(250));
+}
+
+#[tokio::test]
+async fn when_percentage_counts_failed_futures_as_completed() {
+    let bus = FlowBus::new();
+    bus.register(
+        "bad",
+        cmp(|_| async { Err(LiteflowError::Custom("threshold failure".into())) }),
+    );
+    bus.register(
+        "slow",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain(
+        "percentage-first-failure",
+        "WHEN(bad, slow).PERCENTAGE(0.5).MAX_WAIT_MILLISECONDS(400)",
+    )
+    .unwrap();
+
+    let start = std::time::Instant::now();
+    let response = bus.execute("percentage-first-failure").await;
+    assert!(!response.is_success());
+    assert!(response.message.contains("threshold failure"));
+    assert!(response.get_timeout_items().is_empty());
+    assert!(start.elapsed() < Duration::from_millis(250));
+}
+
+#[tokio::test]
+async fn when_any_fast_success_does_not_mislabel_unobserved_slow_branch() {
+    let bus = FlowBus::new();
+    bus.register("fast", cmp(|_| async { Ok(Value::Null) }));
+    bus.register(
+        "slow",
+        cmp(|_| async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain(
+        "any-fast-success",
+        "WHEN(fast, slow).ANY(true).MAX_WAIT_MILLISECONDS(60)",
+    )
+    .unwrap();
+
+    let response = bus.execute("any-fast-success").await;
+    assert!(response.is_success());
+    assert!(response.get_timeout_items().is_empty());
+}
+
+#[tokio::test]
+async fn when_any_early_return_does_not_cancel_the_underlying_branch() {
+    let bus = FlowBus::new();
+    let slow_calls = Arc::new(AtomicUsize::new(0));
+    bus.register("fast", cmp(|_| async { Ok(Value::Null) }));
+    let slow_calls_for_component = Arc::clone(&slow_calls);
+    bus.register(
+        "slow",
+        cmp(move |_| {
+            let slow_calls = Arc::clone(&slow_calls_for_component);
+            async move {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                slow_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }),
+    );
+    bus.add_chain(
+        "any-detached-slow",
+        "WHEN(fast, slow).ANY(true).MAX_WAIT_MILLISECONDS(500)",
+    )
+    .unwrap();
+
+    let response = bus.execute("any-detached-slow").await;
+    assert!(response.is_success());
+    assert_eq!(slow_calls.load(Ordering::SeqCst), 0);
+
+    // Java CompletableFuture#cancel 无法终止底层线程；Rust 包装任务被丢弃后也只
+    // detach JoinHandle，真实分支仍继续执行。
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert_eq!(slow_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn when_must_missing_all_targets_falls_back_to_waiting_for_all() {
+    let bus = FlowBus::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let fast_calls = Arc::clone(&calls);
+    bus.register(
+        "fast",
+        cmp(move |_| {
+            let calls = Arc::clone(&fast_calls);
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }),
+    );
+    let slow_calls = Arc::clone(&calls);
+    bus.register(
+        "slow",
+        cmp(move |_| {
+            let calls = Arc::clone(&slow_calls);
+            async move {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }),
+    );
+    bus.add_chain("missing-must", r#"WHEN(fast, slow).MUST("missing")"#)
+        .unwrap();
+
+    let start = std::time::Instant::now();
+    let response = bus.execute("missing-must").await;
+    assert!(response.is_success());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(start.elapsed() >= Duration::from_millis(60));
 }
 
 #[tokio::test]
@@ -361,6 +605,46 @@ async fn finally_runs_on_error() {
     let resp = bus.execute("c1").await;
     assert!(!resp.is_success());
     assert_eq!(ran.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn finally_error_overrides_body_error_and_stops_remaining_finally_items() {
+    let bus = FlowBus::new();
+    bus.register(
+        "body_bad",
+        cmp(|_| async { Err(LiteflowError::Custom("body failed".into())) }),
+    );
+    bus.register(
+        "finally_bad",
+        cmp(|_| async { Err(LiteflowError::Custom("finally failed".into())) }),
+    );
+    let remaining_runs = Arc::new(AtomicUsize::new(0));
+    let remaining_runs_for_component = remaining_runs.clone();
+    bus.register(
+        "finally_remaining",
+        cmp(move |_| {
+            let remaining_runs = remaining_runs_for_component.clone();
+            async move {
+                remaining_runs.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }),
+    );
+    bus.add_chain(
+        "c1",
+        "THEN(body_bad, FINALLY(finally_bad), FINALLY(finally_remaining))",
+    )
+    .unwrap();
+
+    let response = bus.execute("c1").await;
+    assert!(!response.is_success());
+    assert!(response.get_cause().is_some_and(|cause| {
+        cause.contains("finally failed") && !cause.contains("body failed")
+    }));
+    assert!(response.slot_exception().is_some_and(|cause| {
+        cause.contains("finally failed") && !cause.contains("body failed")
+    }));
+    assert_eq!(remaining_runs.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
