@@ -2,7 +2,7 @@
 
 use crate::core::FlowInitHook;
 use crate::el::NodeRef;
-use crate::enums::{ChainExecuteModeEnum, FlowParserTypeEnum};
+use crate::enums::{ChainExecuteModeEnum, FlowParserTypeEnum, ParseModeEnum};
 use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::node::Node;
 use crate::flow::flow_bus::FlowBus;
@@ -61,6 +61,27 @@ impl FlowExecutor {
     #[must_use]
     pub fn new_with_config(bus: FlowBus, liteflow_config: LiteflowConfig) -> Self {
         LiteflowConfigGetter::set_liteflow_config(liteflow_config.clone());
+        Self::new_isolated(bus, liteflow_config)
+    }
+
+    /// 使用上下文私有配置创建执行器，不改写进程级配置获取器。
+    ///
+    /// Vernal/其他多应用宿主可在同一进程中创建隔离的 `FlowBus`；此时每个宿主
+    /// 必须冻结自己的执行器配置，而不能经 `LiteflowConfigGetter` 相互覆盖。
+    /// `DataBus` 仍按 Java 语义初始化共享 Slot 池。需要 Java
+    /// `FlowExecutor(LiteflowConfig)` 的全局发布行为时应使用
+    /// [`Self::new_with_config`]。
+    ///
+    /// # 参数
+    ///
+    /// - `bus`：当前应用上下文私有的流程总线。
+    /// - `liteflow_config`：当前执行器持有的 LiteFlow 配置快照。
+    ///
+    /// # 返回
+    ///
+    /// 返回不改写进程级 `LiteflowConfigGetter` 的隔离执行器。
+    #[must_use]
+    pub fn new_isolated(bus: FlowBus, liteflow_config: LiteflowConfig) -> Self {
         // 对应 Java FlowExecutor(LiteflowConfig) 构造器末尾的 DataBus.init()。
         DataBus::init(liteflow_config.get_slot_size());
         Self {
@@ -134,8 +155,16 @@ impl FlowExecutor {
             IdGeneratorHolder::init()?;
         }
 
-        if is_start && liteflow_config.get_chain_cache_enabled() {
+        if is_start
+            && liteflow_config.get_chain_cache_enabled()
+            && liteflow_config.get_parse_mode() == ParseModeEnum::ParseOneOnFirstExec
+        {
             let capacity = liteflow_config.get_chain_cache_capacity();
+            if capacity == 0 {
+                return Err(LiteflowError::Rule(
+                    "The chain cache capacity must be greater than 0".to_string(),
+                ));
+            }
             let cleaner = self.bus.chain_cache_cleaner();
             ChainCacheLifeCycle::init_if_absent(capacity, cleaner);
             let cache = ChainCacheLifeCycle::get_life_cycle();
@@ -228,7 +257,9 @@ impl FlowExecutor {
 
     fn parse_rule_paths(&self, rule_paths: &[String], support_multiple_type: bool) -> LFResult<()> {
         if rule_paths.is_empty() {
-            return Ok(());
+            return Err(LiteflowError::Rule(
+                "parse error, please check liteflow config property".to_string(),
+            ));
         }
         if support_multiple_type {
             for rule_path in rule_paths {
@@ -516,6 +547,20 @@ impl FlowExecutor {
         input: Value,
         option: crate::core::execute_option::ExecuteOption,
     ) -> LiteflowResponse {
+        // Java doExecute 在分配 Slot 前通过 FlowBus.needInit() 原子领取首次解析资格。
+        // Rust 返回响应对象而非抛出运行时异常，因此初始化失败也转换为失败响应。
+        if self.should_initialize_on_first_execution()
+            && self.bus.need_init()
+            && let Err(error) = self.init(true)
+        {
+            let request_id = option
+                .request_id
+                .clone()
+                .filter(|request_id| !request_id.trim().is_empty())
+                .unwrap_or_else(IdGeneratorHolder::generate);
+            let slot = Arc::new(Slot::new(request_id, chain_id, input));
+            return LiteflowResponse::new(slot, false, error.to_string(), Some(error.to_string()));
+        }
         let request_id = option
             .request_id
             .clone()
@@ -652,6 +697,10 @@ impl FlowExecutor {
         input: impl Serialize,
         request_id: impl Into<String>,
     ) -> crate::exception::LFResult<Vec<LiteflowResponse>> {
+        // 对应 Java doExecuteWithRoute：路由查询前也必须触发同一个首次初始化门闩。
+        if self.should_initialize_on_first_execution() && self.bus.need_init() {
+            self.init(true)?;
+        }
         let namespace = namespace.unwrap_or(crate::flow::element::chain::DEFAULT_NAMESPACE);
         let v = serde_json::to_value(input).unwrap_or(Value::Null);
         let request_id = {
@@ -769,6 +818,18 @@ impl FlowExecutor {
         self.run_after_hooks(chain_id, &slot).await;
         response
     }
+
+    /// 判断当前配置是否要求在第一次执行时解析规则。
+    ///
+    /// Java 由构造器和 `FlowBus.needInit()` 共同区分启动解析与首次执行解析；
+    /// Rust 多 FlowBus 场景必须显式检查当前执行器配置，避免读取其他上下文遗留的
+    /// 进程级规则源。对应 Java: `ParseModeEnum` 与 `FlowExecutor#doExecute`。
+    fn should_initialize_on_first_execution(&self) -> bool {
+        matches!(
+            self.get_liteflow_config().get_parse_mode(),
+            ParseModeEnum::ParseAllOnFirstExec | ParseModeEnum::ParseOneOnFirstExec
+        )
+    }
 }
 
 /// `FlowExecutor` 的内部伴随守卫，在 `init(true)` 的所有返回路径复位启动状态。
@@ -843,4 +904,49 @@ fn parser_identity(rule_path: &str) -> Option<(FlowParserTypeEnum, bool)> {
         return None;
     };
     Some((parser_type, false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FlowParserTypeEnum, is_custom_parser_path, parser_arguments, parser_identity,
+        split_rule_source,
+    };
+
+    /// 验证 Java 规则源分隔、前缀和全部扩展名的解析身份。
+    #[test]
+    fn rule_source_helpers_preserve_java_parser_selection() {
+        assert_eq!(
+            split_rule_source(" one.xml, two.json ; three.yml "),
+            ["one.xml", "two.json", "three.yml"]
+        );
+
+        let custom = "el_json:tests.Parser".to_string();
+        let local = "flow.json".to_string();
+        assert!(parser_arguments(&custom).is_empty());
+        assert_eq!(parser_arguments(&local), std::slice::from_ref(&local));
+        assert!(is_custom_parser_path(&custom));
+        assert!(is_custom_parser_path("tests.Parser"));
+        assert!(!is_custom_parser_path(&local));
+
+        let cases = [
+            ("flow.el.xml", Some((FlowParserTypeEnum::TypeElXml, false))),
+            (
+                "flow.el.json",
+                Some((FlowParserTypeEnum::TypeElJson, false)),
+            ),
+            ("flow.el.yml", Some((FlowParserTypeEnum::TypeElYml, false))),
+            ("flow.xml", Some((FlowParserTypeEnum::TypeXml, false))),
+            ("flow.json", Some((FlowParserTypeEnum::TypeJson, false))),
+            ("flow.yml", Some((FlowParserTypeEnum::TypeYml, false))),
+            (
+                "el_xml:tests.Parser",
+                Some((FlowParserTypeEnum::TypeElXml, true)),
+            ),
+            ("unknown.rules", None),
+        ];
+        for (rule_path, expected) in cases {
+            assert_eq!(parser_identity(rule_path), expected, "{rule_path}");
+        }
+    }
 }

@@ -23,14 +23,14 @@ impl BaseOperator for ForOperator {
                 OperatorHelper::check_obj_must_be_for_type_item(node)?;
                 Ok(El::For {
                     node: Box::new(node.clone()),
-                    parallel: None,
+                    parallel: false,
                     body: Box::new(El::Then(Vec::new())),
                     brk: None,
                 })
             }
             [Arg::Num(count)] if *count >= 0.0 && count.fract() == 0.0 => Ok(El::ForCount {
                 count: *count as usize,
-                parallel: None,
+                parallel: false,
                 body: Box::new(El::Then(Vec::new())),
                 brk: None,
             }),

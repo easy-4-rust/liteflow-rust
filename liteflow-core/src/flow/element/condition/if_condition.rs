@@ -11,7 +11,7 @@
 
 use super::{Condition, ConditionBase, check_not_pre_finally, expect_bool};
 use crate::enums::ConditionTypeEnum;
-use crate::exception::LFResult;
+use crate::exception::{LFResult, LiteflowError};
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
 use async_trait::async_trait;
@@ -23,7 +23,7 @@ use std::sync::Arc;
 pub struct IfCondition {
     base: ConditionBase,
     if_item: Arc<dyn Executable>,
-    true_case: Arc<dyn Executable>,
+    true_case: Option<Arc<dyn Executable>>,
     /// (elif 条件, elif 目标)
     elif_list: Vec<(Arc<dyn Executable>, Arc<dyn Executable>)>,
     false_case: Option<Arc<dyn Executable>>,
@@ -43,7 +43,7 @@ impl IfCondition {
         Self {
             base: ConditionBase::default(),
             if_item,
-            true_case,
+            true_case: Some(true_case),
             elif_list,
             false_case,
         }
@@ -67,8 +67,8 @@ impl IfCondition {
 
     /// 返回 true 分支可执行项。对应 Java: `IfCondition#getTrueCaseExecutableItem`。
     #[must_use]
-    pub fn get_true_case_executable_item(&self) -> &Arc<dyn Executable> {
-        &self.true_case
+    pub fn get_true_case_executable_item(&self) -> Option<&Arc<dyn Executable>> {
+        self.true_case.as_ref()
     }
 
     /// 设置 true 分支可执行项。
@@ -80,7 +80,7 @@ impl IfCondition {
         &mut self,
         true_case_executable_item: Arc<dyn Executable>,
     ) {
-        self.true_case = true_case_executable_item;
+        self.true_case = Some(true_case_executable_item);
     }
 
     /// 返回 false 分支可执行项。对应 Java: `IfCondition#getFalseCaseExecutableItem`。
@@ -133,10 +133,19 @@ impl Executable for IfCondition {
             }
             let v = self.if_item.execute(ctx, frame).await?;
             if expect_bool(self.if_item.id(), &v)? {
-                check_not_pre_finally(self.true_case.as_ref(), self.if_item.id())?;
-                return self.true_case.execute(ctx, frame).await;
+                let true_case = self
+                    .true_case
+                    .as_ref()
+                    .ok_or_else(|| LiteflowError::NoIfTrueNode(self.if_item.id().to_string()))?;
+                check_not_pre_finally(true_case.as_ref(), self.if_item.id())?;
+                return true_case.execute(ctx, frame).await;
             }
             for (c, t) in &self.elif_list {
+                // Java ELIF 通过嵌套 IfCondition 表达；内层判定项不可访问时，
+                // 内层 IF 立即返回，不能继续进入后续 ELIF/ELSE。
+                if !c.is_access(ctx, frame).await {
+                    return Ok(Value::Null);
+                }
                 let v = c.execute(ctx, frame).await?;
                 if expect_bool(c.id(), &v)? {
                     check_not_pre_finally(t.as_ref(), self.if_item.id())?;
@@ -156,6 +165,10 @@ impl Executable for IfCondition {
         Condition::get_all_node_in_condition(self)
     }
 
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
+    }
+
     fn id(&self) -> &str {
         "IF"
     }
@@ -172,7 +185,7 @@ impl Condition for IfCondition {
 
     fn typed_executable_group(&self) -> HashMap<String, Vec<Arc<dyn Executable>>> {
         let mut if_items = vec![Arc::clone(&self.if_item)];
-        let mut true_items = vec![Arc::clone(&self.true_case)];
+        let mut true_items = self.true_case.iter().cloned().collect::<Vec<_>>();
         for (elif_condition, elif_target) in &self.elif_list {
             if_items.push(Arc::clone(elif_condition));
             true_items.push(Arc::clone(elif_target));
@@ -205,9 +218,10 @@ impl Condition for IfCondition {
                 }
                 true
             }
-            "IF_TRUE_CASE_KEY" if !executable_list.is_empty() => {
-                self.true_case = Arc::clone(&executable_list[0]);
-                for (index, executable) in executable_list.into_iter().skip(1).enumerate() {
+            "IF_TRUE_CASE_KEY" => {
+                let mut executable_iter = executable_list.into_iter();
+                self.true_case = executable_iter.next();
+                for (index, executable) in executable_iter.enumerate() {
                     if let Some((_, target)) = self.elif_list.get_mut(index) {
                         *target = executable;
                     }

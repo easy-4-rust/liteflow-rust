@@ -25,7 +25,8 @@ impl BaseOperator for ElifOperator {
         }
         let true_branch = expressions.pop().expect("长度已经校验");
         let condition = expressions.pop().expect("长度已经校验");
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::If {
                 cond,
                 then,
@@ -41,6 +42,6 @@ impl BaseOperator for ElifOperator {
                 })
             }
             _ => Err(LiteflowError::Parse("ELIF must follow IF".to_string())),
-        }
+        })
     }
 }

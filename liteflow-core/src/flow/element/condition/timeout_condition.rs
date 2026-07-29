@@ -53,4 +53,9 @@ impl Executable for TimeoutCondition {
     fn id(&self) -> &str {
         "TIMEOUT"
     }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        // MAX_WAIT 仅负责超时控制，DATA 仍作用于内部共享节点。
+        self.inner.apply_chain_cmp_data(data);
+    }
 }

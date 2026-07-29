@@ -73,7 +73,7 @@ __lf_envelope = json.dumps({{"result": result, "data": data}})
         let code = CString::new(runtime)
             .map_err(|error| self.error(format!("python source error: {error}")))?;
 
-        Python::with_gil(|python| -> LFResult<Value> {
+        Python::attach(|python| -> LFResult<Value> {
             let locals = PyDict::new(python);
             locals
                 .set_item("__lf_input_json", json_text(&input))

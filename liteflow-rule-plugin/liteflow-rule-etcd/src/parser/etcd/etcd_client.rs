@@ -196,7 +196,7 @@ impl EtcdClient {
         self.watch_close(key).await;
         let mut client = self.client().await?;
         let options = prefix.then(|| WatchOptions::new().with_prefix());
-        let (mut watcher, mut stream) = client
+        let mut stream = client
             .watch(self.physical_key(key), options)
             .await
             .map_err(EtcdException::from)?;
@@ -221,7 +221,8 @@ impl EtcdClient {
                     }
                 }
             }
-            let _ = watcher.cancel().await;
+            // etcd-client 0.19 将请求端与响应端合并为 WatchStream。
+            // 任务结束或被 abort 时直接丢弃 stream，即关闭对应 gRPC Watch。
         });
         self.watch_cache
             .lock()

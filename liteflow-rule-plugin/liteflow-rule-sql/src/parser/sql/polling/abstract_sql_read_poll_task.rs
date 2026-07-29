@@ -84,5 +84,9 @@ fn fingerprint(value: &str, ext_value: Option<&str>) -> String {
         hasher.update(b"|||");
         hasher.update(ext_value.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

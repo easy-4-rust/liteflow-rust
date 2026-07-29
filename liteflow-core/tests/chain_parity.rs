@@ -40,6 +40,20 @@ impl Executable for FixedExecutable {
     }
 }
 
+/// 返回当前 Chain 通过 Frame 传播的 DATA，用于验证规则快照隔离。
+struct FrameDataExecutable;
+
+#[async_trait]
+impl Executable for FrameDataExecutable {
+    async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
+        let value = frame
+            .chain_cmp_data()
+            .map_or(Value::Null, |data| Value::String(data.to_string()));
+        ctx.set_attachment("observed_chain_data", value.clone());
+        Ok(value)
+    }
+}
+
 /// 验证 Chain 的 Java 命名元数据入口都保存真实状态。
 #[test]
 #[allow(deprecated)]
@@ -82,6 +96,34 @@ fn chain_java_named_metadata_methods_preserve_state() {
     assert_eq!(
         chain.get_runtime_id(&Frame::root().with_runtime_id(88)),
         Some(88)
+    );
+}
+
+/// 验证新规则定义的克隆不会反向修改仍在执行的旧 Chain 快照。
+#[tokio::test]
+async fn cloned_chain_keeps_cmp_data_snapshot_isolated_during_rebuild() {
+    let executable: Arc<dyn Executable> = Arc::new(FrameDataExecutable);
+    let published_chain = Chain::new("main", vec![Arc::clone(&executable)]);
+    published_chain.apply_chain_cmp_data("published");
+
+    // Rust Builder 会克隆 Chain 再替换条件列表；对应 Java 创建并发布新的 Chain
+    // 定义。清理新定义的 DATA 不能穿透到旧 Arc 快照。
+    let mut replacement_chain = published_chain.clone();
+    replacement_chain.set_condition_list(vec![executable]);
+
+    let slot = Arc::new(Slot::new("request-4".to_string(), "main", Value::Null));
+    let ctx = Ctx::new(slot);
+    published_chain.execute(&ctx).await.unwrap();
+    assert_eq!(
+        ctx.get_attachment::<Value>("observed_chain_data")
+            .as_deref(),
+        Some(&Value::String("published".to_string()))
+    );
+    replacement_chain.execute(&ctx).await.unwrap();
+    assert_eq!(
+        ctx.get_attachment::<Value>("observed_chain_data")
+            .as_deref(),
+        Some(&Value::Null)
     );
 }
 

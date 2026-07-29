@@ -845,6 +845,8 @@ fn non_blank_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
     use super::LiteflowConfig;
@@ -962,5 +964,92 @@ mod tests {
         assert!(config.get_chain_cache_enabled());
         assert_eq!(config.get_chain_cache_capacity(), 25);
         assert!(!config.get_enable_virtual_thread());
+    }
+
+    #[test]
+    fn rust_aliases_share_the_exact_java_configuration_state() {
+        let mut config = LiteflowConfig::default();
+        config.set_enabled(false);
+        config.set_rule_source(Some("alias.xml"));
+        config.set_slot_size(31);
+        config.set_when_max_wait_time(2);
+        config.set_when_max_wait_time_unit(TimeUnit::Seconds);
+        config.set_when_thread_pool_isolate(true);
+        config.set_enable_log(true);
+        config.set_queue_limit(32);
+        config.set_delay(33);
+        config.set_period(34);
+        config.set_parse_mode(ParseModeEnum::ParseOneOnFirstExec);
+        config.set_print_banner(false);
+        config.set_main_executor_works(35);
+        config.set_print_execution_log(false);
+        config.set_enable_monitor_file(true);
+        config.set_fallback_cmp_enabled(true);
+        config.set_fast_load(true);
+        config.set_rule_source_ext_data(Some("region=cn"));
+        config.set_enable_node_instance_id(true);
+        config.set_chain_cache_enabled(true);
+        config.set_chain_cache_capacity(36);
+        config.set_enable_virtual_thread(false);
+        config.set_global_thread_pool_size(37);
+        config.set_global_thread_pool_queue_size(38);
+
+        let ext_data = HashMap::from([("tenant".to_string(), "t1".to_string())]);
+        config.set_rule_source_ext_data_map(ext_data.clone());
+        let script_setting = HashMap::from([("python".to_string(), "isolated".to_string())]);
+        config.set_script_setting(script_setting.clone());
+        config.set_agent(Some(AgentConfig::default()));
+
+        assert!(!config.is_enabled());
+        assert_eq!(config.rule_source(), Some("alias.xml"));
+        assert_eq!(config.slot_size(), 31);
+        assert_eq!(config.when_max_wait_time(), 2);
+        assert_eq!(config.when_max_wait_time_unit(), TimeUnit::Seconds);
+        assert_eq!(
+            config.when_max_wait_duration(),
+            std::time::Duration::from_secs(2)
+        );
+        assert!(config.is_when_thread_pool_isolate());
+        assert!(config.is_enable_log());
+        assert_eq!(config.queue_limit(), 32);
+        assert_eq!(config.delay(), 33);
+        assert_eq!(config.period(), 34);
+        assert_eq!(config.parse_mode(), ParseModeEnum::ParseOneOnFirstExec);
+        assert!(!config.is_print_banner());
+        assert_eq!(config.main_executor_works(), 35);
+        assert!(!config.is_print_execution_log());
+        assert!(config.is_enable_monitor_file());
+        assert!(config.is_fallback_cmp_enabled());
+        assert!(config.is_fast_load());
+        assert_eq!(config.rule_source_ext_data(), Some("region=cn"));
+        assert_eq!(config.rule_source_ext_data_map(), &ext_data);
+        assert_eq!(config.script_setting(), &script_setting);
+        assert!(config.is_enable_node_instance_id());
+        assert!(config.is_chain_cache_enabled());
+        assert_eq!(config.chain_cache_capacity(), 36);
+        assert!(!config.is_enable_virtual_thread());
+        assert_eq!(config.global_thread_pool_size(), 37);
+        assert_eq!(config.global_thread_pool_queue_size(), 38);
+        assert!(config.agent().is_some());
+
+        config.set_node_executor_class(" ");
+        config.set_request_id_generator_class("\n");
+        config.set_main_executor_class("");
+        config.set_instance_id_generator_class("\t");
+        config.set_global_thread_pool_executor_class(" ");
+        assert_eq!(config.node_executor_class(), super::DEFAULT_NODE_EXECUTOR);
+        assert_eq!(
+            config.request_id_generator_class(),
+            super::DEFAULT_REQUEST_ID_GENERATOR
+        );
+        assert_eq!(config.main_executor_class(), super::DEFAULT_MAIN_EXECUTOR);
+        assert_eq!(
+            config.instance_id_generator_class(),
+            super::DEFAULT_REQUEST_ID_GENERATOR
+        );
+        assert_eq!(
+            config.global_thread_pool_executor_class(),
+            super::DEFAULT_GLOBAL_EXECUTOR
+        );
     }
 }

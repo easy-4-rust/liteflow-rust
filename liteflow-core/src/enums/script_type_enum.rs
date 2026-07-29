@@ -3,7 +3,7 @@
 //! Rust 端保留 Java 的全部公开枚举项；具体 JVM 引擎由独立受控执行器做 Rust 化映射。
 
 /// 脚本引擎类型枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptTypeEnum {
     Custom,
     Groovy,

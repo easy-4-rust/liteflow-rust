@@ -321,6 +321,38 @@ async fn condition_bind_override_clears_node_bind() {
 }
 
 #[tokio::test]
+async fn condition_bind_override_is_scoped_to_the_current_key() {
+    let bus = FlowBus::new();
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("k1", json!(ctx.bind_data("k1")));
+            ctx.set_data("k2", json!(ctx.bind_data("k2")));
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain(
+        "only_k1",
+        r#"THEN(a.bind("k1","node1").bind("k2","node2")).bind("k1","cond1",true).bind("k2","cond2",false)"#,
+    )
+    .unwrap();
+    let first = bus.execute("only_k1").await;
+    assert!(first.is_success(), "{}", first.message);
+    assert_eq!(first.data("k1").unwrap(), json!("cond1"));
+    assert_eq!(first.data("k2").unwrap(), json!("node2"));
+
+    bus.add_chain(
+        "only_k2",
+        r#"THEN(a.bind("k1","node1").bind("k2","node2")).bind("k1","cond1",false).bind("k2","cond2",true)"#,
+    )
+    .unwrap();
+    let second = bus.execute("only_k2").await;
+    assert!(second.is_success(), "{}", second.message);
+    assert_eq!(second.data("k1").unwrap(), json!("node1"));
+    assert_eq!(second.data("k2").unwrap(), json!("cond2"));
+}
+
+#[tokio::test]
 async fn chain_bind_via_wrapper() {
     let bus = FlowBus::new();
     bus.register(
@@ -338,6 +370,53 @@ async fn chain_bind_via_wrapper() {
     let resp = bus.execute("main").await;
     assert!(resp.is_success(), "{}", resp.message);
     assert_eq!(resp.data("bind_v").unwrap(), json!("sub_v"));
+}
+
+#[tokio::test]
+async fn chain_tag_and_bind_preserve_java_wrapper_type_before_id() {
+    let bus = FlowBus::new();
+    bus.register(
+        "a",
+        cmp(|ctx| async move {
+            ctx.set_data("bind_v", json!(ctx.bind_data("mk")));
+            Ok(Value::Null)
+        }),
+    );
+    bus.add_chain("sub", "THEN(a)").unwrap();
+
+    // Java TagOperator 首先遇到 Chain 时创建 ThenCondition；后续 bind/id
+    // 必须继续作用于这个 Condition，而不是把 Chain 当普通 Node 拒绝。
+    bus.add_chain(
+        "tag_first",
+        r#"THEN(sub.tag("tag-first").bind("mk","from-tag-wrapper").id("tag-wrapper"))"#,
+    )
+    .unwrap();
+    let tag_first = bus.execute("tag_first").await;
+    assert!(tag_first.is_success(), "{}", tag_first.message);
+    assert_eq!(tag_first.data("bind_v").unwrap(), json!("from-tag-wrapper"));
+
+    // Java BindOperator 首先遇到 Chain 时创建 ChainBindWrapperCondition；
+    // 后续 tag/id 写入同一包装对象。
+    bus.add_chain(
+        "bind_first",
+        r#"THEN(sub.bind("mk","from-bind-wrapper").tag("bind-first").id("bind-wrapper"))"#,
+    )
+    .unwrap();
+    let bind_first = bus.execute("bind_first").await;
+    assert!(bind_first.is_success(), "{}", bind_first.message);
+    assert_eq!(
+        bind_first.data("bind_v").unwrap(),
+        json!("from-bind-wrapper")
+    );
+
+    let node_error = bus
+        .add_chain("node_id_invalid", r#"THEN(a.tag("node").id("invalid"))"#)
+        .expect_err("普通 Node 即使先 tag，仍不能调用 Condition 专属 ID");
+    assert!(
+        node_error
+            .to_string()
+            .contains("The caller must be Condition item")
+    );
 }
 
 // ---------- NodeId 合法性校验（2.16） ----------

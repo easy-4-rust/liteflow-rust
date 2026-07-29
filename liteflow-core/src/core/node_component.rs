@@ -111,6 +111,13 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn is_access(&self, _ctx: &CmpContext) -> bool {
         true
     }
+    /// 异步判断组件是否允许执行。
+    ///
+    /// 普通组件默认委托同步 `is_access`；声明式组件可调用异步业务方法。对应 Java:
+    /// `NodeComponent#isAccess` 经 ByteBuddy InvocationHandler 动态分派。
+    async fn is_access_async(&self, ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        Ok(self.is_access(ctx))
+    }
     /// isContinueOnError()
     fn is_continue_on_error(&self) -> bool {
         false
@@ -123,6 +130,13 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn is_continue_on_error_with_context(&self, ctx: &CmpContext) -> bool {
         let _ = ctx;
         self.is_continue_on_error()
+    }
+    /// 异步判断当前错误是否继续执行。
+    ///
+    /// 普通组件保持同步兼容，声明式组件可读取当前上下文。对应 Java:
+    /// `NodeComponent#isContinueOnError`。
+    async fn is_continue_on_error_async(&self, ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        Ok(self.is_continue_on_error_with_context(ctx))
     }
     /// 是否需要失败补偿。
     ///
@@ -152,6 +166,14 @@ pub trait NodeComponent: Send + Sync + 'static {
     /// getName()
     fn name(&self) -> &str {
         ""
+    }
+    /// 异步解析当前执行的组件显示名覆盖。
+    ///
+    /// 普通组件返回 `None` 并继续使用 `name`；声明式组件可通过
+    /// `@LiteflowMethod(GET_DISPLAY_NAME)` 返回动态名称。对应 Java:
+    /// `NodeComponent#getDisplayName` 的代理拦截。
+    async fn display_name_async(&self, _ctx: &CmpContext) -> Result<Option<String>, LiteflowError> {
+        Ok(None)
     }
     /// getNodeId()：返回初始化器写入的节点 id。
     fn node_id(&self) -> &str {
@@ -186,6 +208,16 @@ pub trait NodeComponent: Send + Sync + 'static {
     fn node_executor(&self) -> Option<Arc<dyn NodeExecutor>> {
         None
     }
+    /// 异步解析当前声明式组件指定的 Java 节点执行器类名。
+    ///
+    /// 普通组件返回 `None`；声明式组件把 Java `Class` 映射为注册表类名。对应
+    /// Java: `NodeComponent#getNodeExecutorClass`。
+    async fn node_executor_class_async(
+        &self,
+        _ctx: &CmpContext,
+    ) -> Result<Option<String>, LiteflowError> {
+        Ok(None)
+    }
 
     /// 卸载组件持有的脚本编译产物。
     ///
@@ -204,6 +236,13 @@ pub trait NodeComponent: Send + Sync + 'static {
     /// 对应 Java: `NodeComponent#isEnd`。
     fn is_end(&self, ctx: &CmpContext) -> bool {
         ctx.inner.ended.load(Ordering::Acquire)
+    }
+    /// 异步判断当前组件是否请求结束链路。
+    ///
+    /// 普通组件默认委托同步 `is_end`；声明式组件由 `@LiteflowMethod(IS_END)`
+    /// 返回结果。对应 Java: `NodeComponent#isEnd`。
+    async fn is_end_async(&self, ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        Ok(self.is_end(ctx))
     }
 
     /// 设置是否结束整个流程。

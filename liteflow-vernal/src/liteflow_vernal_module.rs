@@ -191,7 +191,9 @@ impl LiteflowVernalModule {
             .iter()
             .find_map(LiteflowComponentRegistration::cmp_around_aspect_instance);
         let cmp_around_aspect = Arc::new(SolonCmpAroundAspect::new(business_aspect));
-        CmpAroundAspectHolder::register(cmp_around_aspect.clone());
+        // 进程级 Holder 只发布无业务状态的 Solon SPI 形态。业务切面绑定到当前
+        // FlowBus，避免并行应用中的脚本执行器借全局 Holder 调用其他上下文切面。
+        CmpAroundAspectHolder::register(Arc::new(SolonCmpAroundAspect::new(None)));
         if cmp_around_aspect.get_cmp_around_aspect().is_some() {
             flow_bus.register_aspect(cmp_around_aspect.clone());
         }
@@ -317,7 +319,10 @@ impl ApplicationModule for LiteflowVernalModule {
         let cmp_around_aspect = Arc::new(VernalCmpAroundAspect::new(
             spring_cmp_around_aspect_holder.get_instance(),
         ));
-        CmpAroundAspectHolder::register(cmp_around_aspect.clone());
+        // Holder 保留 Java SPI 的全局可发现形态，但不携带应用级业务切面。
+        // 真实切面只进入当前 FlowBus，确保多个 Vernal ApplicationContext
+        // 并行执行脚本或普通节点时不会相互触发回调。
+        CmpAroundAspectHolder::register(Arc::new(VernalCmpAroundAspect::new(None)));
         if cmp_around_aspect.get_instance().is_some() {
             // FlowBus 保存同一 Vernal SPI 适配器；运行期四个回调继续委托给
             // SpringCmpAroundAspectHolder 扫描到的业务切面。

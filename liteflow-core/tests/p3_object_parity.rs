@@ -30,6 +30,19 @@ struct DirectRollbackComponent {
     calls: Arc<AtomicUsize>,
 }
 
+struct ExplicitCommonComponent;
+
+#[async_trait::async_trait]
+impl NodeComponent for ExplicitCommonComponent {
+    async fn process(&self, _context: &CmpContext) -> Result<Value, LiteflowError> {
+        Ok(Value::Null)
+    }
+
+    fn node_type(&self) -> Option<NodeTypeEnum> {
+        Some(NodeTypeEnum::Common)
+    }
+}
+
 /// 验证未声明异常过滤器的组件采用 Java `Exception.class` 默认重试范围。
 struct GlobalRetryComponent {
     calls: Arc<AtomicUsize>,
@@ -245,10 +258,34 @@ fn script_engine_lifecycle_runs_after_real_build_and_can_be_cleaned() {
 #[test]
 fn chain_el_builder_validation_reports_precise_syntax_and_missing_node_errors() {
     let bus = FlowBus::new();
-    bus.register("registered", cmp(|_| async { Ok(Value::Null) }));
+    bus.add_node(
+        "registered",
+        None,
+        NodeTypeEnum::Common,
+        Arc::new(ExplicitCommonComponent),
+    )
+    .unwrap();
+    bus.add_node(
+        "registered_bool",
+        None,
+        NodeTypeEnum::Boolean,
+        Arc::new(cmp(|_| async { Ok(Value::Bool(true)) })),
+    )
+    .unwrap();
     let builder = LiteFlowChainELBuilder::new(bus);
 
     assert!(builder.validate("THEN(registered)"));
+    assert!(builder.validate("IF(registered_bool, registered)"));
+
+    // Java validateWithEx 会真实执行 Operator 构建；仅“节点已注册”并不足以
+    // 判定成功，Common Node 不能占用 IF 的 Boolean Node 参数位置。
+    let wrong_type = builder.validate_with_ex("IF(registered, registered)");
+    assert!(!wrong_type.is_success());
+    assert!(
+        wrong_type
+            .cause()
+            .is_some_and(|cause| cause.to_string().contains("must be boolean type Node"))
+    );
 
     let missing = builder.validate_with_ex("THEN(registered,\n  absent)");
     assert!(!missing.is_success());

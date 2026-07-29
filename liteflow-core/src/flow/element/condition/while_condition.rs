@@ -1,6 +1,6 @@
 //! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.WhileCondition
 //!
-//! 条件循环（含并行形态，PARALLEL 为 Rust 端扩展形态）。
+//! 条件循环及 Java PARALLEL 布尔并行形态。
 //!
 //! 差异说明：
 //! - Java 在 whileNode 为空时抛 NoWhileNodeException；Rust 端 while_item 为
@@ -26,7 +26,7 @@ use tokio::task::JoinSet;
 pub struct WhileCondition {
     base: ConditionBase,
     while_item: Arc<dyn Executable>,
-    pub parallel: Option<usize>,
+    pub parallel: bool,
     thread_pool_executor_class: Option<String>,
     do_executor: Arc<dyn Executable>,
     break_item: Option<Arc<dyn Executable>>,
@@ -38,7 +38,7 @@ impl WhileCondition {
     /// 对应 Java `WHILE_KEY` 与 `LoopCondition` 公共字段的装配结果。
     pub fn new(
         while_item: Arc<dyn Executable>,
-        parallel: Option<usize>,
+        parallel: bool,
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
@@ -94,7 +94,7 @@ impl Executable for WhileCondition {
                 return Ok(Value::Null);
             }
             let mut index = 0usize;
-            if self.parallel.is_some() {
+            if self.parallel {
                 let condition_key = format!("{:p}", self);
                 let executor_service = ExecutorHelper::load_instance().build_executor_service(
                     self.thread_pool_executor_class
@@ -112,7 +112,7 @@ impl Executable for WhileCondition {
                     if !expect_bool(self.while_item.id(), &v)? {
                         break;
                     }
-                    if !submit_iteration(
+                    let should_continue = submit_iteration(
                         self,
                         &mut set,
                         &self.do_executor,
@@ -123,8 +123,8 @@ impl Executable for WhileCondition {
                         None,
                         &executor_service,
                     )
-                    .await?
-                    {
+                    .await?;
+                    if !should_continue {
                         break;
                     }
                     index += 1;
@@ -138,7 +138,7 @@ impl Executable for WhileCondition {
                 if !expect_bool(self.while_item.id(), &v)? {
                     break;
                 }
-                if !run_sequential(
+                let should_continue = run_sequential(
                     &self.do_executor,
                     self.break_item.as_ref(),
                     ctx,
@@ -146,8 +146,8 @@ impl Executable for WhileCondition {
                     index,
                     None,
                 )
-                .await?
-                {
+                .await?;
+                if !should_continue {
                     break;
                 }
                 index += 1;
@@ -159,6 +159,10 @@ impl Executable for WhileCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {
@@ -192,15 +196,11 @@ impl LoopCondition for WhileCondition {
     }
 
     fn is_parallel(&self) -> bool {
-        self.parallel.is_some()
+        self.parallel
     }
 
     fn set_parallel(&mut self, parallel: bool) {
-        if parallel {
-            self.parallel.get_or_insert(0);
-        } else {
-            self.parallel = None;
-        }
+        self.parallel = parallel;
     }
 }
 

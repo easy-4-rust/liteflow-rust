@@ -90,6 +90,10 @@ impl NodeComponent for InitializedNodeComponent {
         self.inner.is_access(ctx)
     }
 
+    async fn is_access_async(&self, ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        self.inner.is_access_async(ctx).await
+    }
+
     fn is_continue_on_error(&self) -> bool {
         self.inner.is_continue_on_error()
     }
@@ -98,8 +102,19 @@ impl NodeComponent for InitializedNodeComponent {
         self.inner.is_continue_on_error_with_context(context)
     }
 
+    async fn is_continue_on_error_async(
+        &self,
+        context: &CmpContext,
+    ) -> Result<bool, LiteflowError> {
+        self.inner.is_continue_on_error_async(context).await
+    }
+
     fn is_end(&self, context: &CmpContext) -> bool {
         self.inner.is_end(context)
+    }
+
+    async fn is_end_async(&self, context: &CmpContext) -> Result<bool, LiteflowError> {
+        self.inner.is_end_async(context).await
     }
 
     fn is_rollback(&self) -> bool {
@@ -117,6 +132,13 @@ impl NodeComponent for InitializedNodeComponent {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    async fn display_name_async(
+        &self,
+        context: &CmpContext,
+    ) -> Result<Option<String>, LiteflowError> {
+        self.inner.display_name_async(context).await
     }
 
     fn node_id(&self) -> &str {
@@ -155,6 +177,13 @@ impl NodeComponent for InitializedNodeComponent {
         self.inner
             .node_executor()
             .or_else(|| self.default_node_executor.clone())
+    }
+
+    async fn node_executor_class_async(
+        &self,
+        context: &CmpContext,
+    ) -> Result<Option<String>, LiteflowError> {
+        self.inner.node_executor_class_async(context).await
     }
 
     fn unload_script(&self, node_id: &str) -> Result<bool, LiteflowError> {

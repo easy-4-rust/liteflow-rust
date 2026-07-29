@@ -71,6 +71,21 @@ impl LiteflowMetaOperator {
         self.flow_bus.reload_chain(chain_id, el)
     }
 
+    /// 热刷新单个带决策路由的 Chain。
+    ///
+    /// 参数 `chain_id` 是 Chain ID，`el` 是主体规则，`route_el` 是决策路由规则；
+    /// 成功时返回 `Ok(())`，解析、节点校验或构建错误会原样返回。
+    /// 对应 Java: `LiteflowMetaOperator#reloadOneChain(String,String,String)`。
+    pub fn reload_one_chain_with_route(
+        &self,
+        chain_id: &str,
+        el: &str,
+        route_el: &str,
+    ) -> LFResult<()> {
+        self.flow_bus
+            .reload_chain_with_route(chain_id, el, Some(route_el))
+    }
+
     /// 卸载一个 Chain。
     pub fn remove_chain(&self, chain_id: &str) {
         self.flow_bus.remove_chain(chain_id);

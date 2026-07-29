@@ -114,7 +114,7 @@ impl ExecutorHelper {
             when_thread_pool_isolate,
             enable_virtual_thread,
         };
-        self.clear_executor_service_map();
+        self.shutdown_and_clear_executor_service_map();
     }
 
     /// 构建默认 WHEN 执行器。
@@ -234,13 +234,22 @@ impl ExecutorHelper {
         executor_service.await_termination(timeout).await
     }
 
-    /// 关闭并移除全部缓存执行器。
+    /// 使用 Java 默认的 60 秒等待时间关闭执行器。
     ///
-    /// 对应 Java `clearExecutorServiceMap`，同时利用 Rust RAII 主动停止新任务。
+    /// 参数 `executor_service` 对应 Java `pool`；返回是否在等待期内完成终止。
+    /// 对应 Java: `ExecutorHelper#shutdownAwaitTermination(ExecutorService)`。
+    pub async fn shutdown_await_termination_default(
+        &self,
+        executor_service: &ExecutorService,
+    ) -> bool {
+        self.shutdown_await_termination(executor_service, Duration::from_secs(60))
+            .await
+    }
+
+    /// 移除全部缓存执行器，但不关闭调用方仍持有的实例。
+    ///
+    /// 对应 Java: `ExecutorHelper#clearExecutorServiceMap`。
     pub fn clear_executor_service_map(&self) {
-        for executor in self.executor_service_map.iter() {
-            executor.value().shutdown();
-        }
         self.executor_service_map.clear();
     }
 
@@ -315,6 +324,14 @@ impl ExecutorHelper {
             .entry(key)
             .or_insert(executor_service)
             .clone())
+    }
+
+    /// 配置替换时关闭旧执行器并清空缓存，避免 Rust 宿主泄漏后台资源。
+    fn shutdown_and_clear_executor_service_map(&self) {
+        for executor in self.executor_service_map.iter() {
+            executor.value().shutdown();
+        }
+        self.executor_service_map.clear();
     }
 }
 

@@ -758,7 +758,10 @@ fn build_chain_recursive(
     if let Some(executor_class) = &definition.thread_pool_executor_class {
         builder.set_thread_pool_executor_class(executor_class);
     }
-    builder.build()?;
+    // 本方法只会在规则计划决定“现在物化”后进入。解析模式已经由调用方处理，
+    // 不能再次读取进程级 LiteflowConfigGetter，否则并行应用会把真实目标链
+    // 错误降级成 PARSE_ONE 的未编译占位链。
+    builder.build_immediately()?;
     built_chains.insert(chain_id.to_string());
     build_path.remove(chain_id);
     Ok(())

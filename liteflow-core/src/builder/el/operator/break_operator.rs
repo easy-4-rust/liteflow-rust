@@ -18,7 +18,8 @@ impl BaseOperator for BreakOperator {
             objects,
             self.operator_name(),
         )?));
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::For {
                 node,
                 parallel,
@@ -66,6 +67,6 @@ impl BaseOperator for BreakOperator {
             _ => Err(LiteflowError::Parse(
                 "BREAK must follow FOR/WHILE/ITERATOR".to_string(),
             )),
-        }
+        })
     }
 }

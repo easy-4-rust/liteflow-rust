@@ -320,6 +320,21 @@ fn cluster_master_for_slot(nodes: &str, slot: u16) -> Option<String> {
     None
 }
 
+fn redis_cluster_slot(key: &[u8]) -> u16 {
+    let hash_key = key
+        .iter()
+        .position(|byte| *byte == b'{')
+        .and_then(|open| {
+            key[open + 1..]
+                .iter()
+                .position(|byte| *byte == b'}')
+                .filter(|close| *close > 0)
+                .map(|close| &key[open + 1..open + 1 + close])
+        })
+        .unwrap_or(key);
+    crc16::State::<crc16::XMODEM>::calculate(hash_key) % 16_384
+}
+
 fn cluster_master_nodes(nodes: &str) -> Vec<(String, String)> {
     nodes
         .lines()
@@ -911,7 +926,7 @@ async fn cluster_subscription_follows_promoted_replica() {
         .arg("NODES")
         .query(&mut connection)
         .expect("应读取 Cluster 节点视图");
-    let slot = redis::cluster_routing::get_slot(chain_key.as_bytes());
+    let slot = redis_cluster_slot(chain_key.as_bytes());
     let owning_master = cluster_master_for_slot(&nodes, slot).expect("应定位测试 key 所属主节点");
     let owning_index = cluster
         .addresses
@@ -1068,7 +1083,7 @@ async fn cluster_subscription_survives_online_slot_resharding() {
         .arg("NODES")
         .query(&mut connection)
         .expect("应读取重分片前节点视图");
-    let slot = redis::cluster_routing::get_slot(chain_key.as_bytes());
+    let slot = redis_cluster_slot(chain_key.as_bytes());
     let source_address = cluster_master_for_slot(&nodes, slot).expect("应定位重分片源主节点");
     let masters = cluster_master_nodes(&nodes);
     let source_id = masters

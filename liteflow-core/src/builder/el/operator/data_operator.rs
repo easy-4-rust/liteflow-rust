@@ -1,6 +1,6 @@
 use super::base::{BaseOperator, OperatorHelper};
 use crate::el::{Arg, El};
-use crate::exception::LFResult;
+use crate::exception::{LFResult, LiteflowError};
 
 /// EL 规则中的 DATA 操作符。
 ///
@@ -17,6 +17,11 @@ impl BaseOperator for DataOperator {
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let data = OperatorHelper::one_string(objects, self.operator_name())?;
         let mut expression = OperatorHelper::require_caller(caller, self.operator_name())?;
+        if matches!(expression, El::Boolean(_)) {
+            return Err(LiteflowError::Parse(
+                "DATA caller must be Executable".to_string(),
+            ));
+        }
         set_node_data(&mut expression, &data);
         Ok(expression)
     }

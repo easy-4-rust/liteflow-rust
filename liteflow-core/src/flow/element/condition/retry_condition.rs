@@ -133,4 +133,9 @@ impl Executable for RetryCondition {
     fn id(&self) -> &str {
         "RETRY"
     }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        // RETRY 不形成 DATA 隔离边界，继续递归到唯一执行对象。
+        self.inner.apply_chain_cmp_data(data);
+    }
 }

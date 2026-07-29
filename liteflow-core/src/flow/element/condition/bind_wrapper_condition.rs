@@ -81,4 +81,9 @@ impl Executable for BindWrapperCondition {
     async fn is_access(&self, ctx: &Ctx, frame: &Frame) -> bool {
         self.inner.is_access(ctx, frame).await
     }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        // Condition 级 bind 只改变执行帧；DATA 仍需继续落到内部共享子链。
+        self.inner.apply_chain_cmp_data(data);
+    }
 }

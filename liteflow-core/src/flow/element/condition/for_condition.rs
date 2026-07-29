@@ -1,6 +1,6 @@
 //! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.ForCondition
 //!
-//! 计数循环、DO/BREAK、PARALLEL 并行（PARALLEL 为 Rust 端扩展形态）。
+//! 计数循环、DO/BREAK 与 PARALLEL 布尔并行开关。
 //!
 //! 差异说明：
 //! - Java 在 forNode 为空时抛 NoForNodeException；Rust 端由 builder 保证
@@ -27,7 +27,7 @@ pub struct ForCondition {
     base: ConditionBase,
     for_node: Option<Arc<dyn Executable>>,
     fixed_count: Option<usize>,
-    pub parallel: Option<usize>,
+    pub parallel: bool,
     thread_pool_executor_class: Option<String>,
     do_executor: Arc<dyn Executable>,
     break_item: Option<Arc<dyn Executable>>,
@@ -36,13 +36,13 @@ pub struct ForCondition {
 impl ForCondition {
     /// 创建由 FOR 节点动态计算次数的循环 Condition。
     ///
-    /// 参数 `for_node` 产生循环次数，`parallel` 是可选并行度，`do_executor`
+    /// 参数 `for_node` 产生循环次数，`parallel` 是 Java 布尔并行开关，`do_executor`
     /// 是循环体，`break_item` 是可选 BREAK 条件。对应 Java:
     /// `ForCondition` 由 EL Builder 完成字段装配后的执行状态。
     #[must_use]
     pub fn new(
         for_node: Arc<dyn Executable>,
-        parallel: Option<usize>,
+        parallel: bool,
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
@@ -60,7 +60,7 @@ impl ForCondition {
     /// 创建固定次数循环，对应 EL Builder 的 `FOR(Integer)` 重载。
     pub fn with_count(
         count: usize,
-        parallel: Option<usize>,
+        parallel: bool,
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
@@ -127,26 +127,23 @@ impl Executable for ForCondition {
                 }
                 let v = for_node.execute(ctx, frame).await?;
                 match &v {
-                    Value::Number(n) => n.as_u64().unwrap_or(0) as usize,
-                    Value::String(s) => {
-                        s.parse::<usize>()
-                            .map_err(|_| LiteflowError::NodeTypeError {
-                                node: for_node.id().to_string(),
-                                expect: "number".into(),
-                                actual: v.to_string(),
-                            })?
+                    // Java NodeForComponent#getItemResultMetaValue 返回 Integer：
+                    // 非负整数作为循环次数，负数按 `i < forCount` 语义执行零次。
+                    Value::Number(number) if number.as_u64().is_some() => {
+                        number.as_u64().expect("已验证为非负整数") as usize
                     }
+                    Value::Number(number) if number.as_i64().is_some() => 0,
                     other => {
                         return Err(LiteflowError::NodeTypeError {
                             node: for_node.id().to_string(),
-                            expect: "number".into(),
+                            expect: "integer".into(),
                             actual: other.to_string(),
                         });
                     }
                 }
             };
 
-            if self.parallel.is_some() {
+            if self.parallel {
                 let condition_key = format!("{:p}", self);
                 let executor_service = ExecutorHelper::load_instance().build_executor_service(
                     self.thread_pool_executor_class
@@ -159,7 +156,7 @@ impl Executable for ForCondition {
                 )?;
                 let mut set: JoinSet<LoopFutureObj> = JoinSet::new();
                 for i in 0..count {
-                    if !submit_iteration(
+                    let should_continue = submit_iteration(
                         self,
                         &mut set,
                         &self.do_executor,
@@ -170,16 +167,17 @@ impl Executable for ForCondition {
                         None,
                         &executor_service,
                     )
-                    .await?
-                    {
-                        break;
+                    .await?;
+                    if should_continue {
+                        continue;
                     }
+                    break;
                 }
                 return handle_future_list(set).await;
             }
 
             for i in 0..count {
-                if !run_sequential(
+                let should_continue = run_sequential(
                     &self.do_executor,
                     self.break_item.as_ref(),
                     ctx,
@@ -187,10 +185,11 @@ impl Executable for ForCondition {
                     i,
                     None,
                 )
-                .await?
-                {
-                    break;
+                .await?;
+                if should_continue {
+                    continue;
                 }
+                break;
             }
             Ok(Value::Null)
         })
@@ -199,6 +198,10 @@ impl Executable for ForCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {
@@ -232,15 +235,11 @@ impl LoopCondition for ForCondition {
     }
 
     fn is_parallel(&self) -> bool {
-        self.parallel.is_some()
+        self.parallel
     }
 
     fn set_parallel(&mut self, parallel: bool) {
-        if parallel {
-            self.parallel.get_or_insert(0);
-        } else {
-            self.parallel = None;
-        }
+        self.parallel = parallel;
     }
 }
 

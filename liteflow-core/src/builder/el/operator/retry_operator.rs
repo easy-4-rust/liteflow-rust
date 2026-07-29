@@ -35,6 +35,11 @@ impl BaseOperator for RetryOperator {
             }
         }
         let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        if matches!(caller, El::Boolean(_)) {
+            return Err(LiteflowError::Parse(
+                "RETRY caller must be Executable".to_string(),
+            ));
+        }
         Ok(OperatorHelper::add_mods(
             caller,
             Mods {

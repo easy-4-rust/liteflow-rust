@@ -1,0 +1,19 @@
+error: node_id[duplicate] 不能重复声明主方法
+  --> tests/ui/decl_duplicate_main.rs:15:14
+   |
+15 |     async fn second(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+   |              ^^^^^^
+
+warning: unused imports: `CmpContext` and `LiteflowError`
+ --> tests/ui/decl_duplicate_main.rs:1:21
+  |
+1 | use liteflow_core::{CmpContext, LiteflowError};
+  |                     ^^^^^^^^^^  ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `serde_json::Value`
+ --> tests/ui/decl_duplicate_main.rs:3:5
+  |
+3 | use serde_json::Value;
+  |     ^^^^^^^^^^^^^^^^^

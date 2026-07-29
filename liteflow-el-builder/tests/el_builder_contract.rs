@@ -103,7 +103,7 @@ fn loop_catch_pre_finally_and_retry_are_available() {
         .unwrap();
     assert_eq!(
         loop_wrapper.to_expression().unwrap(),
-        "WHILE(continue).parallel(true).DO(work).BREAK(stop)"
+        "WHILE(node(\"continue\")).parallel(true).DO(work).BREAK(stop)"
     );
 
     let catch_wrapper = ELBus::catch_exception("danger")
@@ -191,6 +191,21 @@ fn generated_supported_expressions_round_trip_through_core_parser() {
             panic!("核心解析器应接受 Builder 输出 `{expression}`: {error}")
         });
     }
+}
+
+#[test]
+fn node_ids_conflicting_with_qlexpress_tokens_use_explicit_node_operator() {
+    let keyword = ELBus::element("continue").to_expression().unwrap();
+    let punctuation = ELBus::element("inventory-check").to_expression().unwrap();
+    let ordinary = ELBus::element("inventory_check").to_expression().unwrap();
+    let java_dollar = ELBus::element("inventory$check").to_expression().unwrap();
+
+    assert_eq!(keyword, r#"node("continue")"#);
+    assert_eq!(punctuation, r#"node("inventory-check")"#);
+    assert_eq!(ordinary, "inventory_check");
+    assert_eq!(java_dollar, "inventory$check");
+    parse_el(&keyword).unwrap();
+    parse_el(&punctuation).unwrap();
 }
 
 #[tokio::test]

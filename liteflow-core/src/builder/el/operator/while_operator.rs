@@ -27,7 +27,7 @@ impl BaseOperator for WhileOperator {
         };
         Ok(El::While {
             node: Box::new(node),
-            parallel: None,
+            parallel: false,
             body: Box::new(El::Then(Vec::new())),
             brk: None,
         })

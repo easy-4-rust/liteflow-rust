@@ -8,7 +8,10 @@ use liteflow_core::parser::{
     RuleDefinitionPlan,
 };
 use liteflow_core::util::RuleParsePluginUtil;
-use liteflow_core::{FlowBus, FlowParserTypeEnum, NodePropBean, cmp};
+use liteflow_core::{
+    FlowBus, FlowParserTypeEnum, LiteflowConfig, LiteflowConfigGetter, NodePropBean, NodeTypeEnum,
+    ParseModeEnum, cmp,
+};
 use serde_json::{Value, json};
 
 #[tokio::test]
@@ -29,6 +32,45 @@ async fn base_json_parser_resolves_inheritance_across_content_list() {
     assert_eq!(ids, vec!["child"]);
     assert!(!bus.contains_chain("parent"));
     assert!(bus.execute("child").await.is_success());
+}
+
+/// 验证延迟规则计划进入物化阶段后，不会再次受进程级 parseMode 影响。
+///
+/// 对应 Java `PARSE_ONE_ON_FIRST_EXEC` 首次执行时
+/// `LiteFlowChainELBuilder#buildUnCompileChain` 的立即编译语义。
+#[tokio::test]
+async fn delayed_rule_plan_materialization_ignores_global_parse_mode() {
+    let bus = FlowBus::new();
+    bus.register(
+        "materializedNode",
+        cmp(|context| async move {
+            context.set_data("materialized", json!(true));
+            Ok(Value::Null)
+        }),
+    );
+    let plan = BaseJsonFlowParser::new(bus.clone())
+        .collect(&[r#"{
+            "flow": {
+                "chain": [{
+                    "id": "materializedChain",
+                    "body": "THEN(materializedNode)"
+                }]
+            }
+        }"#
+        .to_string()])
+        .unwrap();
+
+    let mut global_config = LiteflowConfig::default();
+    global_config.set_parse_mode(ParseModeEnum::ParseOneOnFirstExec);
+    LiteflowConfigGetter::set_liteflow_config(global_config);
+    let build_result = plan.build_chain(&bus, "materializedChain");
+    LiteflowConfigGetter::clean();
+    build_result.unwrap();
+
+    let response = bus.execute("materializedChain").await;
+    assert!(response.is_success(), "{:?}", response.cause);
+    assert_eq!(response.data("materialized"), Some(json!(true)));
+    assert_eq!(response.steps.len(), 1, "物化后的链不能是未编译空占位链");
 }
 
 #[test]
@@ -344,4 +386,318 @@ async fn parser_helper_java_named_xml_entries_drive_real_build_plan() {
         Some("xml-pool")
     );
     assert!(bus.execute("xmlHelperChain").await.is_success());
+}
+
+/// 验证 ParserHelper 保留 Java JSON 解析的缺省、兼容与失败边界。
+///
+/// 对应 Java: `ParserHelper#parseNodeJson`、`#parseChainJson` 与
+/// `#parseOneChain(JsonNode)`。
+#[test]
+fn parser_helper_json_boundaries_preserve_java_contracts() {
+    let mut plan = RuleDefinitionPlan::new();
+    assert!(matches!(
+        ParserHelper::parse_node_json(&[json!({"notFlow": {}})], &mut plan),
+        Err(liteflow_core::LiteflowError::Rule(message)) if message == "missing flow"
+    ));
+
+    ParserHelper::parse_node_json(&[json!({"flow": {"nodes": {"notNode": []}}})], &mut plan)
+        .expect("没有 node 数组时 Java 语义是跳过");
+    assert_eq!(plan.chain_count(), 0);
+
+    let invalid_node = ParserHelper::parse_node_json(
+        &[json!({"flow": {"nodes": {"node": [
+            {"id": "broken", "type": {"invalid": true}}
+        ]}}})],
+        &mut plan,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        invalid_node,
+        liteflow_core::LiteflowError::Rule(message)
+            if message.contains("invalid node[broken] property")
+    ));
+
+    let mut chain_ids = HashSet::new();
+    ParserHelper::parse_chain_json(
+        &[json!({"flow": {}}), json!({"notFlow": {}})],
+        &mut chain_ids,
+        &mut plan,
+    )
+    .expect("缺少 chain 数组的文档应被跳过");
+    assert!(chain_ids.is_empty());
+
+    assert!(matches!(
+        ParserHelper::parse_one_chain(&json!({"body": "THEN(a)"})),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "chain missing id/name"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_one_chain(&json!({"id": "routeOnly", "route": "p"})),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "If you have defined the field route, then you must define the field body in chain[routeOnly]"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_one_chain(&json!({"id": "missingCondition"})),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "chain[missingCondition] missing condition"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_one_chain(&json!({
+            "id": "missingValue",
+            "condition": [{"type": "then"}]
+        })),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "chain[missingValue] condition missing value"
+    ));
+
+    let legacy = ParserHelper::parse_one_chain(&json!({
+        "name": "legacy",
+        "namespace": "",
+        "extends": "abstractParent",
+        "threadPoolExecutorClass": "legacy-pool",
+        "condition": [
+            {"type": "then", "value": "a"},
+            {"type": "when", "value": "b"}
+        ]
+    }))
+    .unwrap()
+    .expect("Java 旧 condition 数组应转换为 EL");
+    assert_eq!(legacy.id, "legacy");
+    assert_eq!(legacy.namespace, "default");
+    assert_eq!(legacy.extends.as_deref(), Some("abstractParent"));
+    assert_eq!(
+        legacy.thread_pool_executor_class.as_deref(),
+        Some("legacy-pool")
+    );
+    assert_eq!(legacy.body, "THEN(THEN(a),WHEN(b))");
+
+    let single = ParserHelper::parse_one_chain(&json!({
+        "id": "single",
+        "condition": [{"value": "a"}]
+    }))
+    .unwrap()
+    .expect("单个旧 condition 应直接生成对应 EL");
+    assert_eq!(single.body, "THEN(a)");
+}
+
+/// 验证 XML 流式读取器在未知元素、空链、禁用项和截断输入上的精确行为。
+///
+/// 对应 Java: `ParserHelper#parseNodeDocument` 与 `#parseChainDocument`。
+#[test]
+fn parser_helper_xml_boundaries_preserve_java_contracts() {
+    let mut plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_node_document(
+        &[r#"
+            <flow>
+              <metadata><nested/></metadata>
+              <nodes>
+                <unknown><node id="ignored" type="script">()</node></unknown>
+                <node id="emptyScript" type="script" value="()"/>
+                <node id="disabledScript" type="script" enable="false">()</node>
+              </nodes>
+            </flow>
+        "#
+        .to_string()],
+        &mut plan,
+    )
+    .expect("未知 XML 元素应完整跳过，Empty node 应保留属性");
+
+    assert!(matches!(
+        ParserHelper::parse_node_document(
+            &["<flow><nodes><node id=\"broken\" type=\"script\">".to_string()],
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message.contains("unclosed <node>")
+    ));
+
+    let disabled_only =
+        vec![r#"<flow><chain id="disabled" enable="false">THEN(a)</chain></flow>"#.to_string()];
+    let mut disabled_plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_chain_document(&disabled_only, &mut HashSet::new(), &mut disabled_plan)
+        .expect("禁用 XML Chain 应被跳过");
+    assert_eq!(disabled_plan.chain_count(), 0);
+
+    assert!(matches!(
+        ParserHelper::parse_chain_document(
+            &["<flow><chain>THEN(a)</chain></flow>".to_string()],
+            &mut HashSet::new(),
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "missing chain id in expression"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_chain_document(
+            &["<flow><chain id=\"empty\"/></flow>".to_string()],
+            &mut HashSet::new(),
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "chain[empty] has empty EL"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_chain_document(
+            &["<flow><chain id=\"routeOnly\"><route>p</route></chain></flow>".to_string()],
+            &mut HashSet::new(),
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "If you have defined the tag <route>, then you must define the tag <body> in chain[routeOnly]"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_chain_document(
+            &["<flow><chain id=\"unclosed\"><body>THEN(a)</body>".to_string()],
+            &mut HashSet::new(),
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::Rule(message))
+            if message == "chain[unclosed] unclosed"
+    ));
+    assert!(matches!(
+        ParserHelper::parse_chain_document(
+            &["<flow><chain id=\"same\">THEN(a)</chain><chain id=\"same\">THEN(a)</chain></flow>".to_string()],
+            &mut HashSet::new(),
+            &mut RuleDefinitionPlan::new(),
+        ),
+        Err(liteflow_core::LiteflowError::ChainDuplicate(message))
+            if message == "[chain name duplicate] chainName=same"
+    ));
+}
+
+/// 验证延迟规则计划会遍历所有 EL 结构，只物化目标 Chain 的完整依赖闭包。
+///
+/// 对应 Java: `ParserHelper#parseChainJson` 的先登记、后编译与继承处理阶段。
+#[test]
+fn rule_definition_plan_materializes_all_nested_reference_shapes_and_errors() {
+    let bus = FlowBus::new();
+    for node_id in ["a", "body", "handler"] {
+        bus.add_node(
+            node_id,
+            None,
+            NodeTypeEnum::Common,
+            Arc::new(cmp(|_| async { Ok(Value::Null) })),
+        )
+        .unwrap();
+    }
+    for node_id in ["p", "q", "stop"] {
+        bus.add_node(
+            node_id,
+            None,
+            NodeTypeEnum::Boolean,
+            Arc::new(cmp(|_| async { Ok(Value::Bool(true)) })),
+        )
+        .unwrap();
+    }
+    bus.add_node(
+        "selector",
+        None,
+        NodeTypeEnum::Switch,
+        Arc::new(cmp(|_| async { Ok(Value::String("child".to_string())) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "counter",
+        None,
+        NodeTypeEnum::For,
+        Arc::new(cmp(|_| async { Ok(Value::from(1)) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "items",
+        None,
+        NodeTypeEnum::Iterator,
+        Arc::new(cmp(|_| async { Ok(json!([1])) })),
+    )
+    .unwrap();
+
+    let documents = vec![json!({
+        "flow": {
+            "chain": [
+                {"id": "child", "body": "THEN(a)"},
+                {
+                    "id": "nested",
+                    "route": "AND(p,q)",
+                    "body": "THEN(\
+                        WHEN(child),\
+                        IF(p,child).ELIF(q,child).ELSE(child),\
+                        SWITCH(selector).TO(child).DEFAULT(child),\
+                        FOR(counter).DO(child).BREAK(stop),\
+                        FOR(1).DO(child).BREAK(stop),\
+                        WHILE(p).DO(child).BREAK(stop),\
+                        ITERATOR(items).DO(child).BREAK(stop),\
+                        CATCH(child).DO(handler),\
+                        NOT(p),\
+                        PRE(child),\
+                        FINALLY(child),\
+                        child.retry(1)\
+                    )"
+                }
+            ]
+        }
+    })];
+    let mut plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_chain_json(&documents, &mut HashSet::new(), &mut plan).unwrap();
+    assert_eq!(plan.chain_count(), 2);
+    plan.build_chain(&bus, "nested")
+        .expect("目标 Chain 的全部嵌套依赖应递归物化");
+    let chains = bus.get_chain_map();
+    assert!(chains["child"].is_compiled());
+    assert!(chains["nested"].is_compiled());
+    plan.build_chain(&bus, "nested")
+        .expect("已经物化的 Chain 应直接返回");
+
+    let empty_plan = RuleDefinitionPlan::new();
+    assert!(matches!(
+        empty_plan.build_chain(&FlowBus::new(), "missing"),
+        Err(liteflow_core::LiteflowError::ChainNotFound(message))
+            if message == "[chain not found] chainId=missing"
+    ));
+
+    let mut abstract_plan = RuleDefinitionPlan::new();
+    ParserHelper::parse_chain_json(
+        &[json!({"flow": {"chain": [
+            {"id": "abstractParent", "body": "THEN(a,{{next}})"}
+        ]}})],
+        &mut HashSet::new(),
+        &mut abstract_plan,
+    )
+    .unwrap();
+    assert!(matches!(
+        abstract_plan.build_chain(&FlowBus::new(), "abstractParent"),
+        Err(liteflow_core::LiteflowError::ChainNotFound(message))
+            if message == "[abstract chain cannot execute] chainId=abstractParent"
+    ));
+
+    let mut reference_cycle = RuleDefinitionPlan::new();
+    ParserHelper::parse_chain_json(
+        &[json!({"flow": {"chain": [
+            {"id": "cycleA", "body": "THEN(cycleB)"},
+            {"id": "cycleB", "body": "THEN(cycleA)"}
+        ]}})],
+        &mut HashSet::new(),
+        &mut reference_cycle,
+    )
+    .unwrap();
+    assert!(matches!(
+        reference_cycle.build_chain(&FlowBus::new(), "cycleA"),
+        Err(liteflow_core::LiteflowError::Parse(message))
+            if message == "cyclic chain reference detected: cycleA"
+    ));
+
+    let mut inheritance_cycle = RuleDefinitionPlan::new();
+    ParserHelper::parse_chain_json(
+        &[json!({"flow": {"chain": [
+            {"id": "inheritA", "extends": "inheritB", "body": "{{next}} = a;"},
+            {"id": "inheritB", "extends": "inheritA", "body": "{{next}} = a;"}
+        ]}})],
+        &mut HashSet::new(),
+        &mut inheritance_cycle,
+    )
+    .unwrap();
+    assert!(matches!(
+        inheritance_cycle.build_chain(&FlowBus::new(), "inheritA"),
+        Err(liteflow_core::LiteflowError::Parse(message))
+            if message == "cyclic chain inheritance detected: inheritA"
+    ));
 }

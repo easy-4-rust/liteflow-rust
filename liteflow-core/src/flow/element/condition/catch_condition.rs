@@ -118,6 +118,10 @@ impl Executable for CatchCondition {
         Condition::get_all_node_in_condition(self)
     }
 
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
+    }
+
     fn id(&self) -> &str {
         "CATCH"
     }

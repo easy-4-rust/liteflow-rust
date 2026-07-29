@@ -13,8 +13,16 @@ pub struct NodeRef {
     pub data: Option<String>,
     /// 节点绑定数据。
     pub bind: Vec<(String, String)>,
-    /// `.bind(k, v, override)` 的覆盖标记。
+    /// 保留的 AST 兼容字段；Java Node 分支忽略 bind 的 override 参数。
     pub bind_override: bool,
+    /// 首个把 Chain 转成 Condition 的操作是否为 tag。
+    ///
+    /// Java `Chain.tag` 会创建 ThenCondition，而 `Chain.bind` 会创建
+    /// ChainBindWrapperCondition；解析阶段尚不能区分 Node 与 Chain，因此暂存
+    /// 首个包装操作，交给 EL Builder 在解析注册表后还原真实类型。
+    pub(crate) chain_tag_wrapper: bool,
+    /// tag/bind 把 Chain 包装成 Condition 后设置的 Condition ID。
+    pub(crate) condition_id: Option<String>,
 }
 
 impl NodeRef {
@@ -28,6 +36,8 @@ impl NodeRef {
             data: None,
             bind: Vec::new(),
             bind_override: false,
+            chain_tag_wrapper: false,
+            condition_id: None,
         }
     }
 

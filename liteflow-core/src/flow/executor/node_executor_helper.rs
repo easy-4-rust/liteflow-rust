@@ -143,4 +143,27 @@ impl NodeExecutorHelper {
                 ))
             })
     }
+
+    /// 按声明式组件返回的 Java 类名解析节点执行器。
+    ///
+    /// 参数 `class_name` 来自 `GET_NODE_EXECUTOR_CLASS` 生命周期方法；空值和 Java
+    /// 默认类名均返回默认执行器，自定义名称必须预先注册。对应 Java:
+    /// `NodeExecutorHelper#buildNodeExecutor`。
+    pub fn try_build_node_executor_class(
+        &self,
+        class_name: &str,
+    ) -> LFResult<Arc<dyn NodeExecutor>> {
+        let class_name = class_name.trim();
+        if class_name.is_empty() || class_name == DEFAULT_NODE_EXECUTOR_CLASS {
+            return Ok(self.build_node_executor(None));
+        }
+        self.named_node_executor_map
+            .get(class_name)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| {
+                LiteflowError::NodeClassNotFound(format!(
+                    "node executor class[{class_name}] is not registered"
+                ))
+            })
+    }
 }

@@ -520,12 +520,27 @@ impl FlowBus {
 
     /// reloadChain：热刷新
     pub fn reload_chain(&self, chain_id: &str, el: &str) -> LFResult<()> {
-        if !self.chains.contains_key(chain_id) {
-            return Err(LiteflowError::ChainNotFound(chain_id.to_string()));
-        }
+        self.reload_chain_with_route(chain_id, el, None)
+    }
+
+    /// 使用可选 route 热刷新或创建 Chain。
+    ///
+    /// Java 的三参数重载不会要求 Chain 预先存在；`route=None` 时，已有 Chain
+    /// 保留原 route，新 Chain 不设置 route。参数分别对应 Java `chainId`、
+    /// `elContent` 与 `routeContent`。
+    /// 对应 Java: `FlowBus#reloadChain(String,String,String)`。
+    pub fn reload_chain_with_route(
+        &self,
+        chain_id: &str,
+        el: &str,
+        route: Option<&str>,
+    ) -> LFResult<()> {
         let builder = LiteFlowChainELBuilder::create_chain(self.clone());
         builder.set_chain_id(chain_id);
         builder.set_el(el)?;
+        if let Some(route) = route {
+            builder.set_route(route);
+        }
         builder.build()
     }
 
@@ -736,9 +751,9 @@ impl FlowBus {
         if !self.script_nodes.contains_key(node_id) {
             return Ok(false);
         }
-        if !component.unload_script(node_id)? {
-            return Ok(false);
-        }
+        // Java ScriptExecutor#unLoad 是 void；即使缓存已由 cleanScriptCache 清空，
+        // unloadScriptNode 仍继续从 nodeMap 删除元数据。
+        let _ = component.unload_script(node_id)?;
         self.nodes.remove(node_id);
         self.script_nodes.remove(node_id);
         Ok(true)
@@ -755,7 +770,12 @@ impl FlowBus {
             .map(|entry| entry.key().clone())
             .collect::<Vec<_>>();
         for node_id in node_ids {
-            let _ = self.unload_script_node(&node_id)?;
+            // Java 只清理 ScriptExecutor 的编译缓存，不从 nodeMap 删除脚本节点。
+            // `cleanCache` 会在本方法返回后统一清空 Node；单独调用本方法时则保留
+            // 元数据，允许 reloadScript 重新装载。
+            if let Some(component) = self.get_node(&node_id) {
+                let _ = component.unload_script(&node_id)?;
+            }
         }
         Ok(())
     }
@@ -819,11 +839,11 @@ impl FlowBus {
     ///
     /// 对应 Java `FlowBus#reloadScript`：先完整构建新组件，成功后再原子替换。
     pub fn reload_script(&self, node_id: &str, script: &str) -> LFResult<()> {
-        let (language, kind) = self
-            .script_nodes
-            .get(node_id)
-            .map(|entry| entry.clone())
-            .ok_or_else(|| LiteflowError::NodeNotFound(node_id.to_string()))?;
+        let Some((language, kind)) = self.script_nodes.get(node_id).map(|entry| entry.clone())
+        else {
+            // Java 对不存在节点和普通节点直接返回，不抛出 NodeNotFound。
+            return Ok(());
+        };
         self.register_script_typed(node_id, &language, kind, script)?;
 
         // 已编译 Chain 中的 Node 持有旧组件 Arc；脚本组件替换后重建 Chain，

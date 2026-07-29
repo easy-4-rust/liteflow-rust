@@ -10,7 +10,6 @@ pub mod condition_key;
 pub mod finally_condition;
 pub mod for_condition;
 pub mod if_condition;
-pub mod ignore_error_condition;
 pub mod iterator_condition;
 pub mod loop_condition;
 pub mod not_condition;
@@ -74,6 +73,11 @@ impl ConditionBase {
     /// `Condition#getBindDataMap` 的构建期读取语义。
     pub(crate) fn bind_data(&self) -> &[(String, String)] {
         &self.bind_data
+    }
+
+    /// 返回显式设置的 Condition ID；未设置时由具体类型提供默认展示值。
+    pub(crate) fn explicit_id(&self) -> Option<&str> {
+        self.id.as_deref().filter(|id| !id.trim().is_empty())
     }
 }
 
@@ -400,5 +404,14 @@ pub fn check_not_pre_finally(target: &dyn Executable, name: &str) -> LFResult<()
         Err(LiteflowError::TargetCannotBePreOrFinally(name.to_string()))
     } else {
         Ok(())
+    }
+}
+
+/// 把 Chain DATA 元数据递归传播到 Condition 的全部可执行分组。
+pub(crate) fn apply_chain_cmp_data_to_condition(condition: &dyn Condition, data: &str) {
+    for executable_list in condition.get_executable_group().values() {
+        for executable in executable_list {
+            executable.apply_chain_cmp_data(data);
+        }
     }
 }

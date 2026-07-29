@@ -37,7 +37,8 @@ impl BaseOperator for MustOperator {
                 }
             }
         }
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::When { items, mut opts } => {
                 opts.must = node_ids.into_iter().collect();
                 Ok(El::When { items, opts })
@@ -45,6 +46,6 @@ impl BaseOperator for MustOperator {
             _ => Err(LiteflowError::Parse(
                 "MUST must follow WHEN/PAR".to_string(),
             )),
-        }
+        })
     }
 }

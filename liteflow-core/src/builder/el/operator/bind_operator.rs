@@ -30,14 +30,19 @@ impl BaseOperator for BindOperator {
             El::Node(mut node) => {
                 node.bind.retain(|(existing, _)| *existing != key);
                 node.bind.push((key, value));
-                node.bind_override = override_flag;
+                // Java 的 Node 分支只执行 putBindData；第四个 override 参数仅在
+                // Condition 分支清理子节点绑定，不改变 Node 自身状态。
+                node.bind_override = false;
                 Ok(El::Node(node))
             }
+            El::Boolean(_) => Err(LiteflowError::Parse(
+                "BIND caller must be Executable".to_string(),
+            )),
             other => Ok(OperatorHelper::add_mods(
                 other,
                 Mods {
-                    bind: vec![(key, value)],
-                    bind_override: override_flag,
+                    bind: vec![(key.clone(), value)],
+                    bind_override_keys: override_flag.then_some(key).into_iter().collect(),
                     ..Default::default()
                 },
             )),

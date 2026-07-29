@@ -96,10 +96,14 @@ impl ThenCondition {
 #[async_trait]
 impl Executable for ThenCondition {
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
-        super::execute_condition_with_lifecycle(self, ctx, frame, async {
+        // Java Condition 的 bindData 随当前 Condition 压入执行上下文。大多数
+        // EL 属性由 BindWrapperCondition 承载；Chain.tag 首先创建的原生
+        // ThenCondition 则会直接持有后续 bind，因此这里也必须下传自身绑定。
+        let frame = frame.push_bind(self.base.bind_data());
+        super::execute_condition_with_lifecycle(self, ctx, &frame, async {
             let mut err: Option<LiteflowError> = None;
             for item in self.pre_list.iter().chain(self.executable_list.iter()) {
-                match item.execute(ctx, frame).await {
+                match item.execute(ctx, &frame).await {
                     Ok(_) => {}
                     Err(e) => {
                         err = Some(e);
@@ -111,7 +115,7 @@ impl Executable for ThenCondition {
             // 循环在首个 FINALLY 异常处停止，且该异常覆盖 try/catch 正在传播的
             // 主体异常；这里显式替换 err 以保留同一优先级。
             for fin in &self.finally_list {
-                if let Err(fe) = fin.execute(ctx, frame).await {
+                if let Err(fe) = fin.execute(ctx, &frame).await {
                     err = Some(fe);
                     break;
                 }
@@ -132,8 +136,12 @@ impl Executable for ThenCondition {
         Condition::get_all_node_in_condition(self)
     }
 
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
+    }
+
     fn id(&self) -> &str {
-        "THEN"
+        self.base.explicit_id().unwrap_or("THEN")
     }
 }
 

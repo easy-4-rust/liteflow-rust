@@ -144,7 +144,9 @@ impl Executable for SwitchCondition {
             };
 
             let mut target: Option<&Arc<dyn Executable>> = None;
-            if !target_id.is_empty() {
+            // Java StrUtil.isNotBlank：纯空白路由值不参与 ID/标签匹配，
+            // 而是直接进入 DEFAULT 分支。
+            if !target_id.trim().is_empty() {
                 // 对齐 Java 的 tag 匹配规则："id:tag" / ":tag" / "id"
                 if target_id.contains(':') {
                     let mut parts = target_id.splitn(2, ':');
@@ -173,6 +175,10 @@ impl Executable for SwitchCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {

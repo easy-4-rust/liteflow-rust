@@ -11,14 +11,20 @@ use serde_json::Value;
 pub struct Frame {
     /// `(loopIndex, loopObject)` 栈。
     pub loops: Vec<(usize, Option<Value>)>,
-    /// 与 `loops` 同下标的 Java LoopCondition 身份；Rust 原生 push 路径为 None。
-    loop_condition_keys: Vec<Option<usize>>,
+    /// Java `loopIndexTL` 的独立兼容栈。
+    ///
+    /// Java 分别维护循环下标与循环对象，二者的 remove 操作不能互相弹栈。
+    java_loop_indices: Vec<(usize, usize)>,
+    /// Java `loopObjectTL` 的独立兼容栈。
+    java_loop_objects: Vec<(usize, Value)>,
     /// Condition 级 bind 键值栈。
     pub binds: Vec<(String, String)>,
     /// 当前 Chain 指定的执行器构建器名称。
     chain_thread_pool: Option<String>,
     /// 当前正在执行的 Chain ID；子链进入时覆盖父链快照。
     current_chain_id: Option<String>,
+    /// DATA 作用于 Chain 时向该 Chain 全部 Node 传播的组件数据。
+    chain_cmp_data: Option<String>,
     /// 当前 Condition 指定的执行器构建器名称。
     condition_thread_pool: Option<String>,
     /// 当前 SWITCH 条件允许跳转的目标节点 ID。
@@ -44,7 +50,7 @@ pub struct Frame {
     /// Java Chain#runtimeIdTL 的任务隔离运行标识。
     runtime_id: Option<u64>,
     /// Node#accessResult 的任务隔离缓存。
-    node_access_results: HashMap<String, bool>,
+    node_access_results: RwLock<HashMap<String, bool>>,
     /// Node#isContinueOnErrorResult 的任务隔离缓存。
     node_continue_on_error_results: RwLock<HashMap<String, bool>>,
     /// Node#stepData 的任务隔离数据。
@@ -77,10 +83,12 @@ impl Clone for Frame {
             .clone();
         Self {
             loops: self.loops.clone(),
-            loop_condition_keys: self.loop_condition_keys.clone(),
+            java_loop_indices: self.java_loop_indices.clone(),
+            java_loop_objects: self.java_loop_objects.clone(),
             binds: self.binds.clone(),
             chain_thread_pool: self.chain_thread_pool.clone(),
             current_chain_id: self.current_chain_id.clone(),
+            chain_cmp_data: self.chain_cmp_data.clone(),
             condition_thread_pool: self.condition_thread_pool.clone(),
             switch_target_list: self.switch_target_list.clone(),
             switch_results: self.switch_results.clone(),
@@ -108,7 +116,12 @@ impl Clone for Frame {
                     .clone(),
             ),
             runtime_id: self.runtime_id,
-            node_access_results: self.node_access_results.clone(),
+            node_access_results: RwLock::new(
+                self.node_access_results
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone(),
+            ),
             node_continue_on_error_results: RwLock::new(
                 self.node_continue_on_error_results
                     .read()
@@ -144,7 +157,6 @@ impl Frame {
     pub fn push(&self, index: usize, object: Option<Value>) -> Self {
         let mut frame = self.clone();
         frame.loops.push((index, object));
-        frame.loop_condition_keys.push(None);
         frame
     }
 
@@ -185,6 +197,22 @@ impl Frame {
     #[must_use]
     pub fn current_chain_id(&self) -> Option<&str> {
         self.current_chain_id.as_deref()
+    }
+
+    /// 写入当前 Chain 传播的组件数据；空值保留父 Chain 已传播的数据。
+    #[must_use]
+    pub fn with_chain_cmp_data(&self, data: Option<&str>) -> Self {
+        let mut frame = self.clone();
+        if let Some(data) = data {
+            frame.chain_cmp_data = Some(data.to_string());
+        }
+        frame
+    }
+
+    /// 返回当前执行路径上的 Chain 组件数据覆盖值。
+    #[must_use]
+    pub fn chain_cmp_data(&self) -> Option<&str> {
+        self.chain_cmp_data.as_deref()
     }
 
     /// 写入当前 Condition 的执行器构建器名称。
@@ -242,13 +270,19 @@ impl Frame {
     /// 返回最内层循环下标。
     #[must_use]
     pub fn loop_index(&self) -> Option<usize> {
-        self.loops.last().map(|(index, _)| *index)
+        self.java_loop_indices
+            .last()
+            .map(|(_, index)| *index)
+            .or_else(|| self.loops.last().map(|(index, _)| *index))
     }
 
     /// 返回最内层循环对象。
     #[must_use]
     pub fn loop_object(&self) -> Option<&Value> {
-        self.loops.last().and_then(|(_, object)| object.as_ref())
+        self.java_loop_objects
+            .last()
+            .map(|(_, object)| object)
+            .or_else(|| self.loops.last().and_then(|(_, object)| object.as_ref()))
     }
 
     /// 按深度返回循环对象，0 表示最内层。
@@ -257,6 +291,14 @@ impl Frame {
     /// 返回 `None`。对应 Java: `Node#getCurrLoopObject/getPreNLoopObject`。
     #[must_use]
     pub fn loop_object_at(&self, depth: usize) -> Option<&Value> {
+        if !self.java_loop_objects.is_empty() {
+            return self
+                .java_loop_objects
+                .len()
+                .checked_sub(depth + 1)
+                .and_then(|index| self.java_loop_objects.get(index))
+                .map(|(_, object)| object);
+        }
         self.loops
             .len()
             .checked_sub(depth + 1)
@@ -267,6 +309,14 @@ impl Frame {
     /// 按深度返回循环下标，0 表示最内层。
     #[must_use]
     pub fn loop_index_at(&self, depth: usize) -> Option<usize> {
+        if !self.java_loop_indices.is_empty() {
+            return self
+                .java_loop_indices
+                .len()
+                .checked_sub(depth + 1)
+                .and_then(|index| self.java_loop_indices.get(index))
+                .map(|(_, index)| *index);
+        }
         self.loops
             .len()
             .checked_sub(depth + 1)
@@ -425,19 +475,27 @@ impl Frame {
     /// 返回当前节点预先计算的访问结果。
     pub(crate) fn get_node_access_result(&self, node_id: &str) -> bool {
         self.node_access_results
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(node_id)
             .copied()
             .unwrap_or(false)
     }
 
     /// 保存当前节点预先计算的访问结果。
-    pub(crate) fn set_node_access_result(&mut self, node_id: String, result: bool) {
-        self.node_access_results.insert(node_id, result);
+    pub(crate) fn set_node_access_result(&self, node_id: String, result: bool) {
+        self.node_access_results
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(node_id, result);
     }
 
     /// 删除当前节点预先计算的访问结果。
-    pub(crate) fn remove_node_access_result(&mut self, node_id: &str) {
-        self.node_access_results.remove(node_id);
+    pub(crate) fn remove_node_access_result(&self, node_id: &str) {
+        self.node_access_results
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(node_id);
     }
 
     /// 返回当前节点预先计算的 continue-on-error 结果。
@@ -522,34 +580,36 @@ impl Frame {
     /// 按 Java LoopCondition 身份写入循环下标。
     pub(crate) fn set_loop_index_for(&mut self, condition_key: usize, index: usize) {
         if let Some(position) = self
-            .loop_condition_keys
+            .java_loop_indices
             .iter()
-            .position(|current| *current == Some(condition_key))
+            .position(|(current, _)| *current == condition_key)
         {
-            self.loops[position].0 = index;
+            self.java_loop_indices[position].1 = index;
             return;
         }
-        self.loops.push((index, None));
-        self.loop_condition_keys.push(Some(condition_key));
+        self.java_loop_indices.push((condition_key, index));
     }
 
     /// 按 Java LoopCondition 身份写入循环对象。
     pub(crate) fn set_loop_object_for(&mut self, condition_key: usize, object: Value) {
         if let Some(position) = self
-            .loop_condition_keys
+            .java_loop_objects
             .iter()
-            .position(|current| *current == Some(condition_key))
+            .position(|(current, _)| *current == condition_key)
         {
-            self.loops[position].1 = Some(object);
+            self.java_loop_objects[position].1 = object;
             return;
         }
-        self.loops.push((0, Some(object)));
-        self.loop_condition_keys.push(Some(condition_key));
+        self.java_loop_objects.push((condition_key, object));
     }
 
-    /// 弹出当前循环下标、对象及其 Condition 身份。
-    pub(crate) fn pop_loop(&mut self) {
-        self.loops.pop();
-        self.loop_condition_keys.pop();
+    /// 弹出 Java `loopIndexTL` 的当前循环下标，不影响循环对象栈。
+    pub(crate) fn pop_loop_index(&mut self) {
+        self.java_loop_indices.pop();
+    }
+
+    /// 弹出 Java `loopObjectTL` 的当前循环对象，不影响循环下标栈。
+    pub(crate) fn pop_loop_object(&mut self) {
+        self.java_loop_objects.pop();
     }
 }

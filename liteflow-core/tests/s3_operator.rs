@@ -28,7 +28,7 @@ fn public_operator_objects_call_their_real_typed_build_logic() {
         counted_loop,
         El::ForCount {
             count: 3,
-            parallel: None,
+            parallel: false,
             ..
         }
     ));
@@ -208,15 +208,15 @@ fn percentage_operator_validates_threshold_range() {
 }
 
 #[test]
-fn ignore_error_operator_supports_when_and_common_conditions() {
+fn ignore_error_operator_only_accepts_when_condition_like_java() {
     assert!(matches!(
         parse_el("WHEN(a,b).ignoreError(true)").unwrap(),
         El::When { opts, .. } if opts.ignore_error
     ));
-    assert!(matches!(
-        parse_el("THEN(a).ignoreError(true)").unwrap(),
-        El::Mods(_, mods) if mods.ignore_error
-    ));
+    let error = parse_el("THEN(a).ignoreError(true)")
+        .expect_err("Java IgnoreErrorOperator 只接受 WhenCondition")
+        .to_string();
+    assert!(error.contains("caller must be WhenCondition"), "{error}");
 }
 
 #[test]
@@ -243,6 +243,155 @@ fn retry_operator_records_exception_filters() {
         El::Mods(_, mods)
             if mods.retry == Some(2)
                 && mods.retry_for == vec!["ParseException".to_string()]
+    ));
+}
+
+#[test]
+fn wrapping_modifiers_preserve_qlexpress_source_order() {
+    let timeout_then_retry =
+        parse_el("a.maxWaitMilliseconds(10).retry(2)").expect("合法包装链应完成解析");
+    assert!(matches!(
+        timeout_then_retry,
+        El::Mods(outer, ref retry)
+            if retry.retry == Some(2)
+                && matches!(
+                    outer.as_ref(),
+                    El::Mods(_, timeout) if timeout.max_wait_ms == Some(10)
+                )
+    ));
+
+    let retry_then_timeout =
+        parse_el("a.retry(2).maxWaitMilliseconds(10)").expect("反向包装链应完成解析");
+    assert!(matches!(
+        retry_then_timeout,
+        El::Mods(outer, ref timeout)
+            if timeout.max_wait_ms == Some(10)
+                && matches!(
+                    outer.as_ref(),
+                    El::Mods(_, retry) if retry.retry == Some(2)
+                )
+    ));
+
+    // Java 每次 retry 都创建新的 RetryCondition，不能只保留最后一次参数。
+    let nested_retry = parse_el("a.retry(1).retry(2)").expect("重复 retry 应形成嵌套");
+    assert!(matches!(
+        nested_retry,
+        El::Mods(outer, ref second)
+            if second.retry == Some(2)
+                && matches!(
+                    outer.as_ref(),
+                    El::Mods(_, first) if first.retry == Some(1)
+                )
+    ));
+}
+
+#[test]
+fn typed_operators_see_through_property_modifiers_but_not_real_wrappers() {
+    let when = parse_el(
+        r#"WHEN(a,b).id("when-id").tag("when-tag").ignoreError(true).any(true).percentage(0.5).must("a").maxWaitMilliseconds(10)"#,
+    )
+    .expect("Java 属性修改不应遮蔽 WhenCondition 的运行时类型");
+    assert!(matches!(
+        when,
+        El::Mods(inner, ref properties)
+            if properties.id.as_deref() == Some("when-id")
+                && properties.tag.as_deref() == Some("when-tag")
+                && matches!(
+                    inner.as_ref(),
+                    El::When { opts, .. }
+                        if opts.ignore_error
+                            && opts.any
+                            && opts.percentage == Some(0.5)
+                            && opts.must == vec!["a".to_string()]
+                            && opts.max_wait_ms == Some(10)
+                )
+    ));
+
+    let loop_expression = parse_el(
+        r#"FOR(f).id("loop-id").tag("loop-tag").DO(a).parallel(true).threadPool("loop-pool").BREAK(b)"#,
+    )
+    .expect("Java 属性修改后的 LoopCondition 仍应接受 DO/PARALLEL/THREAD_POOL/BREAK");
+    assert!(matches!(
+        loop_expression,
+        El::Mods(inner, ref properties)
+            if properties.id.as_deref() == Some("loop-id")
+                && properties.tag.as_deref() == Some("loop-tag")
+                && properties.thread_pool.as_deref() == Some("loop-pool")
+                && matches!(
+                    inner.as_ref(),
+                    El::For {
+                        parallel: true,
+                        brk: Some(_),
+                        ..
+                    }
+                )
+    ));
+
+    let if_expression = parse_el(r#"IF(flag,a).id("if-id").ELIF(flag2,b).ELSE(c)"#)
+        .expect("带属性的 IfCondition 仍应接受 ELIF/ELSE");
+    assert!(matches!(
+        if_expression,
+        El::Mods(inner, ref properties)
+            if properties.id.as_deref() == Some("if-id")
+                && matches!(
+                    inner.as_ref(),
+                    El::If {
+                        elifs,
+                        els: Some(_),
+                        ..
+                    } if elifs.len() == 1
+                )
+    ));
+
+    let switch_expression = parse_el(r#"SWITCH(s).tag("switch-tag").TO(a,b).DEFAULT(c)"#)
+        .expect("带属性的 SwitchCondition 仍应接受 TO/DEFAULT");
+    assert!(matches!(
+        switch_expression,
+        El::Mods(inner, ref properties)
+            if properties.tag.as_deref() == Some("switch-tag")
+                && matches!(
+                    inner.as_ref(),
+                    El::Switch {
+                        targets,
+                        default: Some(_),
+                        ..
+                    } if targets.len() == 2
+                )
+    ));
+
+    let catch_expression =
+        parse_el(r#"CATCH(a).tag("catch-tag").DO(b)"#).expect("带属性的 CatchCondition 应接受 DO");
+    assert!(matches!(
+        catch_expression,
+        El::Mods(inner, ref properties)
+            if properties.tag.as_deref() == Some("catch-tag")
+                && matches!(inner.as_ref(), El::Catch { do_: Some(_), .. })
+    ));
+
+    // retry/maxWait 是真实包装 Condition，后续类型化操作符不得穿透。
+    assert!(parse_el("WHEN(a,b).retry(1).any(true)").is_err());
+    assert!(parse_el("FOR(f).retry(1).DO(a)").is_err());
+}
+
+#[test]
+fn max_wait_keeps_existing_then_properties_on_the_inner_timed_condition() {
+    let expression = parse_el(r#"THEN(a,FINALLY(b)).id("serial-id").maxWaitMilliseconds(10)"#)
+        .expect("Java MaxWaitTimeOperator 应提升 FINALLY 并保留原 THEN 属性");
+    assert!(matches!(
+        expression,
+        El::Then(items)
+            if matches!(
+                items.first(),
+                Some(El::Mods(timed_body, timeout))
+                    if timeout.max_wait_ms == Some(10)
+                        && matches!(
+                            timed_body.as_ref(),
+                            El::Mods(inner_then, properties)
+                                if properties.id.as_deref() == Some("serial-id")
+                                    && matches!(inner_then.as_ref(), El::Then(_))
+                        )
+            )
+                && matches!(items.get(1), Some(El::Fin(_)))
     ));
 }
 
@@ -312,11 +461,22 @@ fn do_break_and_parallel_operators_extend_loop_ast() {
         parse_el("FOR(3).parallel(true).DO(work).BREAK(stop)").unwrap(),
         El::ForCount {
             count: 3,
-            parallel: Some(_),
+            parallel: true,
             brk: Some(_),
             ..
         }
     ));
+    assert!(matches!(
+        parse_el("FOR(3).parallel(false).DO(work)").unwrap(),
+        El::ForCount {
+            count: 3,
+            parallel: false,
+            ..
+        }
+    ));
+    let error = parse_el("FOR(3).parallel(2).DO(work)")
+        .expect_err("Java ParallelOperator 只接受 Boolean，数字参数必须拒绝");
+    assert!(error.to_string().contains("boolean"));
     assert!(parse_el("THEN(a).BREAK(stop)").is_err());
 }
 
@@ -366,6 +526,11 @@ fn id_tag_and_data_operators_preserve_java_scope_semantics() {
     ));
     assert!(parse_el("a.id(\"instance-a\")").is_err());
     assert!(parse_el("true.id(\"invalid\")").is_err());
+    assert!(parse_el("true.tag(\"invalid\")").is_err());
+    assert!(parse_el("true.data(\"invalid\")").is_err());
+    assert!(parse_el("true.bind(\"key\",\"value\")").is_err());
+    assert!(parse_el("true.retry(1)").is_err());
+    assert!(parse_el("true.maxWaitMilliseconds(10)").is_err());
     let expression = parse_el("THEN(a,IF(check,b,c)).data(\"payload\")").unwrap();
     match expression {
         El::Then(items) => {
@@ -383,18 +548,80 @@ fn id_tag_and_data_operators_preserve_java_scope_semantics() {
 }
 
 #[test]
+fn data_operator_visits_every_java_executable_group_shape() {
+    // Java LiteflowMetaOperator#getNodes 递归遍历 Chain/Condition 的全部 executable
+    // group。这里覆盖 Rust AST 对应的每一种容器形态，并校验 DATA 没有遗漏任何
+    // NodeRef；布尔字面量只允许作为 WHILE 内部条件，本身不产生 Node。
+    let cases = [
+        (r#"THEN(a,b).data("payload")"#, 2),
+        (r#"WHEN(a,b).data("payload")"#, 2),
+        (r#"AND(a,b).data("payload")"#, 2),
+        (r#"OR(a,b).data("payload")"#, 2),
+        (r#"NOT(a).data("payload")"#, 1),
+        (
+            r#"IF(check,a).ELIF(other,b).ELSE(c).data("payload")"#,
+            5,
+        ),
+        (
+            r#"SWITCH(selector).TO(a,b).DEFAULT(c).data("payload")"#,
+            4,
+        ),
+        (r#"FOR(counter).DO(body).BREAK(stop).data("payload")"#, 3),
+        (r#"FOR(2).DO(body).BREAK(stop).data("payload")"#, 2),
+        (r#"WHILE(true).DO(body).BREAK(stop).data("payload")"#, 2),
+        (
+            r#"ITERATOR(items).DO(body).BREAK(stop).data("payload")"#,
+            3,
+        ),
+        (r#"CATCH(body).DO(handler).data("payload")"#, 2),
+        (r#"PRE(a,b).data("payload")"#, 2),
+        (r#"FINALLY(a,b).data("payload")"#, 2),
+        (r#"a.retry(1).data("payload")"#, 1),
+    ];
+
+    for (source, expected_nodes) in cases {
+        let expression = parse_el(source).unwrap_or_else(|error| {
+            panic!("Java 合法 DATA 形态应成功解析：{source}，实际错误：{error}")
+        });
+        let debug = format!("{expression:?}");
+        assert_eq!(
+            debug.matches(r#"data: Some("payload")"#).count(),
+            expected_nodes,
+            "DATA 必须覆盖表达式中的每一个节点：{source}\n{debug}"
+        );
+        assert!(
+            !debug.contains("data: None"),
+            "DATA 后不得残留未赋值节点：{source}\n{debug}"
+        );
+    }
+}
+
+#[test]
 fn bind_and_thread_pool_operators_cover_node_condition_when_and_loop() {
     assert!(matches!(
         parse_el("a.bind(\"tenant\",\"t1\",true)").unwrap(),
         El::Node(node)
             if node.bind == vec![("tenant".to_string(), "t1".to_string())]
-                && node.bind_override
+                && !node.bind_override
     ));
     assert!(matches!(
         parse_el("THEN(a).bind(\"tenant\",\"t1\",true)").unwrap(),
         El::Mods(_, mods)
             if mods.bind == vec![("tenant".to_string(), "t1".to_string())]
-                && mods.bind_override
+                && mods.bind_override_keys == vec!["tenant".to_string()]
+    ));
+    assert!(matches!(
+        parse_el(
+            "THEN(a).bind(\"tenant\",\"condition\",true).bind(\"region\",\"cn\",false)"
+        )
+        .unwrap(),
+        El::Mods(_, mods)
+            if mods.bind
+                == vec![
+                    ("tenant".to_string(), "condition".to_string()),
+                    ("region".to_string(), "cn".to_string())
+                ]
+                && mods.bind_override_keys == vec!["tenant".to_string()]
     ));
     assert!(matches!(
         parse_el("WHEN(a,b).threadPool(\"fast\")").unwrap(),

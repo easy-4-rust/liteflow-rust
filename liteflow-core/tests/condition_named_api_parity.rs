@@ -450,7 +450,10 @@ async fn if_switch_and_catch_java_named_methods_drive_real_execution() {
     assert_eq!(if_condition.get_condition_type(), ConditionTypeEnum::If);
     assert_eq!(if_condition.get_if_item().id(), "if-true");
     assert_eq!(
-        if_condition.get_true_case_executable_item().id(),
+        if_condition
+            .get_true_case_executable_item()
+            .expect("true 分支应已设置")
+            .id(),
         "new-true"
     );
     assert_eq!(
@@ -548,7 +551,7 @@ async fn not_loop_and_sequence_java_named_methods_share_runtime_state() {
     assert!(not_condition.get_item_result_meta_value(&frame));
 
     let body = Probe::success("for-body", Value::Null, &calls);
-    let mut for_condition = ForCondition::with_count(99, None, Arc::clone(&body), None);
+    let mut for_condition = ForCondition::with_count(99, false, Arc::clone(&body), None);
     for_condition.set_for_node(Probe::success("for-count", json!(2), &calls));
     assert_eq!(for_condition.get_condition_type(), ConditionTypeEnum::For);
     assert_eq!(
@@ -565,7 +568,7 @@ async fn not_loop_and_sequence_java_named_methods_share_runtime_state() {
 
     let mut iterator_condition = IteratorCondition::new(
         Probe::success("old-iterator", json!([]), &calls),
-        None,
+        false,
         Probe::success("iterator-body", Value::Null, &calls),
         None,
     );
@@ -790,7 +793,7 @@ async fn and_or_and_while_java_named_methods_preserve_cached_results() {
 
     let mut while_condition = WhileCondition::new(
         Probe::success("old-while", Value::Bool(false), &calls),
-        None,
+        false,
         Probe::success("while-body", Value::Null, &calls),
         None,
     );

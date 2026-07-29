@@ -103,12 +103,19 @@ impl ChainBindWrapperCondition {
     /// 对应 Java: `ChainBindWrapperCondition#getId`。
     #[must_use]
     pub fn get_id(&self) -> &str {
-        &self.display
+        <Self as Executable>::id(self)
     }
 
     /// 设置当前子链引用标签，不修改全局 Chain。
     pub fn set_tag(&mut self, tag: impl Into<String>) {
         <Self as Condition>::set_tag(self, tag);
+    }
+
+    /// 设置 Chain bind 包装条件 ID。
+    ///
+    /// 对应 Java: `Condition#setId`，用于 `chain.bind(...).id(...)`。
+    pub fn set_id(&mut self, id: impl Into<String>) {
+        <Self as Condition>::set_id(self, id);
     }
 }
 
@@ -127,10 +134,15 @@ impl Executable for ChainBindWrapperCondition {
         self.wrapped_chain.collect_node_ids()
     }
     fn id(&self) -> &str {
-        &self.display
+        self.base.explicit_id().unwrap_or(&self.display)
     }
     fn tag(&self) -> Option<&str> {
         <Self as Condition>::get_tag(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        // Java LiteflowMetaOperator#getNodes 会穿透该包装并修改真实子链节点。
+        self.wrapped_chain.apply_chain_cmp_data(data);
     }
 }
 

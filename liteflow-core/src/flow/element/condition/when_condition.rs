@@ -286,7 +286,13 @@ impl Executable for WhenCondition {
                 }
                 // Java AllOfParallelExecutor 明确覆盖 filterAccess 并保留全部分支；
                 // 其余策略先过滤 isAccess=false，避免 ANY 把跳过项当作最快完成项。
-                if parallel_strategy == ParallelStrategyEnum::All || e.is_access(ctx, frame).await {
+                if parallel_strategy == ParallelStrategyEnum::All {
+                    items.push(e.clone());
+                    continue;
+                }
+                let access_result = e.is_access(ctx, frame).await;
+                e.set_access_result(frame, access_result);
+                if access_result {
                     items.push(e.clone());
                 }
             }
@@ -320,6 +326,10 @@ impl Executable for WhenCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {

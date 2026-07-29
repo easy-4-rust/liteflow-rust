@@ -244,7 +244,7 @@ async fn resolve_clients(topology_client: RClient) -> LFResult<Vec<redis::Client
 async fn open_pubsubs(clients: &[redis::Client], key: &str) -> LFResult<Vec<redis::aio::PubSub>> {
     let mut pubsubs = Vec::with_capacity(clients.len());
     for client in clients {
-        let database = client.get_connection_info().redis.db;
+        let database = client.get_connection_info().redis_settings().db();
         let channel = keyspace_channel(database, key);
         let mut pubsub = client
             .get_async_pubsub()
@@ -263,7 +263,11 @@ fn client_signature(clients: &[redis::Client]) -> Vec<String> {
         .iter()
         .map(|client| {
             let connection_info = client.get_connection_info();
-            format!("{:?}/{}", connection_info.addr, connection_info.redis.db)
+            format!(
+                "{:?}/{}",
+                connection_info.addr(),
+                connection_info.redis_settings().db()
+            )
         })
         .collect::<Vec<_>>();
     signature.sort();

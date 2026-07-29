@@ -18,6 +18,20 @@ pub trait DeclComponent: Send + Sync + 'static {
     /// 执行上下文。成功时返回方法结果，失败时返回 LiteflowError。
     async fn call(&self, method: &str, ctx: &CmpContext) -> Result<Value, LiteflowError>;
 
+    /// 调用需要当前执行异常的声明式方法。
+    ///
+    /// 默认兼容不声明异常参数的方法；过程宏生成的 `ON_ERROR` 方法会覆盖该入口并
+    /// 收到真实错误。对应 Java: `DeclComponentProxy#loadMethodParameter` 对
+    /// `NodeComponent#onError(Exception)` 参数的转发。
+    async fn call_with_error(
+        &self,
+        method: &str,
+        ctx: &CmpContext,
+        _error: &LiteflowError,
+    ) -> Result<Value, LiteflowError> {
+        self.call(method, ctx).await
+    }
+
     /// 判断是否存在指定声明式方法。
     ///
     /// 参数 `method` 是待检查方法名；返回 true 表示代理可以分派。
@@ -52,5 +66,18 @@ pub trait DeclComponent: Send + Sync + 'static {
     /// 参数 `method`、`error` 分别是方法名和本次错误；返回 true 时进入下一次重试。
     fn is_method_retry_for(&self, _method: &str, _error: &LiteflowError) -> bool {
         false
+    }
+
+    /// 返回指定 Java 生命周期角色对应的真实业务方法名。
+    ///
+    /// 参数 `liteflow_method` 对应 `@LiteflowMethod#value`；返回值是宏生成静态
+    /// 分派表中的 Rust 方法名。旧手写实现仍按 Java 标准方法名兼容。
+    /// 对应 Java: `DeclComponentProxy.AopInvocationHandler#invoke` 的方法角色查找。
+    fn method_for_lifecycle(
+        &self,
+        liteflow_method: crate::enums::LiteFlowMethodEnum,
+    ) -> Option<&str> {
+        let method = liteflow_method.get_method_name();
+        self.has_method(method).then_some(method)
     }
 }

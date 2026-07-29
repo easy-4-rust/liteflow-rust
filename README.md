@@ -61,7 +61,7 @@ async fn main() {
 | 循环 FOR | `FOR(f).DO(x).BREAK(b)` | ✅ |
 | 循环 WHILE | `WHILE(w).DO(x).BREAK(b)` | ✅ |
 | 迭代 ITERATOR | `ITERATOR(it).DO(x)` | ✅ |
-| 并行循环 | `FOR(f).PARALLEL(3).DO(x)` | ✅ |
+| 并行循环 | `FOR(f).PARALLEL(true).DO(x)` | ✅ |
 | 异常捕获 | `CATCH(expr).DO(handler)` | ✅ |
 | 前置/后置 | `THEN(PRE(p), a, FINALLY(z))` | ✅ |
 | 布尔编排 | `IF(AND(x, OR(y, NOT(z))), a)` | ✅ |

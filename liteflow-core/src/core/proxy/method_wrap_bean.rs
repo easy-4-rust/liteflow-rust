@@ -179,6 +179,34 @@ impl MethodWrapBean {
         raw_bean.call(self.method.method_name(), context).await
     }
 
+    /// 校验事实参数并调用带真实执行错误的声明式方法。
+    ///
+    /// 参数 `error` 对应 Java `NodeComponent#onError(Exception)` 传给业务方法的
+    /// 第二个参数。对应 Java: `DeclComponentProxy#loadMethodParameter`。
+    pub async fn invoke_with_error(
+        &self,
+        raw_bean: &dyn DeclComponent,
+        context: &CmpContext,
+        error: &LiteflowError,
+    ) -> LFResult<Value> {
+        for parameter in &self.parameter_wrap_bean_list {
+            if let Some(fact) = parameter.fact()
+                && !context.inner.beans.contains_key(fact)
+            {
+                return Err(LiteflowError::ParameterFact(format!(
+                    "decl method[{}] parameter[{}:{}] fact bean[{}] not found",
+                    self.method.method_name(),
+                    parameter.index(),
+                    parameter.parameter_type(),
+                    fact
+                )));
+            }
+        }
+        raw_bean
+            .call_with_error(self.method.method_name(), context, error)
+            .await
+    }
+
     /// 判断错误是否命中声明式方法的重试范围。
     #[must_use]
     pub fn is_retry_for(&self, error: &LiteflowError) -> bool {

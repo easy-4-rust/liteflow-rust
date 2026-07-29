@@ -166,11 +166,11 @@ mod tests {
 
     #[test]
     fn parse_for_do_break() {
-        let expression = parse_el("FOR(f).PARALLEL(2).DO(THEN(a, b)).BREAK(x)").unwrap();
+        let expression = parse_el("FOR(f).PARALLEL(true).DO(THEN(a, b)).BREAK(x)").unwrap();
         assert!(matches!(
             expression,
             El::For {
-                parallel: Some(2),
+                parallel: true,
                 brk: Some(_),
                 ..
             }

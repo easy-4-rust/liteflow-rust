@@ -21,10 +21,10 @@ use crate::flow::element::condition::BooleanConditionTypeEnum;
 use crate::flow::element::condition::bind_wrapper_condition::BindWrapperCondition;
 use crate::flow::element::condition::chain_bind_wrapper_condition::ChainBindWrapperCondition;
 use crate::flow::element::condition::{
-    and_or_condition::AndOrCondition, catch_condition::CatchCondition,
+    Condition, and_or_condition::AndOrCondition, catch_condition::CatchCondition,
     finally_condition::FinallyCondition, for_condition::ForCondition, if_condition::IfCondition,
-    ignore_error_condition::IgnoreErrorCondition, iterator_condition::IteratorCondition,
-    not_condition::NotCondition, pre_condition::PreCondition, retry_condition::RetryCondition,
+    iterator_condition::IteratorCondition, not_condition::NotCondition,
+    pre_condition::PreCondition, retry_condition::RetryCondition,
     switch_condition::SwitchCondition, then_condition::ThenCondition,
     timeout_condition::TimeoutCondition, when_condition::WhenCondition,
     while_condition::WhileCondition,
@@ -246,6 +246,17 @@ impl LiteFlowChainELBuilder {
         self.compile_chain()
     }
 
+    /// 立即编译并注册当前 Chain，不再读取进程级解析模式。
+    ///
+    /// `RuleDefinitionPlan` 已经完成 Java `PARSE_ONE_ON_FIRST_EXEC` 的定义收集；
+    /// 首次执行进入物化阶段后必须无条件编译。该内部入口避免同进程其他应用上下文
+    /// 改写 `LiteflowConfigGetter` 后，把当前运行时的目标链再次错误登记为未编译空链。
+    ///
+    /// 对应 Java: `LiteFlowChainELBuilder#buildUnCompileChain` 的最终编译阶段。
+    pub(crate) fn build_immediately(&self) -> LFResult<()> {
+        self.compile_chain()
+    }
+
     /// 编译并替换一个预装载的未编译 Chain。
     ///
     /// # 参数
@@ -304,6 +315,13 @@ impl LiteFlowChainELBuilder {
                     node.id, node.id, node.id
                 ),
             ));
+        }
+        // Java validateWithEx 并非只做语法和注册表检查，而是调用 compile 执行
+        // 全部 EL Operator。因此 Common Node 放进 IF/AND、错误的 Switch/Loop
+        // 节点类型等，都必须在校验阶段失败。Rust 构建同一可执行对象树以复用
+        // OperatorHelper 的节点类型约束，但不把临时 Chain 登记到 FlowBus。
+        if let Err(error) = self.build_executable(expression) {
+            return ValidationResp::fail(error);
         }
         ValidationResp::success()
     }
@@ -439,7 +457,16 @@ impl LiteFlowChainELBuilder {
             *self.chain_id.borrow_mut() = chain_id.clone();
             self.occurrences.borrow_mut().clear();
             self.prepare_instance_ids(&chain_id, &el_md5)?;
-            let body = self.build_executable(body_el)?;
+            let body = match self.build_executable(body_el) {
+                Ok(body) => body,
+                Err(error) => {
+                    // Java 仅在主体 Condition 完整生成后才进入实例编号 SPI。
+                    // Rust 的编号在 Node 构建过程中分配，因此失败时必须丢弃本轮
+                    // 恢复表和待写 DTO，避免同一 Builder 后续构建 route 时串入。
+                    self.reset_instance_id_state();
+                    return Err(error);
+                }
+            };
             self.persist_instance_ids(&chain_id, &el_md5)?;
             let route = route_el
                 .as_deref()
@@ -454,6 +481,10 @@ impl LiteFlowChainELBuilder {
                 chain.set_condition_list(vec![body]);
                 if let Some(route) = route {
                     chain.set_route_item(route);
+                } else {
+                    // Java compileChain 无论 route 是否存在都会调用
+                    // setRouteItem(this.route)，空 route 必须覆盖已有 routeItem。
+                    chain.clear_route_item();
                 }
                 chain.set_compiled(true);
             }
@@ -538,6 +569,15 @@ impl LiteFlowChainELBuilder {
         self.instance_ids_enabled.set(false);
         self.instance_ids_need_write.set(false);
         result
+    }
+
+    /// 丢弃一次未完成主体编译留下的实例编号临时状态。
+    fn reset_instance_id_state(&self) {
+        self.occurrences.borrow_mut().clear();
+        self.restored_instance_ids.borrow_mut().clear();
+        self.pending_instance_infos.borrow_mut().clear();
+        self.instance_ids_enabled.set(false);
+        self.instance_ids_need_write.set(false);
     }
 
     /// 构建 Java 允许的路由类型：布尔 Node、AND/OR 或 NOT。
@@ -728,10 +768,8 @@ impl LiteFlowChainELBuilder {
                 // 场景2：对 Condition bind（2.14+），override=true 时
                 // 清除该 Condition 下所有 Node 上相同 key 的 bind（对齐 BindOperator）
                 let mut inner_el = *inner;
-                if mods.bind_override && !mods.bind.is_empty() {
-                    for (k, _) in &mods.bind {
-                        clear_node_bind(&mut inner_el, k);
-                    }
+                for key in &mods.bind_override_keys {
+                    clear_node_bind(&mut inner_el, key);
                 }
                 let mut target = self.build_executable_as(inner_el, expected_node_type)?;
                 if let Some(r) = mods.retry {
@@ -743,9 +781,6 @@ impl LiteFlowChainELBuilder {
                 }
                 if let Some(ms) = mods.max_wait_ms {
                     target = Arc::new(TimeoutCondition::new(target, ms));
-                }
-                if mods.ignore_error {
-                    target = Arc::new(IgnoreErrorCondition::new(target));
                 }
                 if !mods.bind.is_empty()
                     || mods.id.is_some()
@@ -780,6 +815,18 @@ impl LiteFlowChainELBuilder {
             }
             let instance: Arc<dyn crate::core::node_component::NodeComponent> =
                 Arc::new(DeclMethodComponent::new(decl, method));
+            return Ok(self.finish_node(node_ref, instance));
+        }
+        // Java 声明式组件最终以 nodeId 作为普通 NodeComponent 进入 FlowBus；
+        // Rust 在构建期把同组方法合成为完整生命周期代理。
+        if let Some(decl) = self.bus.get_decl(&node_ref.id) {
+            let node_id = node_ref.id.clone();
+            let instance: Arc<dyn crate::core::node_component::NodeComponent> =
+                Arc::new(DeclMethodComponent::for_node(decl).ok_or_else(|| {
+                    LiteflowError::NodeBuild(format!(
+                        "decl component[{node_id}] does not define the process method"
+                    ))
+                })?);
             return Ok(self.finish_node(node_ref, instance));
         }
         let instance = self.bus.get_node(&node_ref.id).ok_or_else(|| {
@@ -853,6 +900,11 @@ impl LiteFlowChainELBuilder {
     ) -> LFResult<Arc<dyn Executable>> {
         let id_no_method = node_ref.id.split('.').next().unwrap_or("");
         if self.bus.contains_node(&node_ref.id) || self.bus.get_decl(id_no_method).is_some() {
+            if node_ref.condition_id.is_some() {
+                return Err(LiteflowError::Parse(
+                    "The caller must be Condition item".to_string(),
+                ));
+            }
             let node = self.build_node(node_ref)?;
             OperatorHelper::check_resolved_node(&node, expected_node_type)?;
             return Ok(Arc::new(node));
@@ -861,13 +913,40 @@ impl LiteFlowChainELBuilder {
             if expected_node_type != NodeTypeEnum::Common {
                 return Err(LiteflowError::Parse("The parameter error.".to_string()));
             }
-            // 场景3：对 Chain bind（2.16）：包装成 ChainBindWrapperCondition 持有 bind 数据
+            if let Some(data) = node_ref.data.as_deref() {
+                // Java DataOperator 会通过 LiteflowMetaOperator#getNodes 递归修改
+                // 子链内真实共享 Node；因此该修改也必须影响子链后续独立执行。
+                chain.apply_chain_cmp_data(data);
+            }
+            if node_ref.bind.is_empty() && node_ref.tag.is_none() {
+                return Ok(chain);
+            }
+            if node_ref.chain_tag_wrapper {
+                // Java TagOperator 对全局唯一 Chain 创建 ThenCondition，后续
+                // bind/id/tag 都写在这个包装 Condition 上，不修改原 Chain。
+                let mut wrapper = ThenCondition::new();
+                wrapper.add_executable(chain);
+                for (key, value) in node_ref.bind {
+                    wrapper.put_bind_data(key, value);
+                }
+                if let Some(tag) = node_ref.tag {
+                    wrapper.set_tag(tag);
+                }
+                if let Some(id) = node_ref.condition_id {
+                    wrapper.set_id(id);
+                }
+                return Ok(Arc::new(wrapper));
+            }
+            // 场景3：首个属性为 bind 时，包装成 ChainBindWrapperCondition。
             let mut wrapper = ChainBindWrapperCondition::new(chain);
             for (k, v) in node_ref.bind {
                 wrapper.put_bind_data(k, v);
             }
             if let Some(tag) = node_ref.tag {
                 wrapper.set_tag(tag);
+            }
+            if let Some(id) = node_ref.condition_id {
+                wrapper.set_id(id);
             }
             return Ok(Arc::new(wrapper));
         }
@@ -888,7 +967,11 @@ impl LiteFlowChainELBuilder {
 fn is_route_expression(el: &El) -> bool {
     match el {
         El::Node(_) | El::And(_) | El::Or(_) | El::Not(_) => true,
-        El::Mods(inner, _) => is_route_expression(inner),
+        // Java 在所有操作符执行完成后检查最终对象类型。retry、maxWait、
+        // ignoreError 等修饰会把 Node/Condition 包装成其他 Condition，即使内部
+        // 是布尔节点也不能作为 route。Node 的 tag/data/bind 已直接保存在
+        // NodeRef 中，不会进入 Mods。
+        El::Mods(_, _) => false,
         _ => false,
     }
 }

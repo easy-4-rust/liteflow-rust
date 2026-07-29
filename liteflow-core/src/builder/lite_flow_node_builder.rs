@@ -204,13 +204,22 @@ impl LiteFlowNodeBuilder {
 
     /// 校验并注册节点。对应 Java: `LiteFlowNodeBuilder#build`。
     pub fn build(self) -> LFResult<()> {
-        let node_id = self
-            .node_id
-            .clone()
-            .ok_or_else(|| LiteflowError::NodeBuild("[id is blank]".to_string()))?;
-        let node_type = self
-            .node_type
-            .ok_or_else(|| LiteflowError::NodeBuild("[type is null]".to_string()))?;
+        // Java checkBuild 会一次收集全部前置错误，并按固定顺序输出。
+        let mut build_errors = Vec::new();
+        if self.node_id.is_none() {
+            build_errors.push("id is blank");
+        }
+        if self.node_type.is_none() {
+            build_errors.push("type is null");
+        }
+        if !build_errors.is_empty() {
+            return Err(LiteflowError::NodeBuild(format!(
+                "[{}]",
+                build_errors.join(",")
+            )));
+        }
+        let node_id = self.node_id.clone().expect("前置校验已保证节点 id 存在");
+        let node_type = self.node_type.expect("前置校验已保证节点类型存在");
 
         if node_type.is_script() {
             return self.build_script_node(node_id, node_type);

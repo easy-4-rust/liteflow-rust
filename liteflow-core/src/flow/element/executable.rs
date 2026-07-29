@@ -34,6 +34,14 @@ pub trait Executable: Send + Sync {
         }
     }
 
+    /// 把 DATA 元数据传播到当前可执行树中包含的 Chain。
+    ///
+    /// Java `LiteflowMetaOperator#getNodes(Chain)` 会递归进入子 Condition 与子 Chain
+    /// 并直接修改共享 Node。Rust 的不可变执行树以 Chain 级共享覆盖值表达同一
+    /// 可观测结果；普通 Node 无需处理，容器对象覆盖此方法继续递归。
+    #[doc(hidden)]
+    fn apply_chain_cmp_data(&self, _data: &str) {}
+
     /// getId()（节点返回 id，条件返回类型名）
     fn id(&self) -> &str {
         ""
@@ -51,4 +59,11 @@ pub trait Executable: Send + Sync {
     async fn is_access(&self, _ctx: &Ctx, _frame: &Frame) -> bool {
         true
     }
+
+    /// 缓存预计算的 `isAccess` 结果。
+    ///
+    /// Java 仅在可执行对象为 `Node` 时写入 `Node#accessResult`；Condition 默认
+    /// 不保存。AND/OR 与 WHEN 在过滤后调用本入口，避免 Node 真正执行时再次
+    /// 调用可能带副作用的组件 `isAccess`。
+    fn set_access_result(&self, _frame: &Frame, _access_result: bool) {}
 }

@@ -15,12 +15,13 @@ impl BaseOperator for AnyOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let any = OperatorHelper::one_bool(objects, self.operator_name())?;
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::When { items, mut opts } => {
                 opts.any = any;
                 Ok(El::When { items, opts })
             }
             _ => Err(LiteflowError::Parse("ANY must follow WHEN/PAR".to_string())),
-        }
+        })
     }
 }

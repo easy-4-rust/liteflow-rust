@@ -1688,8 +1688,83 @@ async fn vernal_module_launches_and_executes_registered_component() {
     let response = runtime.execute("vernal_chain", json!({"value": 42})).await;
 
     assert!(response.is_success(), "{:?}", response.cause);
-    assert_eq!(response.data("observed"), Some(json!(42)));
+    assert_eq!(
+        response.data("observed"),
+        Some(json!(42)),
+        "steps={:?}, chain_ids={:?}, node_ids={:?}",
+        response
+            .steps
+            .iter()
+            .map(|step| step.node_id.clone())
+            .collect::<Vec<_>>(),
+        flow_bus.chain_ids(),
+        flow_bus.get_node_map().keys().cloned().collect::<Vec<_>>()
+    );
     assert!(flow_bus.contains_node("vernal_component"));
+    context.close().await.unwrap();
+}
+
+/// 验证两个 LiteFlow 运行时并发执行时，请求 Slot、Chain LRU 和组件数据不会串扰。
+///
+/// Java 单应用依赖进程级 Holder；Rust/Vernal 必须允许多个 ApplicationContext
+/// 共存，因此把普通组件执行与独立 LRU 运行时反复交错，覆盖曾经只在默认并行
+/// 测试调度下出现的“响应数据丢失 + LRU 淘汰错误”组合故障。
+#[tokio::test]
+async fn concurrent_runtimes_isolate_slot_data_and_chain_cache() {
+    let context = ready_context().await;
+    let component_runtime: Arc<LiteflowRuntime> = context.container().resolve().unwrap();
+
+    for value in 0..128_u64 {
+        let cache_runtime = LiteflowRuntime::new(
+            liteflow_core::FlowBus::new(),
+            LiteflowConfig {
+                inline_rule: Some(LAZY_JSON_RULE.to_string()),
+                rule_format: LiteflowRuleFormat::Json,
+                parse_mode: LiteflowParseMode::ParseOneOnFirstExec,
+                chain_cache_enabled: true,
+                chain_cache_capacity: 2,
+                ..LiteflowConfig::default()
+            },
+        );
+        let component_execution =
+            component_runtime.execute("vernal_chain", json!({"value": value}));
+        let cache_execution = async {
+            let root = cache_runtime
+                .try_execute("root_chain", Value::Null)
+                .await
+                .unwrap();
+            assert!(root.is_success(), "{:?}", root.cause);
+            let unused = cache_runtime
+                .try_execute("unused_chain", Value::Null)
+                .await
+                .unwrap();
+            assert!(unused.is_success(), "{:?}", unused.cause);
+            let rebuilt = cache_runtime
+                .try_execute("root_chain", Value::Null)
+                .await
+                .unwrap();
+            assert!(rebuilt.is_success(), "{:?}", rebuilt.cause);
+            assert!(
+                !cache_runtime.flow_bus().contains_chain("unused_chain"),
+                "第 {value} 轮重新执行 root_chain 后必须淘汰上一条 unused_chain；chains={:?}，steps={:?}",
+                cache_runtime.flow_bus().chain_ids(),
+                rebuilt
+                    .steps
+                    .iter()
+                    .map(|step| step.node_id.clone())
+                    .collect::<Vec<_>>()
+            );
+        };
+
+        let (component_response, ()) = tokio::join!(component_execution, cache_execution);
+        assert!(
+            component_response.is_success(),
+            "{:?}",
+            component_response.cause
+        );
+        assert_eq!(component_response.data("observed"), Some(json!(value)));
+    }
+
     context.close().await.unwrap();
 }
 

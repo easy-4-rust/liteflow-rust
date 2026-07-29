@@ -80,11 +80,12 @@ impl RClient {
         if host.trim().is_empty() {
             return Err(LiteflowError::Rule("redis host is blank".to_string()));
         }
+        let connection_info = ConnectionAddr::Tcp(host, port)
+            .into_connection_info()
+            .map_err(|error| redis_error("single config", error))?
+            .set_redis_settings(redis_connection_info(database, username, password));
         Ok(Self {
-            target: RedisConnectionTarget::Single(ConnectionInfo {
-                addr: ConnectionAddr::Tcp(host, port),
-                redis: redis_connection_info(database, username, password),
-            }),
+            target: RedisConnectionTarget::Single(connection_info),
         })
     }
 
@@ -106,10 +107,8 @@ impl RClient {
                 "redis sentinel master name is blank".to_string(),
             ));
         }
-        let node_connection_info = SentinelNodeConnectionInfo {
-            tls_mode: None,
-            redis_connection_info: Some(redis_connection_info(database, username, password)),
-        };
+        let node_connection_info = SentinelNodeConnectionInfo::default()
+            .set_redis_connection_info(redis_connection_info(database, username, password));
 
         // 构造阶段先复用 redis crate 的 URL 校验，网络连接延迟到实际命令执行。
         SentinelClient::build(
@@ -300,12 +299,16 @@ fn redis_connection_info(
     password: Option<String>,
 ) -> RedisConnectionInfo {
     let (username, password) = normalized_credentials(username, password);
-    RedisConnectionInfo {
-        db: database,
-        username,
-        password,
-        protocol: ProtocolVersion::RESP2,
+    let mut connection_info = RedisConnectionInfo::default()
+        .set_db(database)
+        .set_protocol(ProtocolVersion::RESP2);
+    if let Some(username) = username {
+        connection_info = connection_info.set_username(username);
     }
+    if let Some(password) = password {
+        connection_info = connection_info.set_password(password);
+    }
+    connection_info
 }
 
 fn redis_urls(addresses: &[String], topology: &str) -> LFResult<Vec<String>> {
@@ -450,11 +453,10 @@ fn authenticated_connection_info(
     username: Option<String>,
     password: Option<String>,
 ) -> LFResult<ConnectionInfo> {
-    let mut connection_info = url
+    let connection_info = url
         .into_connection_info()
         .map_err(|error| redis_error("address parse", error))?;
-    connection_info.redis = redis_connection_info(database, username, password);
-    Ok(connection_info)
+    Ok(connection_info.set_redis_settings(redis_connection_info(database, username, password)))
 }
 
 fn redis_error(operation: &str, error: redis::RedisError) -> LiteflowError {

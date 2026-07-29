@@ -33,28 +33,28 @@ pub enum El {
     /// 动态次数循环。
     For {
         node: Box<El>,
-        parallel: Option<usize>,
+        parallel: bool,
         body: Box<El>,
         brk: Option<Box<El>>,
     },
     /// 固定次数循环。
     ForCount {
         count: usize,
-        parallel: Option<usize>,
+        parallel: bool,
         body: Box<El>,
         brk: Option<Box<El>>,
     },
     /// WHILE 循环。
     While {
         node: Box<El>,
-        parallel: Option<usize>,
+        parallel: bool,
         body: Box<El>,
         brk: Option<Box<El>>,
     },
     /// 迭代循环。
     Iter {
         node: Box<El>,
-        parallel: Option<usize>,
+        parallel: bool,
         body: Box<El>,
         brk: Option<Box<El>>,
     },

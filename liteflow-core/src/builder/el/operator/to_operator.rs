@@ -31,13 +31,14 @@ impl BaseOperator for ToOperator {
                 }
             }
         }
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::Switch { node, default, .. } => Ok(El::Switch {
                 node,
                 targets,
                 default,
             }),
             _ => Err(LiteflowError::Parse("TO must follow SWITCH".to_string())),
-        }
+        })
     }
 }

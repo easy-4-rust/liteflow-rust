@@ -8,8 +8,11 @@
 //! - THEN add_executable 按类型分流 PRE/FINALLY（Java ThenCondition#addExecutable）
 //! - CATCH 的 DO 成功后清除 slot 异常（Java CatchCondition#executeCondition removeException）
 
+use liteflow_core::el::NodeRef;
 use liteflow_core::exception::{LFResult, LiteflowError};
 use liteflow_core::flow::element::ConditionKey;
+use liteflow_core::flow::element::condition::BooleanConditionTypeEnum;
+use liteflow_core::flow::element::condition::and_or_condition::AndOrCondition;
 use liteflow_core::flow::element::condition::catch_condition::CatchCondition;
 use liteflow_core::flow::element::condition::finally_condition::FinallyCondition;
 use liteflow_core::flow::element::condition::for_condition::ForCondition;
@@ -21,10 +24,12 @@ use liteflow_core::flow::element::condition::then_condition::ThenCondition;
 use liteflow_core::flow::element::condition::when_condition::WhenCondition;
 use liteflow_core::flow::element::condition::while_condition::WhileCondition;
 use liteflow_core::flow::element::executable::Executable;
-use liteflow_core::slot::{Ctx, Frame, Slot};
-use liteflow_core::{ConditionTypeEnum, FlowBus, ParallelStrategyEnum, cmp};
+use liteflow_core::flow::element::node::Node;
+use liteflow_core::slot::{CmpContext, Ctx, Frame, Slot};
+use liteflow_core::{ConditionTypeEnum, FlowBus, NodeComponent, ParallelStrategyEnum, cmp};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// 记录执行轨迹的桩 Executable
@@ -59,6 +64,24 @@ impl Executable for Stub {
     }
     async fn is_access(&self, _ctx: &Ctx, _frame: &Frame) -> bool {
         self.access
+    }
+}
+
+/// 第一次可访问、后续不可访问的布尔组件，用于检测重复 `isAccess`。
+struct OneShotAccessComponent {
+    access_calls: Arc<AtomicUsize>,
+    process_calls: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for OneShotAccessComponent {
+    async fn process(&self, _ctx: &CmpContext) -> LFResult<Value> {
+        self.process_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::Bool(true))
+    }
+
+    fn is_access(&self, _ctx: &CmpContext) -> bool {
+        self.access_calls.fetch_add(1, Ordering::SeqCst) == 0
     }
 }
 
@@ -135,13 +158,13 @@ async fn condition_type_aligns_with_java() {
         vec!["a"]
     );
 
-    let for_cond = ForCondition::new(s("for"), None, s("do"), None);
+    let for_cond = ForCondition::new(s("for"), false, s("do"), None);
     assert_eq!(for_cond.condition_type(), ConditionTypeEnum::For);
 
-    let while_cond = WhileCondition::new(s("w"), None, s("do"), None);
+    let while_cond = WhileCondition::new(s("w"), false, s("do"), None);
     assert_eq!(while_cond.condition_type(), ConditionTypeEnum::While);
 
-    let iter_cond = IteratorCondition::new(s("it"), None, s("do"), None);
+    let iter_cond = IteratorCondition::new(s("it"), false, s("do"), None);
     assert_eq!(iter_cond.condition_type(), ConditionTypeEnum::Iterator);
 
     let catch = CatchCondition::new(s("c"), None);
@@ -186,7 +209,7 @@ async fn for_skipped_when_not_accessible() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let for_node = Stub::new("for", false, &log);
     let body = Stub::new("do", true, &log);
-    let cond = ForCondition::new(for_node, None, body, None);
+    let cond = ForCondition::new(for_node, false, body, None);
     let (ctx, frame) = ctx_frame();
     let r = cond.execute(&ctx, &frame).await;
     assert!(r.is_ok());
@@ -199,7 +222,7 @@ async fn while_skipped_when_not_accessible() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let while_item = Stub::new("w", false, &log);
     let body = Stub::new("do", true, &log);
-    let cond = WhileCondition::new(while_item, None, body, None);
+    let cond = WhileCondition::new(while_item, false, body, None);
     let (ctx, frame) = ctx_frame();
     let r = cond.execute(&ctx, &frame).await;
     assert!(r.is_ok());
@@ -212,11 +235,37 @@ async fn iterator_skipped_when_not_accessible() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let it = Stub::new("it", false, &log);
     let body = Stub::new("do", true, &log);
-    let cond = IteratorCondition::new(it, None, body, None);
+    let cond = IteratorCondition::new(it, false, body, None);
     let (ctx, frame) = ctx_frame();
     let r = cond.execute(&ctx, &frame).await;
     assert!(r.is_ok());
     assert!(log.lock().unwrap().is_empty());
+}
+
+/// Java AND/OR 会先调用 Node#isAccess 并缓存 true，随后 Node#execute 不得二次求值。
+#[tokio::test]
+async fn and_or_reuses_node_access_result_during_boolean_execution() {
+    let access_calls = Arc::new(AtomicUsize::new(0));
+    let process_calls = Arc::new(AtomicUsize::new(0));
+    let node: Arc<dyn Executable> = Arc::new(Node::new(
+        NodeRef::new("one-shot-access"),
+        Arc::new(OneShotAccessComponent {
+            access_calls: Arc::clone(&access_calls),
+            process_calls: Arc::clone(&process_calls),
+        }),
+    ));
+    let condition = AndOrCondition::new(BooleanConditionTypeEnum::And, vec![node]);
+    let (ctx, frame) = ctx_frame();
+
+    assert_eq!(
+        condition
+            .execute(&ctx, &frame)
+            .await
+            .expect("AND 应执行已通过预过滤的节点"),
+        Value::Bool(true)
+    );
+    assert_eq!(access_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(process_calls.load(Ordering::SeqCst), 1);
 }
 
 /// 对应 Java ParallelStrategyExecutor#filterWhenTaskList：

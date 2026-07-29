@@ -129,7 +129,9 @@ impl Executable for AndOrCondition {
             // 再对剩余子项做 allMatch / anyMatch
             let mut accessible = Vec::with_capacity(self.items.len());
             for item in &self.items {
-                if item.is_access(ctx, frame).await {
+                let access_result = item.is_access(ctx, frame).await;
+                item.set_access_result(frame, access_result);
+                if access_result {
                     accessible.push(item);
                 }
             }
@@ -162,6 +164,10 @@ impl Executable for AndOrCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {

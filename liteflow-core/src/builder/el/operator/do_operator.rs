@@ -18,7 +18,8 @@ impl BaseOperator for DoOperator {
             objects,
             self.operator_name(),
         )?);
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::For {
                 node,
                 parallel,
@@ -70,6 +71,6 @@ impl BaseOperator for DoOperator {
             _ => Err(LiteflowError::Parse(
                 "DO must follow FOR/WHILE/ITERATOR/CATCH".to_string(),
             )),
-        }
+        })
     }
 }

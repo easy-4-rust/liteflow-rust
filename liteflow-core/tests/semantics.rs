@@ -826,6 +826,72 @@ async fn node_tag_and_data() {
 }
 
 #[tokio::test]
+async fn chain_data_recursively_updates_shared_child_nodes_like_java() {
+    let bus = FlowBus::new();
+    let observed_data = Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
+    let component_observed_data = Arc::clone(&observed_data);
+    bus.register(
+        "a",
+        cmp(move |ctx| {
+            let observed_data = Arc::clone(&component_observed_data);
+            async move {
+                observed_data
+                    .lock()
+                    .unwrap()
+                    .push(ctx.cmp_data().map(str::to_owned));
+                Ok(Value::Null)
+            }
+        }),
+    );
+
+    bus.add_chain("leaf", "THEN(a)").unwrap();
+    bus.add_chain("middle", "THEN(leaf)").unwrap();
+    bus.add_chain("main", r#"THEN(middle.data("first"))"#)
+        .unwrap();
+
+    // Java DataOperator 会修改 middle 与递归 leaf 中的真实共享 Node。
+    assert!(bus.execute("main").await.is_success());
+    assert_eq!(
+        observed_data.lock().unwrap().as_slice(),
+        &[Some("first".to_string())]
+    );
+
+    // 修改不是父链本次执行的局部包装：leaf 后续独立执行仍读取相同 DATA。
+    observed_data.lock().unwrap().clear();
+    assert!(bus.execute("leaf").await.is_success());
+    assert_eq!(
+        observed_data.lock().unwrap().as_slice(),
+        &[Some("first".to_string())]
+    );
+
+    // 后一次 DATA 修改覆盖共享 leaf，符合 Java Node#setCmpData 的末次写入语义。
+    bus.add_chain("overwrite", r#"THEN(leaf.data("second"))"#)
+        .unwrap();
+    observed_data.lock().unwrap().clear();
+    assert!(bus.execute("middle").await.is_success());
+    assert_eq!(
+        observed_data.lock().unwrap().as_slice(),
+        &[Some("second".to_string())]
+    );
+
+    // 对外层子链再次赋值必须继续递归，并覆盖其所有嵌套子链。
+    bus.add_chain("outer_after", r#"THEN(middle.data("outer-last"))"#)
+        .unwrap();
+    observed_data.lock().unwrap().clear();
+    assert!(bus.execute("leaf").await.is_success());
+    assert_eq!(
+        observed_data.lock().unwrap().as_slice(),
+        &[Some("outer-last".to_string())]
+    );
+
+    // 同一组件在无 DATA 的独立 Chain 中不会受到共享组件注册表污染。
+    bus.add_chain("plain", "THEN(a)").unwrap();
+    observed_data.lock().unwrap().clear();
+    assert!(bus.execute("plain").await.is_success());
+    assert_eq!(observed_data.lock().unwrap().as_slice(), &[None]);
+}
+
+#[tokio::test]
 async fn parallel_for_loop() {
     let bus = FlowBus::new();
     bus.register("f", cmp(|_| async { Ok(json!(4)) }));
@@ -842,7 +908,8 @@ async fn parallel_for_loop() {
             }
         }),
     );
-    bus.add_chain("c1", "FOR(f).PARALLEL(2).DO(work)").unwrap();
+    bus.add_chain("c1", "FOR(f).PARALLEL(true).DO(work)")
+        .unwrap();
     let start = std::time::Instant::now();
     let resp = bus.execute("c1").await;
     assert!(resp.is_success());

@@ -19,7 +19,7 @@ impl BaseOperator for IteratorOperator {
         OperatorHelper::check_obj_must_be_iterator_type_item(&node)?;
         Ok(El::Iter {
             node: Box::new(node),
-            parallel: None,
+            parallel: false,
             body: Box::new(El::Then(Vec::new())),
             brk: None,
         })

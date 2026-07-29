@@ -4,11 +4,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use liteflow_core::builder::el::LiteFlowChainELBuilder;
 use liteflow_core::flow::instance_id::NodeInstanceIdManageSpi;
 use liteflow_core::{
-    FlowBus, InstanceInfoDto, LFResult, LiteflowConfig, LiteflowConfigGetter, cmp, parse_el, rule,
+    FlowBus, InstanceInfoDto, LFResult, LiteflowConfig, LiteflowConfigGetter, NodeTypeEnum, cmp,
+    parse_el, rule,
 };
 use serde_json::Value;
+
+/// 本测试文件会修改进程级 LiteflowConfig，必须串行执行相关用例。
+static LITEFLOW_CONFIG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// 测试用持久化 SPI：保存 Java 两行格式，并记录真实读写与生成次数。
 struct PersistedInstanceIdSpi {
@@ -57,6 +62,84 @@ fn register_null_component(bus: &FlowBus) {
     bus.register("a", cmp(|_| async { Ok(Value::Null) }));
 }
 
+/// 主体构建失败时，构建器必须清理已分配但尚未持久化的实例编号状态。
+///
+/// 对应 Java: `LiteFlowChainELBuilder#compileChain`，实例编号 SPI 只接收完整主体
+/// Condition，失败的中间 Node 不能影响后续构建。
+#[test]
+fn failed_body_compilation_does_not_leak_instance_id_state_into_later_builds() {
+    let _config_guard = LITEFLOW_CONFIG_TEST_LOCK
+        .lock()
+        .expect("LiteflowConfig 测试互斥锁不应中毒");
+    LiteflowConfigGetter::clean();
+    let mut config = LiteflowConfig::default();
+    config.set_enable_node_instance_id(true);
+    LiteflowConfigGetter::set_liteflow_config(config);
+
+    let files = Arc::new(Mutex::new(HashMap::new()));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let generations = Arc::new(AtomicUsize::new(0));
+    let bus = FlowBus::new();
+    bus.set_instance_id_spi(Arc::new(PersistedInstanceIdSpi {
+        prefix: "failed",
+        files,
+        reads,
+        writes: writes.clone(),
+        generations: generations.clone(),
+    }));
+    bus.add_node(
+        "a",
+        None,
+        NodeTypeEnum::Common,
+        Arc::new(cmp(|_| async { Ok(Value::Null) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "wrong_bool",
+        None,
+        NodeTypeEnum::Common,
+        Arc::new(cmp(|_| async { Ok(Value::Null) })),
+    )
+    .unwrap();
+    bus.add_node(
+        "route_bool",
+        None,
+        NodeTypeEnum::Boolean,
+        Arc::new(cmp(|_| async { Ok(Value::Bool(true)) })),
+    )
+    .unwrap();
+
+    let builder = LiteFlowChainELBuilder::create_chain(bus);
+    builder.set_chain_id("failed_body");
+    builder
+        .set_el("THEN(a, IF(wrong_bool, a))")
+        .expect("测试 EL 应成功写入 Builder");
+    assert!(
+        builder.build().is_err(),
+        "Common Node 用于 IF 条件必须在主体构建期失败"
+    );
+    let generated_during_failed_body = generations.load(Ordering::SeqCst);
+    assert!(generated_during_failed_body > 0);
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+
+    builder
+        .build_route_chain(
+            "typed_route",
+            "default",
+            parse_el("route_bool").unwrap(),
+            parse_el("a").unwrap(),
+        )
+        .expect("失败后的 Rust 类型化构建不应继承实例编号临时状态");
+    assert_eq!(
+        generations.load(Ordering::SeqCst),
+        generated_during_failed_body,
+        "后续非实例编号构建不能继续使用失败主体遗留的编号状态"
+    );
+
+    LiteflowConfigGetter::clean();
+}
+
 /// 验证启用时写入和跨 FlowBus 恢复稳定编号，禁用时完全不触碰 SPI。
 ///
 /// 对应 Java:
@@ -64,6 +147,9 @@ fn register_null_component(bus: &FlowBus) {
 /// `BaseNodeInstanceIdManageSpi#setNodesInstanceId`。
 #[tokio::test]
 async fn default_chain_build_persists_restores_and_gates_node_instance_ids() {
+    let _config_guard = LITEFLOW_CONFIG_TEST_LOCK
+        .lock()
+        .expect("LiteflowConfig 测试互斥锁不应中毒");
     LiteflowConfigGetter::clean();
     let mut config = LiteflowConfig::default();
     config.set_enable_node_instance_id(true);
@@ -328,6 +414,52 @@ async fn default_chain_build_persists_restores_and_gates_node_instance_ids() {
         parsed_ids
     );
     assert_eq!(reads.load(Ordering::SeqCst), 8);
+    assert_eq!(writes.load(Ordering::SeqCst), 6);
+    assert_eq!(generations.load(Ordering::SeqCst), 13);
+
+    // Java/Jackson 允许旧快照 DTO 缺字段；恢复时应跳过不完整项和其他 Chain，
+    // 不能因单条脏数据放弃同一文件中的有效实例编号。
+    let preview_builder = LiteFlowChainELBuilder::create_chain(FlowBus::new());
+    preview_builder.set_chain_id("incomplete-chain");
+    preview_builder.set_el("THEN(a, a)").unwrap();
+    let incomplete_md5 = preview_builder
+        .get_chain()
+        .get_el_md5()
+        .expect("setEL 应生成 MD5")
+        .to_string();
+    files
+        .lock()
+        .expect("实例编号测试存储锁不应中毒")
+        .insert(
+            "incomplete-chain".to_string(),
+            vec![
+                incomplete_md5,
+                r#"[{},{"chainId":"other","nodeId":"a","instanceId":"wrong-chain","index":0},{"chainId":"incomplete-chain","nodeId":"a","instanceId":"restored-second","index":1}]"#
+                    .to_string(),
+            ],
+        );
+    let incomplete_bus = FlowBus::new();
+    incomplete_bus.set_instance_id_spi(Arc::new(PersistedInstanceIdSpi {
+        prefix: "must-not-generate",
+        files: files.clone(),
+        reads: reads.clone(),
+        writes: writes.clone(),
+        generations: generations.clone(),
+    }));
+    register_null_component(&incomplete_bus);
+    incomplete_bus
+        .add_chain("incomplete-chain", "THEN(a, a)")
+        .expect("不完整快照项应被忽略，其余有效项继续恢复");
+    let incomplete_response = incomplete_bus.execute("incomplete-chain").await;
+    assert_eq!(
+        incomplete_response
+            .steps
+            .iter()
+            .map(|step| step.get_node_instance_id().map(ToOwned::to_owned))
+            .collect::<Vec<_>>(),
+        vec![None, Some("restored-second".to_string())]
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 9);
     assert_eq!(writes.load(Ordering::SeqCst), 6);
     assert_eq!(generations.load(Ordering::SeqCst), 13);
 

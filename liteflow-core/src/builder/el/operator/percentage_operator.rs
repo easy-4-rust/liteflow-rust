@@ -20,7 +20,8 @@ impl BaseOperator for PercentageOperator {
                 "PERCENTAGE must be between 0 and 1".to_string(),
             ));
         }
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::When { items, mut opts } => {
                 opts.percentage = Some(percentage);
                 Ok(El::When { items, opts })
@@ -28,6 +29,6 @@ impl BaseOperator for PercentageOperator {
             _ => Err(LiteflowError::Parse(
                 "PERCENTAGE must follow WHEN/PAR".to_string(),
             )),
-        }
+        })
     }
 }

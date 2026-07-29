@@ -11,10 +11,11 @@
 use liteflow_core::NodeComponent;
 use liteflow_core::el::NodeRef;
 use liteflow_core::exception::LiteflowError;
-use liteflow_core::flow::element::node::Node;
+use liteflow_core::flow::element::{NodeHooks, node::Node};
 use liteflow_core::flow::executor::{DefaultNodeExecutor, NodeExecutor, NodeExecutorHelper};
 use liteflow_core::flow::parallel::{CompletableFutureTimeout, WhenFutureObj, complete_on_timeout};
-use liteflow_core::slot::{CmpContext, Ctx, Frame, Slot};
+use liteflow_core::monitor::MonitorBus;
+use liteflow_core::slot::{CmpContext, Ctx, DataBus, Frame, Slot};
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,6 +38,129 @@ struct FlakyCmp {
 /// `process` 成功但 `on_success` 失败的组件，用于验证 Java 写结果时序。
 struct OnSuccessFailureCmp {
     calls: AtomicUsize,
+}
+
+/// 记录 `isAccess` 调用次数，验证预过滤缓存与重试时序。
+struct AccessCountingCmp {
+    access_calls: Arc<AtomicUsize>,
+    process_calls: Arc<AtomicUsize>,
+}
+
+/// 在 `isAccess` 阶段失败的组件，覆盖 Java Node catch 分支。
+struct AccessErrorCmp {
+    continue_on_error: bool,
+    end_chain: bool,
+}
+
+/// 让 `isEnd` 异步代理失败，验证主错误优先级。
+struct EndCheckErrorCmp {
+    process_fails: bool,
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for EndCheckErrorCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        if self.process_fails {
+            Err(LiteflowError::Custom("process failed".to_string()))
+        } else {
+            Ok(Value::Bool(true))
+        }
+    }
+
+    async fn is_end_async(&self, _ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        Err(LiteflowError::Custom("end check failed".to_string()))
+    }
+
+    fn is_continue_on_error(&self) -> bool {
+        self.process_fails
+    }
+}
+
+/// 在 process 内结束链路后再失败，验证 ChainEnd 高于普通组件错误。
+struct EndThenErrorCmp;
+
+#[async_trait::async_trait]
+impl NodeComponent for EndThenErrorCmp {
+    async fn process(&self, ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        self.set_is_end(ctx, true);
+        Err(LiteflowError::Custom("failure after end".to_string()))
+    }
+}
+
+#[derive(Debug)]
+struct ComponentNodeExecutor;
+
+impl NodeExecutor for ComponentNodeExecutor {}
+
+/// 显式提供组件级 NodeExecutor 的组件。
+struct CustomExecutorCmp;
+
+#[async_trait::async_trait]
+impl NodeComponent for CustomExecutorCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        Ok(Value::String("custom-executor".to_string()))
+    }
+
+    fn node_executor(&self) -> Option<Arc<dyn NodeExecutor>> {
+        Some(Arc::new(ComponentNodeExecutor))
+    }
+}
+
+/// 通过声明式 Java 类名选择已注册 NodeExecutor 的组件。
+struct NamedExecutorCmp;
+
+#[async_trait::async_trait]
+impl NodeComponent for NamedExecutorCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        Ok(Value::String("named-executor".to_string()))
+    }
+
+    async fn node_executor_class_async(
+        &self,
+        _ctx: &CmpContext,
+    ) -> Result<Option<String>, LiteflowError> {
+        Ok(Some("test.NamedExecutor".to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for AccessErrorCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        panic!("isAccess 失败后不得进入 process")
+    }
+
+    async fn is_access_async(&self, _ctx: &CmpContext) -> Result<bool, LiteflowError> {
+        Err(LiteflowError::Custom("access failed".to_string()))
+    }
+
+    fn is_continue_on_error(&self) -> bool {
+        self.continue_on_error
+    }
+
+    fn is_end(&self, _ctx: &CmpContext) -> bool {
+        self.end_chain
+    }
+}
+
+#[async_trait::async_trait]
+impl NodeComponent for AccessCountingCmp {
+    async fn process(&self, _ctx: &CmpContext) -> Result<Value, LiteflowError> {
+        let call = self.process_calls.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            Err(LiteflowError::Custom("first call fails".to_string()))
+        } else {
+            Ok(Value::Bool(true))
+        }
+    }
+
+    fn is_access(&self, _ctx: &CmpContext) -> bool {
+        self.access_calls.fetch_add(1, Ordering::SeqCst);
+        true
+    }
+
+    fn retry_count(&self) -> usize {
+        1
+    }
 }
 
 #[async_trait::async_trait]
@@ -124,14 +248,23 @@ fn node_java_named_metadata_and_copy_are_isolated() {
         liteflow_core::ExecuteableTypeEnum::Node
     );
     assert_eq!(node.get_bind_data("tenant"), Some("b"));
+    assert!(node.has_bind_data("tenant"));
 
     let mut copied = node.copy();
     copied.put_bind_data("tenant", "copy");
     copied.set_tag("copy");
+    copied.remove_bind_data("tenant");
     assert_eq!(node.get_bind_data("tenant"), Some("b"));
     assert_eq!(node.get_tag(), Some("blue"));
-    assert_eq!(copied.get_bind_data("tenant"), Some("copy"));
+    assert!(!copied.has_bind_data("tenant"));
+    assert_eq!(copied.get_bind_data("tenant"), None);
     assert_eq!(copied.get_tag(), Some("copy"));
+
+    let replacement: Arc<dyn NodeComponent> = Arc::new(OnSuccessFailureCmp {
+        calls: AtomicUsize::new(0),
+    });
+    node.set_instance(Arc::clone(&replacement));
+    assert!(Arc::ptr_eq(node.get_instance(), &replacement));
 }
 
 /// 验证 Node 的 Java ThreadLocal 兼容状态在父子 Frame 间保持隔离。
@@ -146,6 +279,13 @@ fn node_task_local_state_is_isolated_and_removable() {
     };
     let node = node_of(cmp);
     let (ctx, mut parent) = ctx_frame();
+    let slot_index = DataBus::offer_slot(Arc::clone(&ctx.inner));
+    assert_eq!(node.get_slot_index(&ctx), Some(slot_index));
+    let mut slot_context = node.set_slot_index(slot_index);
+    assert!(slot_context.is_some());
+    node.remove_slot_index(&mut slot_context);
+    assert!(slot_context.is_none());
+    assert!(DataBus::release_slot(slot_index));
 
     node.set_access_result(&mut parent, true);
     node.set_is_continue_on_error_result(&mut parent, true);
@@ -185,11 +325,253 @@ fn node_task_local_state_is_isolated_and_removable() {
 
     assert!(!node.get_access_result(&child));
     assert!(!node.get_is_continue_on_error_result(&child));
+    assert_eq!(
+        node.get_loop_index(&child),
+        Some(9),
+        "Java 的循环对象栈移除不得同时弹出循环下标栈"
+    );
+    assert!(node.get_curr_loop_object(&child).is_none());
+    node.remove_loop_index(&mut child);
     assert!(node.get_loop_index(&child).is_none());
     assert!(node.get_step_data(&child).is_none());
     assert!(!node.get_is_end(&ctx));
     assert!(node.get_access_result(&parent));
     assert_eq!(node.get_loop_index(&parent), Some(2));
+}
+
+/// 验证 Java 独立维护的循环下标栈和对象栈不会在嵌套移除时误删父层。
+#[test]
+fn node_loop_index_and_object_stacks_are_removed_independently() {
+    let node = node_of(FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: 1,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    });
+    let mut frame = Frame::root();
+
+    node.set_loop_index(&mut frame, 1, 10);
+    node.set_curr_loop_object(&mut frame, 1, serde_json::json!("outer"));
+    node.set_loop_index(&mut frame, 2, 20);
+    node.set_curr_loop_object(&mut frame, 2, serde_json::json!("inner"));
+    assert_eq!(node.get_pre_loop_index(&frame), Some(10));
+    assert_eq!(
+        node.get_pre_loop_object(&frame),
+        Some(&serde_json::json!("outer"))
+    );
+
+    node.remove_loop_index(&mut frame);
+    assert_eq!(node.get_loop_index(&frame), Some(10));
+    assert_eq!(
+        node.get_curr_loop_object(&frame),
+        Some(&serde_json::json!("inner")),
+        "移除下标后，Java loopObjectTL 的内层对象仍应存在"
+    );
+
+    node.remove_curr_loop_object(&mut frame);
+    assert_eq!(
+        node.get_curr_loop_object(&frame),
+        Some(&serde_json::json!("outer"))
+    );
+    assert_eq!(node.get_loop_index(&frame), Some(10));
+}
+
+/// 验证 `isAccess` 位于 NodeExecutor 重试循环之外，且预过滤 true 结果只消费一次。
+#[tokio::test]
+async fn node_access_is_evaluated_once_before_all_retries_and_cached_true_is_reused() {
+    let access_calls = Arc::new(AtomicUsize::new(0));
+    let process_calls = Arc::new(AtomicUsize::new(0));
+    let node = Node::new(
+        NodeRef::new("access-counting"),
+        Arc::new(AccessCountingCmp {
+            access_calls: Arc::clone(&access_calls),
+            process_calls: Arc::clone(&process_calls),
+        }),
+    );
+    let (ctx, frame) = ctx_frame();
+
+    node.set_access_result(&frame, true);
+    assert_eq!(
+        node.execute(&ctx, &frame)
+            .await
+            .expect("第二次 process 应重试成功"),
+        Value::Bool(true)
+    );
+    assert_eq!(access_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(process_calls.load(Ordering::SeqCst), 2);
+    assert!(
+        !node.get_access_result(&frame),
+        "Java finally 应在整个 Node 执行完成后清除预计算访问结果"
+    );
+
+    assert_eq!(
+        node.execute(&ctx, &frame)
+            .await
+            .expect("后续执行应正常调用一次 isAccess"),
+        Value::Bool(true)
+    );
+    assert_eq!(access_calls.load(Ordering::SeqCst), 1);
+    assert!(node.is_access(&ctx, &frame).await);
+}
+
+/// 验证 Java Node catch 对 `isAccess` 异常仍执行 isEnd/continue-on-error 判定。
+#[tokio::test]
+async fn node_access_error_honors_chain_end_and_continue_on_error_precedence() {
+    let (ctx, frame) = ctx_frame();
+    let failing = Node::new(
+        NodeRef::new("access-error"),
+        Arc::new(AccessErrorCmp {
+            continue_on_error: false,
+            end_chain: false,
+        }),
+    );
+    assert!(matches!(
+        failing.execute(&ctx, &frame).await,
+        Err(LiteflowError::Custom(message)) if message == "access failed"
+    ));
+
+    let continuing = Node::new(
+        NodeRef::new("access-continue"),
+        Arc::new(AccessErrorCmp {
+            continue_on_error: true,
+            end_chain: false,
+        }),
+    );
+    assert_eq!(
+        continuing
+            .execute(&ctx, &frame)
+            .await
+            .expect("continue-on-error 应吞掉 isAccess 异常"),
+        Value::Null
+    );
+
+    let ending = Node::new(
+        NodeRef::new("access-end"),
+        Arc::new(AccessErrorCmp {
+            continue_on_error: true,
+            end_chain: true,
+        }),
+    );
+    assert!(matches!(
+        ending.execute(&ctx, &frame).await,
+        Err(LiteflowError::ChainEnd(_))
+    ));
+
+    failing.set_is_end(&ctx, true);
+    assert!(matches!(
+        failing.execute_once(&ctx, &frame).await,
+        Err(LiteflowError::ChainEnd(_))
+    ));
+    failing.remove_is_end(&ctx);
+}
+
+/// 验证 Node 在成功、ChainEnd 和普通错误三条路径都写入 MonitorBus。
+#[tokio::test]
+async fn node_monitor_records_all_terminal_outcomes() {
+    let monitor = Arc::new(MonitorBus::new());
+    let hooks = NodeHooks {
+        aspects: Vec::new(),
+        monitor: Some(Arc::clone(&monitor)),
+    };
+    let (ctx, frame) = ctx_frame();
+
+    let success = node_of(FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: 1,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    })
+    .with_hooks(hooks.clone());
+    success.execute(&ctx, &frame).await.expect("成功节点应完成");
+
+    let chain_end = node_of(FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: usize::MAX,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: true,
+    })
+    .with_hooks(hooks.clone());
+    assert!(matches!(
+        chain_end.execute(&ctx, &frame).await,
+        Err(LiteflowError::ChainEnd(_))
+    ));
+
+    let failure = node_of(FlakyCmp {
+        calls: AtomicUsize::new(0),
+        succeed_on: usize::MAX,
+        retry_count: 0,
+        retry_for_node_exec: false,
+        chain_end: false,
+    })
+    .with_hooks(hooks);
+    assert!(matches!(
+        failure.execute(&ctx, &frame).await,
+        Err(LiteflowError::NodeExec { .. })
+    ));
+
+    let report = monitor.report();
+    assert_eq!(report.iter().map(|entry| entry.total).sum::<u64>(), 3);
+}
+
+/// 验证 isEnd 代理异常、process 后结束和组件级执行器选择的优先级。
+#[tokio::test]
+async fn node_end_check_errors_and_component_executor_follow_java_precedence() {
+    let (ctx, frame) = ctx_frame();
+    let successful_process = Node::new(
+        NodeRef::new("end-check-success"),
+        Arc::new(EndCheckErrorCmp {
+            process_fails: false,
+        }),
+    );
+    assert!(matches!(
+        successful_process.execute(&ctx, &frame).await,
+        Err(LiteflowError::NodeExec { msg, .. }) if msg.contains("end check failed")
+    ));
+
+    let failing_process = Node::new(
+        NodeRef::new("end-check-failure"),
+        Arc::new(EndCheckErrorCmp {
+            process_fails: true,
+        }),
+    );
+    assert_eq!(
+        failing_process
+            .execute(&ctx, &frame)
+            .await
+            .expect("主 process 错误应优先，continue-on-error 应继续"),
+        Value::Null
+    );
+
+    let end_then_error = Node::new(NodeRef::new("end-then-error"), Arc::new(EndThenErrorCmp));
+    assert!(matches!(
+        end_then_error.execute(&ctx, &frame).await,
+        Err(LiteflowError::ChainEnd(_))
+    ));
+    end_then_error.remove_is_end(&ctx);
+
+    let custom_executor = Node::new(NodeRef::new("custom-executor"), Arc::new(CustomExecutorCmp));
+    assert_eq!(
+        custom_executor
+            .execute(&ctx, &frame)
+            .await
+            .expect("组件级 NodeExecutor 应执行真实组件"),
+        Value::String("custom-executor".to_string())
+    );
+
+    let helper = NodeExecutorHelper::load_instance();
+    helper.register_named_node_executor("test.NamedExecutor", Arc::new(ComponentNodeExecutor));
+    let named_executor = Node::new(NodeRef::new("named-executor"), Arc::new(NamedExecutorCmp));
+    assert_eq!(
+        named_executor
+            .execute(&ctx, &frame)
+            .await
+            .expect("声明式类名应解析已注册 NodeExecutor"),
+        Value::String("named-executor".to_string())
+    );
+    assert!(helper.remove_named_node_executor("test.NamedExecutor"));
 }
 
 /// 验证结果读取只访问单次执行缓存，父子任务写入互不覆盖。

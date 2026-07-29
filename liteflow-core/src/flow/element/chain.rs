@@ -8,8 +8,8 @@ use crate::flow::element::condition::expect_bool;
 use crate::flow::element::executable::Executable;
 use crate::slot::{Ctx, Frame};
 use serde_json::Value;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 /// 默认路由命名空间，对应 Java `ChainConstant.DEFAULT_NAMESPACE`。
 pub const DEFAULT_NAMESPACE: &str = ChainConstant::DEFAULT_NAMESPACE;
@@ -19,7 +19,6 @@ static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
 /// 流程链定义，负责保存主体 Condition、决策路由和编译元数据。
 ///
 /// 对应 Java: `com.yomahub.liteflow.flow.element.Chain`。
-#[derive(Clone)]
 pub struct Chain {
     pub id: String,
     pub namespace: String,
@@ -35,6 +34,33 @@ pub struct Chain {
     extends_chain_id: Option<String>,
     is_abstract: bool,
     is_compiled: bool,
+    /// DATA 操作符递归写入本 Chain 全部 Node 的共享组件数据。
+    cmp_data_override: RwLock<Option<String>>,
+}
+
+impl Clone for Chain {
+    fn clone(&self) -> Self {
+        let cmp_data_override = self
+            .cmp_data_override
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        Self {
+            id: self.id.clone(),
+            namespace: self.namespace.clone(),
+            el: self.el.clone(),
+            el_md5: self.el_md5.clone(),
+            route_item: self.route_item.clone(),
+            thread_pool_executor_class: self.thread_pool_executor_class.clone(),
+            condition_list: self.condition_list.clone(),
+            route_el: self.route_el.clone(),
+            extends_chain_id: self.extends_chain_id.clone(),
+            is_abstract: self.is_abstract,
+            is_compiled: self.is_compiled,
+            // Chain 克隆用于新规则定义的构建与原子替换，不能与旧快照共享可变元数据。
+            cmp_data_override: RwLock::new(cmp_data_override),
+        }
+    }
 }
 
 impl Chain {
@@ -56,6 +82,7 @@ impl Chain {
             extends_chain_id: None,
             is_abstract: false,
             is_compiled,
+            cmp_data_override: RwLock::new(None),
         }
     }
 
@@ -72,6 +99,10 @@ impl Chain {
     pub fn set_condition_list(&mut self, condition_list: Vec<Arc<dyn Executable>>) {
         self.is_compiled = !condition_list.is_empty();
         self.condition_list = condition_list;
+        *self
+            .cmp_data_override
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     /// 返回 Chain ID。
@@ -139,6 +170,15 @@ impl Chain {
     /// 设置决策路由执行项。对应 Java: `Chain#setRouteItem`。
     pub fn set_route_item(&mut self, route: Arc<dyn Executable>) {
         self.route_item = Some(route);
+    }
+
+    /// 清除决策路由执行项。
+    ///
+    /// Java `Chain#setRouteItem` 接受 `null`；EL Builder 在没有 route EL 时仍会
+    /// 以 `null` 覆盖旧 routeItem。Rust 以显式方法表达同一状态转换。
+    /// 对应 Java: `Chain#setRouteItem`。
+    pub fn clear_route_item(&mut self) {
+        self.route_item = None;
     }
 
     /// 返回决策路由执行项。对应 Java: `Chain#getRouteItem`。
@@ -286,9 +326,15 @@ impl Chain {
     /// 对齐 Java 子链共享 Slot 的 conditionStack / loop 栈语义）
     pub async fn execute_with_frame(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
         let runtime_id = NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed);
+        let cmp_data_override = self
+            .cmp_data_override
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let frame = frame
             .with_runtime_id(runtime_id)
             .with_current_chain_id(self.id.clone())
+            .with_chain_cmp_data(cmp_data_override.as_deref())
             .with_chain_thread_pool(self.thread_pool_executor_class.as_deref());
         let life_cycles = ctx.inner.chain_execute_life_cycles();
 
@@ -357,6 +403,16 @@ impl Executable for Chain {
 
     fn execute_type(&self) -> ExecuteableTypeEnum {
         self.get_execute_type()
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        *self
+            .cmp_data_override
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(data.to_string());
+        for condition in &self.condition_list {
+            condition.apply_chain_cmp_data(data);
+        }
     }
 
     fn collect_node_ids(&self) -> Vec<String> {

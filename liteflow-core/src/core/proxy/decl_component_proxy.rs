@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::core::DeclComponent;
-use crate::enums::NodeTypeEnum;
+use crate::enums::{LiteFlowMethodEnum, NodeTypeEnum};
 use crate::exception::{LFResult, LiteflowError};
 use crate::slot::CmpContext;
 
@@ -101,12 +101,42 @@ impl DeclComponentProxy {
             .invoke(self.decl_warp_bean.raw_bean().as_ref(), context)
             .await
     }
+
+    /// 调用带真实执行错误参数的声明式生命周期方法。
+    ///
+    /// 对应 Java: `DeclComponentProxy.AopInvocationHandler#invoke` 的
+    /// `onError(Exception)` 分支。
+    pub async fn invoke_with_error(
+        &self,
+        method: &str,
+        context: &CmpContext,
+        error: &LiteflowError,
+    ) -> LFResult<Value> {
+        let method_wrap_bean = self.method_wrap_bean(method).ok_or_else(|| {
+            LiteflowError::Proxy(format!(
+                "decl component[{}] has no LiteflowMethod[{method}]",
+                self.decl_warp_bean.node_id()
+            ))
+        })?;
+        method_wrap_bean
+            .invoke_with_error(self.decl_warp_bean.raw_bean().as_ref(), context, error)
+            .await
+    }
 }
 
 #[async_trait]
 impl DeclComponent for DeclComponentProxy {
     async fn call(&self, method: &str, context: &CmpContext) -> LFResult<Value> {
         self.invoke(method, context).await
+    }
+
+    async fn call_with_error(
+        &self,
+        method: &str,
+        context: &CmpContext,
+        error: &LiteflowError,
+    ) -> LFResult<Value> {
+        self.invoke_with_error(method, context, error).await
     }
 
     fn has_method(&self, method: &str) -> bool {
@@ -132,5 +162,13 @@ impl DeclComponent for DeclComponentProxy {
     fn is_method_retry_for(&self, method: &str, error: &LiteflowError) -> bool {
         self.method_wrap_bean(method)
             .is_some_and(|metadata| metadata.is_retry_for(error))
+    }
+
+    fn method_for_lifecycle(&self, liteflow_method: LiteFlowMethodEnum) -> Option<&str> {
+        self.decl_warp_bean
+            .method_wrap_bean_list()
+            .iter()
+            .find(|candidate| candidate.liteflow_method() == liteflow_method)
+            .map(|candidate| candidate.method().method_name())
     }
 }

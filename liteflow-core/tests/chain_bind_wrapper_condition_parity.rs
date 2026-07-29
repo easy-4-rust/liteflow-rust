@@ -11,13 +11,15 @@ use serde_json::{Value, json};
 #[tokio::test]
 async fn java_named_api_executes_the_same_wrapped_chain_without_mutating_it() {
     let chain = Arc::new(Chain::new("sub_chain", Vec::new()));
-    let wrapper = ChainBindWrapperCondition::new(Arc::clone(&chain));
+    let mut wrapper = ChainBindWrapperCondition::new(Arc::clone(&chain));
 
     assert_eq!(
         wrapper.get_condition_type(),
         ConditionTypeEnum::ChainBindWrapper
     );
     assert_eq!(wrapper.get_id(), "chain_bind_wrapper_sub_chain");
+    wrapper.set_id("wrapped-sub");
+    assert_eq!(wrapper.get_id(), "wrapped-sub");
     assert!(Arc::ptr_eq(wrapper.get_wrapped_chain(), &chain));
 
     let ctx = Ctx::new(Arc::new(Slot::new(

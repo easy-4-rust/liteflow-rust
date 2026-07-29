@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::common::entity::ValidationResp;
+use crate::enums::ScriptTypeEnum;
 use crate::exception::{LFResult, LiteflowError};
 use crate::script::exception::ScriptSpiException;
 use crate::script::{RhaiScriptExecutor, ScriptExecutorFactory, ScriptKind};
@@ -46,6 +47,28 @@ impl ScriptValidator {
         Self::validate_for_language_with_ex(language, script).is_success()
     }
 
+    /// 使用 Java `ScriptTypeEnum` 校验指定脚本。
+    ///
+    /// `script` 是待编译脚本文本，`script_type` 是 Java 对等脚本类型；返回是否
+    /// 通过校验。对应 Java: `ScriptValidator#validate(String, ScriptTypeEnum)`。
+    #[must_use]
+    pub fn validate_with_script_type(script: &str, script_type: ScriptTypeEnum) -> bool {
+        Self::validate_with_ex_for_script_type(script, script_type).is_success()
+    }
+
+    /// 使用 Java `ScriptTypeEnum` 校验脚本并保留失败原因。
+    ///
+    /// `script` 是待编译脚本文本，`script_type` 决定执行器；返回携带异常的
+    /// `ValidationResp`。对应 Java:
+    /// `ScriptValidator#validateWithEx(String, ScriptTypeEnum)`。
+    #[must_use]
+    pub fn validate_with_ex_for_script_type(
+        script: &str,
+        script_type: ScriptTypeEnum,
+    ) -> ValidationResp {
+        Self::validate_for_language_with_ex(script_type.get_display_name(), script)
+    }
+
     /// 使用指定语言校验脚本并保留异常。
     #[must_use]
     pub fn validate_for_language_with_ex(language: &str, script: &str) -> ValidationResp {
@@ -71,6 +94,20 @@ impl ScriptValidator {
                 (language, result)
             })
             .collect()
+    }
+
+    /// 按 Java Map 重载语义批量校验脚本。
+    ///
+    /// `scripts` 的每一项依次包含脚本类型与脚本文本；任意一项失败立即返回
+    /// `false`，全部成功返回 `true`。对应 Java:
+    /// `ScriptValidator#validate(Map<ScriptTypeEnum, String>)`。
+    #[must_use]
+    pub fn validate_scripts(
+        scripts: impl IntoIterator<Item = (ScriptTypeEnum, impl AsRef<str>)>,
+    ) -> bool {
+        scripts.into_iter().all(|(script_type, script)| {
+            Self::validate_with_script_type(script.as_ref(), script_type)
+        })
     }
 
     /// 严格校验入口，失败时直接返回异常，便于 Rust 调用方使用 `?`。

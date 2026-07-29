@@ -12,7 +12,7 @@ use liteflow_core::parser::{
     BaseJsonFlowParser, BaseXmlFlowParser, BaseYmlFlowParser, RuleDefinitionPlan,
 };
 use liteflow_core::spi::PathContentParserHolder;
-use liteflow_core::{FlowBus, LiteflowResponse};
+use liteflow_core::{FlowBus, FlowExecutor, LiteflowResponse};
 use serde_json::Value;
 use vernal_context::{Lifecycle, LifecycleFuture};
 
@@ -22,6 +22,7 @@ use crate::{LiteflowConfig, LiteflowParseMode, LiteflowRuleFormat, LiteflowVerna
 /// 由 Vernal 管理生命周期的 LiteFlow 运行时。
 pub struct LiteflowRuntime {
     flow_bus: FlowBus,
+    flow_executor: FlowExecutor,
     config: LiteflowConfig,
     initialize_on_start: bool,
     rule_state: Mutex<RuleInitializationState>,
@@ -55,8 +56,13 @@ impl LiteflowRuntime {
         // Java MonitorBus 构造函数从 LiteflowConfig 读取 queueLimit；Rust 在托管
         // 运行时创建时完成同样接线，确保首条统计记录就使用配置容量。
         flow_bus.monitor().set_queue_limit(config.queue_limit);
+        // Java 容器为每个应用上下文创建并复用一个 FlowExecutor。Rust 同样冻结
+        // 当前运行时配置，避免每次执行重新读取进程级 ConfigGetter 并初始化
+        // DataBus，从而保证多个 Vernal 上下文并行时互不改写执行器配置。
+        let flow_executor = FlowExecutor::new_isolated(flow_bus.clone(), config.to_core_config());
         Self {
             flow_bus,
+            flow_executor,
             config,
             initialize_on_start,
             rule_state: Mutex::new(RuleInitializationState::Uninitialized),
@@ -159,7 +165,7 @@ impl LiteflowRuntime {
         input: Value,
     ) -> Result<LiteflowResponse, LiteflowVernalError> {
         self.ensure_rule_for_chain(chain_id)?;
-        Ok(self.flow_bus.execute_with_data(chain_id, input).await)
+        Ok(self.flow_executor.execute_with_data(chain_id, input).await)
     }
 
     /// 使用显式 request id 执行，并返回规则初始化错误。
@@ -171,8 +177,8 @@ impl LiteflowRuntime {
     ) -> Result<LiteflowResponse, LiteflowVernalError> {
         self.ensure_rule_for_chain(chain_id)?;
         Ok(self
-            .flow_bus
-            .execute_with_rid(chain_id, input, request_id)
+            .flow_executor
+            .execute_with_rid(chain_id, input, request_id, Vec::new())
             .await)
     }
 

@@ -1,0 +1,19 @@
+error: Component [missingMain] does not define the process method
+ --> tests/ui/decl_group_without_main.rs:9:55
+  |
+9 |     #[liteflow_method(value = "on_success", node_id = "missingMain")]
+  |                                                       ^^^^^^^^^^^^^
+
+warning: unused imports: `CmpContext` and `LiteflowError`
+ --> tests/ui/decl_group_without_main.rs:1:21
+  |
+1 | use liteflow_core::{CmpContext, LiteflowError};
+  |                     ^^^^^^^^^^  ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `serde_json::Value`
+ --> tests/ui/decl_group_without_main.rs:3:5
+  |
+3 | use serde_json::Value;
+  |     ^^^^^^^^^^^^^^^^^

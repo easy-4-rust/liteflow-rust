@@ -1,6 +1,6 @@
 //! 对应 Java 类：com.yomahub.liteflow.flow.element.condition.IteratorCondition
 //!
-//! 迭代循环，loopObject 传递（含并行形态，PARALLEL 为 Rust 端扩展形态）。
+//! 迭代循环、loopObject 传递及 Java PARALLEL 布尔并行形态。
 //!
 //! 差异说明：
 //! - Java 在 iteratorNode 为空时抛 NoIteratorNodeException；Rust 端
@@ -26,7 +26,7 @@ use tokio::task::JoinSet;
 pub struct IteratorCondition {
     base: ConditionBase,
     iterator_node: Arc<dyn Executable>,
-    pub parallel: Option<usize>,
+    pub parallel: bool,
     thread_pool_executor_class: Option<String>,
     do_executor: Arc<dyn Executable>,
     break_item: Option<Arc<dyn Executable>>,
@@ -35,13 +35,13 @@ pub struct IteratorCondition {
 impl IteratorCondition {
     /// 创建迭代循环 Condition。
     ///
-    /// 参数 `iterator_node` 产生待迭代数组，`parallel` 是可选并行度，
+    /// 参数 `iterator_node` 产生待迭代数组，`parallel` 是 Java 布尔并行开关，
     /// `do_executor` 是循环体，`break_item` 是可选 BREAK 条件。对应 Java:
     /// `IteratorCondition` 由 EL Builder 完成字段装配后的执行状态。
     #[must_use]
     pub fn new(
         iterator_node: Arc<dyn Executable>,
-        parallel: Option<usize>,
+        parallel: bool,
         do_executor: Arc<dyn Executable>,
         break_item: Option<Arc<dyn Executable>>,
     ) -> Self {
@@ -108,7 +108,7 @@ impl Executable for IteratorCondition {
                 }
             };
 
-            if self.parallel.is_some() {
+            if self.parallel {
                 let condition_key = format!("{:p}", self);
                 let executor_service = ExecutorHelper::load_instance().build_executor_service(
                     self.thread_pool_executor_class
@@ -121,7 +121,7 @@ impl Executable for IteratorCondition {
                 )?;
                 let mut set: JoinSet<LoopFutureObj> = JoinSet::new();
                 for (i, obj) in list.iter().enumerate() {
-                    if !submit_iteration(
+                    let should_continue = submit_iteration(
                         self,
                         &mut set,
                         &self.do_executor,
@@ -132,16 +132,17 @@ impl Executable for IteratorCondition {
                         Some(obj.clone()),
                         &executor_service,
                     )
-                    .await?
-                    {
-                        break;
+                    .await?;
+                    if should_continue {
+                        continue;
                     }
+                    break;
                 }
                 return handle_future_list(set).await;
             }
 
             for (i, obj) in list.into_iter().enumerate() {
-                if !run_sequential(
+                let should_continue = run_sequential(
                     &self.do_executor,
                     self.break_item.as_ref(),
                     ctx,
@@ -149,10 +150,11 @@ impl Executable for IteratorCondition {
                     i,
                     Some(obj),
                 )
-                .await?
-                {
-                    break;
+                .await?;
+                if should_continue {
+                    continue;
                 }
+                break;
             }
             Ok(Value::Null)
         })
@@ -161,6 +163,10 @@ impl Executable for IteratorCondition {
 
     fn collect_node_ids(&self) -> Vec<String> {
         Condition::get_all_node_in_condition(self)
+    }
+
+    fn apply_chain_cmp_data(&self, data: &str) {
+        super::apply_chain_cmp_data_to_condition(self, data);
     }
 
     fn id(&self) -> &str {
@@ -194,15 +200,11 @@ impl LoopCondition for IteratorCondition {
     }
 
     fn is_parallel(&self) -> bool {
-        self.parallel.is_some()
+        self.parallel
     }
 
     fn set_parallel(&mut self, parallel: bool) {
-        if parallel {
-            self.parallel.get_or_insert(0);
-        } else {
-            self.parallel = None;
-        }
+        self.parallel = parallel;
     }
 }
 

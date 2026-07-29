@@ -366,6 +366,12 @@ impl OperatorHelper {
 
     /// 合并通用修饰，避免多次后缀调用形成无意义的嵌套 Mods。
     pub(crate) fn add_mods(expression: El, mods: Mods) -> El {
+        // Java QLExpress 按源码顺序执行扩展函数。retry/maxWait 每次都创建一个
+        // 新 Condition，必须把此前表达式完整包在内部；若在这里合并字段，
+        // `a.maxWait(...).retry(...)` 会被错误重排成 retry 在内、timeout 在外。
+        if mods.creates_wrapper_condition() {
+            return El::Mods(Box::new(expression), mods);
+        }
         match expression {
             El::Mods(inner, mut old) => {
                 if mods.id.is_some() {
@@ -386,17 +392,38 @@ impl OperatorHelper {
                 if mods.max_wait_ms.is_some() {
                     old.max_wait_ms = mods.max_wait_ms;
                 }
-                old.ignore_error = old.ignore_error || mods.ignore_error;
                 if !mods.bind.is_empty() {
                     for (key, value) in mods.bind {
+                        let override_key = mods.bind_override_keys.contains(&key);
                         old.bind.retain(|(existing, _)| *existing != key);
+                        old.bind_override_keys.retain(|existing| existing != &key);
+                        if override_key {
+                            old.bind_override_keys.push(key.clone());
+                        }
                         old.bind.push((key, value));
                     }
                 }
-                old.bind_override = old.bind_override || mods.bind_override;
                 El::Mods(inner, old)
             }
             other => El::Mods(Box::new(other), mods),
+        }
+    }
+
+    /// 让类型化操作符穿透只包含属性的 Mods，并在操作完成后恢复属性。
+    ///
+    /// Java 的 `id/tag/bind/threadPool` 直接修改同一个 Condition 实例，后续
+    /// `ANY/DO/ELSE/TO` 等操作符看到的仍是原具体类型。Rust 用 Mods 保存这些
+    /// 位置属性，不能因此把 When/Loop/If/Switch 的类型遮蔽。含 retry/maxWait
+    /// 的 Mods 表示真实包装 Condition，必须保持不可穿透。
+    pub(crate) fn map_through_property_mods(
+        expression: El,
+        apply: impl FnOnce(El) -> LFResult<El>,
+    ) -> LFResult<El> {
+        match expression {
+            El::Mods(inner, mods) if !mods.creates_wrapper_condition() => {
+                apply(*inner).map(|mapped| Self::add_mods(mapped, mods))
+            }
+            other => apply(other),
         }
     }
 

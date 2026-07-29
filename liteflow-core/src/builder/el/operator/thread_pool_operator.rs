@@ -17,7 +17,8 @@ impl BaseOperator for ThreadPoolOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let thread_pool = OperatorHelper::one_string(objects, self.operator_name())?;
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::When { items, mut opts } => {
                 opts.thread_pool = Some(thread_pool);
                 Ok(El::When { items, opts })
@@ -35,6 +36,6 @@ impl BaseOperator for ThreadPoolOperator {
             _ => Err(LiteflowError::Parse(
                 "THREAD_POOL must follow WHEN/FOR/WHILE/ITERATOR".to_string(),
             )),
-        }
+        })
     }
 }

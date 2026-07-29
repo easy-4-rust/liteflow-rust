@@ -29,8 +29,8 @@
 // produce `enc2:` (ChaCha20-Poly1305).
 
 use anyhow::{Context, Result};
-use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
-use chacha20poly1305::{AeadCore, ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::aead::{Aead, Generate, KeyInit};
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -68,10 +68,11 @@ impl SecretStore {
         }
 
         let key_bytes = self.load_or_create_key()?;
-        let key = Key::from_slice(&key_bytes);
-        let cipher = ChaCha20Poly1305::new(key);
+        let key = Key::try_from(key_bytes.as_slice())
+            .map_err(|_| anyhow::anyhow!("Secret key must be {KEY_LEN} bytes"))?;
+        let cipher = ChaCha20Poly1305::new(&key);
 
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = Nonce::generate();
         let ciphertext = cipher
             .encrypt(&nonce, plaintext.as_bytes())
             .map_err(|e| anyhow::anyhow!("Encryption failed: {e}"))?;
@@ -143,13 +144,15 @@ impl SecretStore {
         );
 
         let (nonce_bytes, ciphertext) = blob.split_at(NONCE_LEN);
-        let nonce = Nonce::from_slice(nonce_bytes);
+        let nonce = Nonce::try_from(nonce_bytes)
+            .map_err(|_| anyhow::anyhow!("Encrypted nonce must be {NONCE_LEN} bytes"))?;
         let key_bytes = self.load_or_create_key()?;
-        let key = Key::from_slice(&key_bytes);
-        let cipher = ChaCha20Poly1305::new(key);
+        let key = Key::try_from(key_bytes.as_slice())
+            .map_err(|_| anyhow::anyhow!("Secret key must be {KEY_LEN} bytes"))?;
+        let cipher = ChaCha20Poly1305::new(&key);
 
         let plaintext_bytes = cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|_| anyhow::anyhow!("Decryption failed — wrong key or tampered data"))?;
 
         String::from_utf8(plaintext_bytes)
@@ -277,7 +280,7 @@ fn xor_cipher(data: &[u8], key: &[u8]) -> Vec<u8> {
 /// Uses `OsRng` (via `getrandom`) directly, providing full 256-bit entropy
 /// without the fixed version/variant bits that UUID v4 introduces.
 fn generate_random_key() -> Vec<u8> {
-    ChaCha20Poly1305::generate_key(&mut OsRng).to_vec()
+    Key::generate().to_vec()
 }
 
 /// Hex-encode bytes to a lowercase hex string.

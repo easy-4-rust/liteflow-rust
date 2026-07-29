@@ -375,12 +375,7 @@ impl Node {
     /// `n=0` 表示当前层。对应 Java: `Node#getPreNLoopObject`。
     #[must_use]
     pub fn get_pre_n_loop_object<'a>(&self, frame: &'a Frame, n: usize) -> Option<&'a Value> {
-        frame
-            .loops
-            .len()
-            .checked_sub(n + 1)
-            .and_then(|index| frame.loops.get(index))
-            .and_then(|(_, object)| object.as_ref())
+        frame.loop_object_at(n)
     }
 
     /// 返回提前计算的 isAccess 结果。
@@ -395,7 +390,7 @@ impl Node {
     /// 保存提前计算的 isAccess 结果。
     ///
     /// 参数 `access_result` 对应 Java 同名参数。对应 Java: `Node#setAccessResult`。
-    pub fn set_access_result(&self, frame: &mut Frame, access_result: bool) {
+    pub fn set_access_result(&self, frame: &Frame, access_result: bool) {
         frame.set_node_access_result(self.get_id().to_string(), access_result);
     }
 
@@ -442,9 +437,9 @@ impl Node {
         frame.set_loop_index_for(condition_key, index);
     }
 
-    /// 删除当前循环下标及其关联对象。对应 Java: `Node#removeLoopIndex`。
+    /// 删除当前循环下标，不影响独立的循环对象栈。对应 Java: `Node#removeLoopIndex`。
     pub fn remove_loop_index(&self, frame: &mut Frame) {
-        frame.pop_loop();
+        frame.pop_loop_index();
     }
 
     /// 设置当前循环对象。
@@ -455,9 +450,9 @@ impl Node {
         frame.set_loop_object_for(condition_key, object);
     }
 
-    /// 删除当前循环对象及其关联下标。对应 Java: `Node#removeCurrLoopObject`。
+    /// 删除当前循环对象，不影响独立的循环下标栈。对应 Java: `Node#removeCurrLoopObject`。
     pub fn remove_curr_loop_object(&self, frame: &mut Frame) {
-        frame.pop_loop();
+        frame.pop_loop_object();
     }
 
     /// 返回当前 Slot 在 DataBus 中的索引。
@@ -594,14 +589,14 @@ impl Node {
             frame: frame.clone(),
         };
 
-        // isAccess
-        if !self.instance.is_access(&cctx) {
-            return Ok(Value::Null);
-        }
-
+        let component_name = self
+            .instance
+            .display_name_async(&cctx)
+            .await?
+            .unwrap_or_else(|| self.instance.name().to_string());
         let mut step = CmpStep::new(
             self.display_name().to_string(),
-            self.instance.name(),
+            component_name,
             CmpStepTypeEnum::Single,
         );
         step.node_instance_id = self.node_instance_id.clone();
@@ -622,7 +617,7 @@ impl Node {
 
         // 真实调用 Java 对等入口 NodeComponent#execute；组件钩子、全局切面和
         // 有返回值结果缓存由该入口统一维护，Node 继续负责步骤、监控和重试。
-        let result = self.instance.execute(&cctx, frame, &self.hooks).await;
+        let mut result = self.instance.execute(&cctx, frame, &self.hooks).await;
         if let Err(error) = &result
             && !matches!(error, LiteflowError::ChainEnd(_))
         {
@@ -632,8 +627,13 @@ impl Node {
         // Java Node 在成功和异常两条路径都会再次调用组件 isEnd；脚本执行器可在
         // process 之外动态决定结束流程。命中后写回共享 Slot，确保后续分支立即
         // 观察到结束状态，并让 ChainEnd 优先于普通错误/continue-on-error。
-        if self.instance.is_end(&cctx) {
-            ctx.inner.ended.store(true, Ordering::Release);
+        match self.instance.is_end_async(&cctx).await {
+            Ok(true) => ctx.inner.ended.store(true, Ordering::Release),
+            Ok(false) => {}
+            Err(error) if result.is_ok() => result = Err(error),
+            Err(_) => {
+                // 主处理异常优先，保持 Java execute 原始异常不被 isEnd 覆盖。
+            }
         }
 
         match result {
@@ -693,9 +693,9 @@ impl Node {
                         self.display_name()
                     )));
                 }
-                if cctx.frame.get_node_continue_on_error_result(self.get_id())
-                    || self.instance.is_continue_on_error_with_context(&cctx)
-                {
+                let continue_on_error = cctx.frame.get_node_continue_on_error_result(self.get_id())
+                    || self.instance.is_continue_on_error_async(&cctx).await?;
+                if continue_on_error {
                     return Ok(Value::Null);
                 }
                 Err(LiteflowError::NodeExec {
@@ -715,9 +715,66 @@ impl Executable for Node {
     /// 取得节点执行器（组件优先，否则解析全局 nodeExecutorClass），
     /// 委托执行器的重试主干执行（NodeExecutor.execute → 循环调用 execute_once）。
     async fn execute(&self, ctx: &Ctx, frame: &Frame) -> LFResult<Value> {
-        let executor = crate::flow::executor::NodeExecutorHelper::load_instance()
-            .try_build_node_executor(self.instance.node_executor())?;
-        executor.execute(self, ctx, frame).await
+        let component_context = CmpContext {
+            inner: ctx.inner.clone(),
+            node: self.node_ref.clone(),
+            frame: frame.clone(),
+        };
+
+        // Java Node#execute 在进入 NodeExecutor 重试主干前只判断一次 isAccess。
+        // AND/OR、WHEN 的预过滤结果为 true 时直接复用，避免有副作用的
+        // isAccess 被重复调用；false 仍按 Java 的 OR 逻辑重新求值。
+        let access = if frame.get_node_access_result(self.get_id()) {
+            true
+        } else {
+            match self.instance.is_access_async(&component_context).await {
+                Ok(access) => access,
+                Err(error) => {
+                    frame.remove_node_access_result(self.get_id());
+                    if self.instance.is_end_async(&component_context).await? {
+                        return Err(LiteflowError::ChainEnd(format!(
+                            "[{}] lead the chain to end",
+                            self.display_name()
+                        )));
+                    }
+                    let continue_on_error = frame.get_node_continue_on_error_result(self.get_id())
+                        || self
+                            .instance
+                            .is_continue_on_error_async(&component_context)
+                            .await?;
+                    return if continue_on_error {
+                        Ok(Value::Null)
+                    } else {
+                        Err(error)
+                    };
+                }
+            }
+        };
+        if !access {
+            frame.remove_node_access_result(self.get_id());
+            return Ok(Value::Null);
+        }
+
+        let result = async {
+            let helper = crate::flow::executor::NodeExecutorHelper::load_instance();
+            let executor = if let Some(executor) = self.instance.node_executor() {
+                helper.try_build_node_executor(Some(executor))?
+            } else {
+                match self
+                    .instance
+                    .node_executor_class_async(&component_context)
+                    .await?
+                {
+                    Some(class_name) => helper.try_build_node_executor_class(&class_name)?,
+                    None => helper.try_build_node_executor(None)?,
+                }
+            };
+            executor.execute(self, ctx, frame).await
+        }
+        .await;
+        // 对齐 Java finally：无论执行器成功、失败还是构建失败，都清除预计算结果。
+        frame.remove_node_access_result(self.get_id());
+        result
     }
 
     fn execute_type(&self) -> crate::enums::ExecuteableTypeEnum {
@@ -739,7 +796,13 @@ impl Executable for Node {
             node: self.node_ref.clone(),
             frame: frame.clone(),
         };
-        self.instance.is_access(&cctx)
+        // AND/OR 等条件会在真正执行前先调用该入口过滤不可访问项；声明式
+        // `IS_ACCESS` 必须与 execute_once 使用同一异步代理路径。
+        self.instance.is_access_async(&cctx).await.unwrap_or(false)
+    }
+
+    fn set_access_result(&self, frame: &Frame, access_result: bool) {
+        Node::set_access_result(self, frame, access_result);
     }
 }
 
@@ -755,9 +818,14 @@ impl Rollbackable for Node {
             node: self.node_ref.clone(),
             frame: frame.clone(),
         };
+        let component_name = self
+            .instance
+            .display_name_async(&component_context)
+            .await?
+            .unwrap_or_else(|| self.instance.name().to_string());
         let mut step = CmpStep::new(
             self.display_name().to_string(),
-            self.instance.name(),
+            component_name,
             CmpStepTypeEnum::Single,
         );
         step.node_instance_id = self.node_instance_id.clone();

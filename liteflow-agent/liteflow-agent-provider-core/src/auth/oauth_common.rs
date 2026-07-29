@@ -43,10 +43,8 @@ pub fn generate_pkce_state() -> PkceState {
 
 /// Generate a cryptographically random base64url-encoded string.
 pub fn random_base64url(byte_len: usize) -> String {
-    use chacha20poly1305::aead::{OsRng, rand_core::RngCore};
-
     let mut bytes = vec![0_u8; byte_len];
-    OsRng.fill_bytes(&mut bytes);
+    getrandom::fill(&mut bytes).expect("operating system random source unavailable");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 

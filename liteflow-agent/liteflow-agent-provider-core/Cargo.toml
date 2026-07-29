@@ -24,6 +24,7 @@ base64 = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 # auth（可选，oauth 需要）
 chacha20poly1305 = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 # codex（可选，websocket 需要）
 tokio-tungstenite = { workspace = true, optional = true }
@@ -35,5 +36,5 @@ tempfile = "3.27"
 [features]
 default = []
 multimodal = ["dep:base64", "dep:image"]
-auth = ["dep:chacha20poly1305", "dep:sha2", "dep:base64"]
+auth = ["dep:chacha20poly1305", "dep:getrandom", "dep:sha2", "dep:base64"]
 codex = ["auth", "multimodal", "dep:tokio-tungstenite", "dep:directories"]

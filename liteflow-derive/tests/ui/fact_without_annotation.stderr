@@ -1,4 +1,4 @@
-error: CmpContext 之后的参数必须标注 #[liteflow_fact("beanName")]
+error: CmpContext 之后仅 ON_ERROR 的首个参数可接收 &LiteflowError，其余参数必须标注 #[liteflow_fact("beanName")]
   --> tests/ui/fact_without_annotation.rs:16:9
    |
 16 |         missing_annotation: Arc<String>,

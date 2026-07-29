@@ -15,7 +15,8 @@ impl BaseOperator for DefaultOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let default = OperatorHelper::one_expression(objects, self.operator_name())?;
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::Switch { node, targets, .. } => Ok(El::Switch {
                 node,
                 targets,
@@ -24,6 +25,6 @@ impl BaseOperator for DefaultOperator {
             _ => Err(LiteflowError::Parse(
                 "DEFAULT must follow SWITCH/TO".to_string(),
             )),
-        }
+        })
     }
 }

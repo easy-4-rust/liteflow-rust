@@ -19,6 +19,16 @@ use serde_json::{Value, json};
 /// 对应 Java 测试中的自定义 `NodeComponent` 实现。
 struct ContextAwareComponent;
 
+/// 仅实现抽象 process，用于覆盖 NodeComponent 的 Java 默认方法。
+struct DefaultMethodsComponent;
+
+#[async_trait]
+impl NodeComponent for DefaultMethodsComponent {
+    async fn process(&self, _ctx: &CmpContext) -> LFResult<Value> {
+        Ok(Value::Null)
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct Sku {
     sku: String,
@@ -161,10 +171,17 @@ fn java_named_context_helpers_read_and_mutate_real_slot_and_frame_state() {
     node_ref
         .bind
         .push(("invalid_number".to_string(), "not-a-number".to_string()));
+    node_ref
+        .bind
+        .push(("blank_fallback".to_string(), "   ".to_string()));
 
     let frame = Frame::root()
         .push(3, Some(json!("outer")))
         .push(7, Some(json!("inner")))
+        .push_bind(&[(
+            "blank_fallback".to_string(),
+            r#"{"name":"Grace"}"#.to_string(),
+        )])
         .with_current_chain_id("child-chain")
         .with_runtime_id(42);
     let ctx = context(Arc::clone(&slot), node_ref, frame);
@@ -269,6 +286,14 @@ fn java_named_context_helpers_read_and_mutate_real_slot_and_frame_state() {
         component.get_bind_data(&ctx, "customer").as_deref(),
         Some(r#"{"name":"Ada"}"#)
     );
+    assert_eq!(
+        component
+            .get_bind_data_as::<Customer>(&ctx, "blank_fallback")
+            .expect("Node 级空白 bind 应按 Java StrUtil.isBlank 继续回退 Condition"),
+        Some(Customer {
+            name: "Grace".to_string()
+        })
+    );
     assert!(matches!(
         component.get_bind_data_as::<u64>(&ctx, "invalid_number"),
         Err(LiteflowError::ObjectConvert(_))
@@ -286,6 +311,143 @@ fn java_named_context_helpers_read_and_mutate_real_slot_and_frame_state() {
     );
     assert_eq!(component.get_private_delivery_data(&ctx), None);
     assert!(DataBus::release_slot(slot_index));
+}
+
+/// 验证 Java `StrUtil.isBlank` 对组件数据和绑定数据的空白判定。
+#[test]
+fn blank_component_and_bind_data_are_observed_as_absent() {
+    let slot = Arc::new(Slot::new(
+        "request-blank-data".to_string(),
+        "main-chain",
+        Value::Null,
+    ));
+    let mut node_ref = NodeRef::new("context-node");
+    node_ref.data = Some(" \n\t ".to_string());
+    node_ref.bind.push(("blank".to_string(), "  ".to_string()));
+    let ctx = context(slot, node_ref, Frame::root());
+    let component = ContextAwareComponent;
+
+    assert_eq!(component.get_cmp_data(&ctx), None);
+    assert_eq!(
+        component
+            .get_cmp_data_as::<String>(&ctx)
+            .expect("空白组件数据不应触发转换"),
+        None
+    );
+    assert_eq!(component.get_cmp_data_list(&ctx), None);
+    assert_eq!(component.get_bind_data(&ctx, "blank"), None);
+    assert_eq!(
+        component
+            .get_bind_data_as::<String>(&ctx, "blank")
+            .expect("空白 bind 不应触发转换"),
+        None
+    );
+    assert_eq!(component.get_bind_data_list(&ctx, "blank"), None);
+}
+
+/// 验证 NodeComponent 默认入口、错误转换与空上下文边界均有真实行为。
+#[tokio::test]
+#[allow(deprecated)]
+async fn java_default_methods_and_conversion_errors_preserve_observable_contracts() {
+    let slot = Arc::new(Slot::new(
+        "request-default-methods".to_string(),
+        "main-chain",
+        Value::Null,
+    ));
+    slot.insert_context_bean(
+        "order",
+        Arc::new(json!({
+            "customer": {"name": "Ada"},
+            "name": "Grace",
+            "count": 7,
+            "nothing": null
+        })),
+    );
+    let mut node_ref = NodeRef::new("runtime-node");
+    node_ref.data = Some("not-json".to_string());
+    node_ref
+        .bind
+        .push(("empty_expression".to_string(), "${   }".to_string()));
+    node_ref
+        .bind
+        .push(("bad_list".to_string(), "not-json".to_string()));
+    node_ref
+        .bind
+        .push(("string_expression".to_string(), "${order.name}".to_string()));
+    node_ref.bind.push((
+        "number_expression".to_string(),
+        "${order.count}".to_string(),
+    ));
+    node_ref.bind.push((
+        "null_expression".to_string(),
+        "${order.nothing}".to_string(),
+    ));
+    let ctx = context(
+        Arc::clone(&slot),
+        node_ref,
+        Frame::root()
+            .push(1, Some(json!("outer")))
+            .with_current_chain_id("child-chain"),
+    );
+    let component = DefaultMethodsComponent;
+
+    assert_eq!(component.get_node_id(), "");
+    assert_eq!(component.get_name(), "");
+    assert_eq!(component.get_type(), None);
+    assert_eq!(component.get_display_name(), "");
+    assert_eq!(component.get_retry_count(), 0);
+    assert!(component.get_node_executor_class().is_none());
+    assert!(
+        !component
+            .unload_script("runtime-node")
+            .expect("默认卸载应成功")
+    );
+    component
+        .rollback(&ctx)
+        .await
+        .expect("默认 rollback 应为空成功实现");
+    component
+        .do_rollback(&ctx)
+        .await
+        .expect("默认 doRollback 应委托默认 rollback");
+    assert_eq!(component.get_chain_name(&ctx), "main-chain");
+    assert_eq!(component.get_ref_node(&ctx).id, "runtime-node");
+
+    component.send_private_delivery_data(&ctx, "runtime-node", json!("fallback"));
+    assert_eq!(
+        component.get_private_delivery_data(&ctx),
+        Some(json!("fallback")),
+        "默认空 nodeId 应回退当前 NodeRef ID"
+    );
+    assert!(matches!(
+        component.get_cmp_data_list_as::<Sku>(&ctx),
+        Err(LiteflowError::ObjectConvert(_))
+    ));
+    assert_eq!(
+        component
+            .get_bind_data_as::<String>(&ctx, "empty_expression")
+            .expect("空表达式应按未命中处理"),
+        None
+    );
+    assert!(matches!(
+        component.get_bind_data_list_as::<u64>(&ctx, "bad_list"),
+        Err(LiteflowError::ObjectConvert(_))
+    ));
+    assert_eq!(
+        component.get_bind_data(&ctx, "string_expression"),
+        Some("Grace".to_string())
+    );
+    assert_eq!(
+        component.get_bind_data(&ctx, "number_expression"),
+        Some("7".to_string())
+    );
+    assert_eq!(component.get_bind_data(&ctx, "null_expression"), None);
+    assert!(matches!(
+        component.get_bind_data_as::<Customer>(&ctx, "string_expression"),
+        Err(LiteflowError::ObjectConvert(_))
+    ));
+    assert!(!component.set_context_value(&ctx, "missing.setValue", &[json!(1)]));
+    assert_eq!(component.get_pre_n_loop_obj(&ctx, 2), None);
 }
 
 /// 验证 FlowExecutor 的真实执行路径无需测试代码手工调用 setChainReqData。

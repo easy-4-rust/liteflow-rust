@@ -15,7 +15,8 @@ impl BaseOperator for ElseOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let false_branch = OperatorHelper::one_expression(objects, self.operator_name())?;
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::If {
                 cond, then, elifs, ..
             } => Ok(El::If {
@@ -25,6 +26,6 @@ impl BaseOperator for ElseOperator {
                 els: Some(Box::new(false_branch)),
             }),
             _ => Err(LiteflowError::Parse("ELSE must follow IF/ELIF".to_string())),
-        }
+        })
     }
 }

@@ -4,8 +4,7 @@ use crate::exception::{LFResult, LiteflowError};
 
 /// EL 规则中的 PARALLEL 循环并行操作符。
 ///
-/// Java 接受布尔值；Rust 兼容历史的数字并行度写法，当前执行器以 Option
-/// 判断是否并行，数值保留在 AST 中供后续受限并发实现使用。
+/// Java 只接受布尔值，并直接写入 LoopCondition.parallel。
 /// 对应 Java: `com.yomahub.liteflow.builder.el.operator.ParallelOperator`。
 pub struct ParallelOperator;
 
@@ -16,16 +15,15 @@ impl BaseOperator for ParallelOperator {
 
     fn build(&self, caller: Option<El>, objects: Vec<Arg>) -> LFResult<El> {
         let parallel = match objects.as_slice() {
-            [Arg::Num(value)] if *value >= 0.0 => Some(*value as usize),
-            [Arg::Bool(true)] => Some(0),
-            [Arg::Bool(false)] => None,
+            [Arg::Bool(parallel)] => *parallel,
             _ => {
                 return Err(LiteflowError::Parse(
-                    "PARALLEL requires a non-negative number or bool".to_string(),
+                    "PARALLEL requires one boolean".to_string(),
                 ));
             }
         };
-        match OperatorHelper::require_caller(caller, self.operator_name())? {
+        let caller = OperatorHelper::require_caller(caller, self.operator_name())?;
+        OperatorHelper::map_through_property_mods(caller, |caller| match caller {
             El::For {
                 node, body, brk, ..
             } => Ok(El::For {
@@ -61,6 +59,6 @@ impl BaseOperator for ParallelOperator {
             _ => Err(LiteflowError::Parse(
                 "PARALLEL must follow FOR/WHILE/ITERATOR".to_string(),
             )),
-        }
+        })
     }
 }

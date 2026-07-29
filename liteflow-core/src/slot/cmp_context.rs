@@ -74,14 +74,15 @@ impl CmpContext {
     }
     /// getCmpData(String.class)
     pub fn cmp_data(&self) -> Option<&str> {
-        self.node.data.as_deref()
+        self.frame
+            .chain_cmp_data()
+            .or_else(|| self.node.data.as_deref())
+            .filter(|data| !data.trim().is_empty())
     }
     /// getCmpData 反序列化
     pub fn cmp_data_as<T: DeserializeOwned>(&self) -> Option<T> {
-        self.node
-            .data
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
+        self.cmp_data()
+            .and_then(|data| serde_json::from_str(data).ok())
     }
     /// bindData（2.16 语义：先查 Node 级 bind，找不到再从
     /// Condition 栈顶向下查找，正确处理 chain.bind / THEN(...).bind 场景）
@@ -92,10 +93,13 @@ impl CmpContext {
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
+            .filter(|value| !value.trim().is_empty())
         {
             return Some(v);
         }
-        self.frame.find_bind(key)
+        self.frame
+            .find_bind(key)
+            .filter(|value| !value.trim().is_empty())
     }
 
     /// 返回当前 SWITCH 表达式可选择的目标节点 ID。
