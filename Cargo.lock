@@ -7439,6 +7439,7 @@ version = "0.0.0-dev"
 dependencies = [
  "tokio",
  "tokio-util",
+ "tracing",
  "vernal-core",
 ]
 
