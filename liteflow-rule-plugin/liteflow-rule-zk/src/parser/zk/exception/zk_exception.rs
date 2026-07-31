@@ -41,8 +41,8 @@ impl Display for ZkException {
 
 impl std::error::Error for ZkException {}
 
-impl From<zookeeper::ZkError> for ZkException {
-    fn from(error: zookeeper::ZkError) -> Self {
+impl From<zookeeper_client::Error> for ZkException {
+    fn from(error: zookeeper_client::Error) -> Self {
         Self::new(error.to_string())
     }
 }

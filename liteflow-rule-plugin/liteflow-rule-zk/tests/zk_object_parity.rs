@@ -8,7 +8,7 @@ use liteflow_core::parser::ParserClassNameSpi;
 use liteflow_core::rule_plugin::{RuleSource, RuleSourceWatcher};
 use liteflow_rule_zk::parser::spi::zk::ZkParserClassNameSpi;
 use liteflow_rule_zk::{ZkParserVO, ZkRuleSource};
-use zookeeper::{Acl, CreateMode, ZooKeeper, ZooKeeperExt};
+use zookeeper_client::{Acls, Client, CreateMode};
 
 const ZOOKEEPER_IMAGE: &str = "zookeeper:3.9.3";
 
@@ -60,11 +60,14 @@ impl ZkServer {
             connect_str: format!("127.0.0.1:{port}"),
         };
         for _ in 0..120 {
-            if let Ok(client) =
-                ZooKeeper::connect(&server.connect_str, Duration::from_secs(3), |_| {})
-                && client.exists("/", false).is_ok()
+            if let Ok(client) = Client::connector()
+                .with_session_timeout(Duration::from_secs(5))
+                .with_connection_timeout(Duration::from_secs(3))
+                .connect(&server.connect_str)
+                .await
+                && client.get_children("/").await.is_ok()
             {
-                let _ = client.close();
+                drop(client);
                 return Some(server);
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -83,14 +86,14 @@ impl Drop for ZkServer {
     }
 }
 
-fn create_node(client: &ZooKeeper, path: &str, data: &str) {
+async fn create_node(client: &Client, path: &str, data: &str) {
     client
         .create(
             path,
-            data.as_bytes().to_vec(),
-            Acl::open_unsafe().clone(),
-            CreateMode::Persistent,
+            data.as_bytes(),
+            &CreateMode::Persistent.with_acls(Acls::anyone_all()),
         )
+        .await
         .expect("应能创建 ZooKeeper 测试节点");
 }
 
@@ -126,20 +129,30 @@ async fn real_zookeeper_child_aggregation_and_persistent_watch_are_executed() {
     let Some(server) = ZkServer::start().await else {
         return;
     };
-    let admin = ZooKeeper::connect(&server.connect_str, Duration::from_secs(5), |_| {})
+    let admin = Client::connect(&server.connect_str)
+        .await
         .expect("应能连接真实 ZooKeeper");
     admin
-        .ensure_path("/liteflow/chain")
+        .mkdir(
+            "/liteflow/chain",
+            &CreateMode::Persistent.with_acls(Acls::anyone_all()),
+        )
+        .await
         .expect("应能创建 Chain 根路径");
     admin
-        .ensure_path("/liteflow/script")
+        .mkdir(
+            "/liteflow/script",
+            &CreateMode::Persistent.with_acls(Acls::anyone_all()),
+        )
+        .await
         .expect("应能创建 Script 根路径");
-    create_node(&admin, "/liteflow/chain/first:true", "THEN(script_node)");
+    create_node(&admin, "/liteflow/chain/first:true", "THEN(script_node)").await;
     create_node(
         &admin,
         "/liteflow/script/script_node:script:script:rhai:true",
         "40 + 2",
-    );
+    )
+    .await;
 
     let source = ZkRuleSource::new(&server.connect_str, "/liteflow/chain")
         .expect("ZooKeeper 规则源配置应有效")
@@ -158,14 +171,16 @@ async fn real_zookeeper_child_aggregation_and_persistent_watch_are_executed() {
         .expect("初始 ZooKeeper 规则应装载成功");
     parser
         .listen(watcher)
+        .await
         .expect("ZooKeeper 持久递归 Watch 应安装成功");
     assert!(bus.contains_chain("first"));
     assert!(bus.contains_node("script_node"));
 
     admin
         .delete("/liteflow/chain/first:true", None)
+        .await
         .expect("应能删除旧 Chain");
-    create_node(&admin, "/liteflow/chain/second:true", "THEN(script_node)");
+    create_node(&admin, "/liteflow/chain/second:true", "THEN(script_node)").await;
     for _ in 0..150 {
         if bus.contains_chain("second") && !bus.contains_chain("first") {
             break;
@@ -177,6 +192,7 @@ async fn real_zookeeper_child_aggregation_and_persistent_watch_are_executed() {
 
     admin
         .delete("/liteflow/script/script_node:script:script:rhai:true", None)
+        .await
         .expect("应能删除 Script 节点");
     for _ in 0..100 {
         if !bus.contains_node("script_node") {
@@ -186,8 +202,7 @@ async fn real_zookeeper_child_aggregation_and_persistent_watch_are_executed() {
     }
     assert!(!bus.contains_node("script_node"));
 
-    let _ = parser.helper().client().close();
-    let _ = admin.close();
+    drop(admin);
 }
 
 #[test]

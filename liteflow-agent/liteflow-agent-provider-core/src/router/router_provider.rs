@@ -20,6 +20,7 @@ pub struct RouterProvider {
     routes: HashMap<String, (usize, String)>, // hint → (provider_index, model)
     providers: Vec<(String, Box<dyn Provider>)>,
     default_index: usize,
+    #[allow(dead_code)] // 预留：默认模型名，供后续 fallback 路由使用
     default_model: String,
     /// Vision support override from config (`None` = defer to providers).
     vision_override: Option<bool>,

@@ -28,13 +28,13 @@ impl ZkXmlELParser {
     /// 聚合 Chain/Script 子节点为 XML。
     ///
     /// 对应 Java `ZkXmlELParser#parseCustom`。
-    pub fn parse_custom(&self) -> Result<String, ZkException> {
-        self.helper.get_content()
+    pub async fn parse_custom(&self) -> Result<String, ZkException> {
+        self.helper.get_content().await
     }
 
     /// 安装 ZooKeeper 原生持久递归 Watch。
-    pub fn listen(&self, watcher: RuleSourceWatcher) -> Result<(), ZkException> {
-        self.helper.listen_zk_node(watcher)
+    pub async fn listen(&self, watcher: RuleSourceWatcher) -> Result<(), ZkException> {
+        self.helper.listen_zk_node(watcher).await
     }
 
     /// 返回解析器配置。

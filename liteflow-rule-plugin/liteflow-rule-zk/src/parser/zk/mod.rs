@@ -2,7 +2,6 @@ pub mod exception;
 pub mod util;
 pub mod vo;
 
-mod nop_watcher;
 mod zk_rule_source;
 mod zk_xml_el_parser;
 

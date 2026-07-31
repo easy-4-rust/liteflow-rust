@@ -45,10 +45,11 @@ impl ZkRuleSource {
 impl RuleSource for ZkRuleSource {
     /// 聚合 Chain/Script 子节点为 XML。对应 Java `ZkXmlELParser#parseCustom`。
     async fn fetch(&self) -> LFResult<(String, String)> {
-        let parser = self.parser.clone();
-        let text = tokio::task::spawn_blocking(move || parser.parse_custom())
+        let text = self
+            .parser
+            .parse_custom()
             .await
-            .map_err(|error| LiteflowError::Rule(format!("zk task error: {error}")))??;
+            .map_err(LiteflowError::from)?;
         Ok((text.clone(), fnv_fp(&text)))
     }
 
