@@ -461,6 +461,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aspect-core"
+version = "0.1.0"
+
+[[package]]
+name = "aspect-std"
+version = "0.1.0"
+dependencies = [
+ "aspect-core",
+ "log",
+ "parking_lot",
+]
+
+[[package]]
 name = "async-compression"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7437,6 +7450,8 @@ dependencies = [
 name = "vernal-aop"
 version = "0.0.0-dev"
 dependencies = [
+ "aspect-core",
+ "aspect-std",
  "tokio",
  "tokio-util",
  "tracing",
