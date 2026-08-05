@@ -164,16 +164,16 @@ impl MethodWrapBean {
         context: &CmpContext,
     ) -> LFResult<Value> {
         for parameter in &self.parameter_wrap_bean_list {
-            if let Some(fact) = parameter.fact() {
-                if !context.inner.beans.contains_key(fact) {
-                    return Err(LiteflowError::ParameterFact(format!(
-                        "decl method[{}] parameter[{}:{}] fact bean[{}] not found",
-                        self.method.method_name(),
-                        parameter.index(),
-                        parameter.parameter_type(),
-                        fact
-                    )));
-                }
+            if let Some(fact) = parameter.fact()
+                && !context.inner.beans.contains_key(fact)
+            {
+                return Err(LiteflowError::ParameterFact(format!(
+                    "decl method[{}] parameter[{}:{}] fact bean[{}] not found",
+                    self.method.method_name(),
+                    parameter.index(),
+                    parameter.parameter_type(),
+                    fact
+                )));
             }
         }
         raw_bean.call(self.method.method_name(), context).await

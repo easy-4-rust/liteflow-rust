@@ -146,17 +146,14 @@ impl NodeComponent for DeclMethodComponent {
     }
 
     async fn is_end_async(&self, ctx: &CmpContext) -> Result<bool, LiteflowError> {
-        if self.lifecycle_node {
-            match self.call_lifecycle(LiteFlowMethodEnum::IsEnd, ctx).await? {
-                Some(value) => {
-                    return value.as_bool().ok_or_else(|| {
-                        LiteflowError::CmpDefine(format!(
-                            "decl method[isEnd] must return boolean, got {value}"
-                        ))
-                    });
-                }
-                None => {}
-            }
+        if self.lifecycle_node
+            && let Some(value) = self.call_lifecycle(LiteFlowMethodEnum::IsEnd, ctx).await?
+        {
+            return value.as_bool().ok_or_else(|| {
+                LiteflowError::CmpDefine(format!(
+                    "decl method[isEnd] must return boolean, got {value}"
+                ))
+            });
         }
         Ok(ctx.inner.ended.load(std::sync::atomic::Ordering::Acquire))
     }

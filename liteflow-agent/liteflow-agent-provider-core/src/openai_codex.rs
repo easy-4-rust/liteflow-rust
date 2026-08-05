@@ -408,7 +408,7 @@ fn build_responses_input(messages: &[ChatMessage]) -> (String, Vec<ResponsesInpu
     }
 
     let instructions = if system_parts.is_empty() {
-        DEFAULT_CODEX_INSTRUCTIONS.to_string()
+        resolve_instructions(None)
     } else {
         system_parts.join("\n\n")
     };

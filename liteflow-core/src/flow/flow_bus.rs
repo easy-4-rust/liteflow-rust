@@ -574,11 +574,10 @@ impl FlowBus {
             let Some(chains) = chains.upgrade() else {
                 return;
             };
-            if let Some((_, chain)) = chains.remove(chain_id) {
-                if let (Some(el_md5), Some(el_md5_map)) = (chain.get_el_md5(), el_md5_map.upgrade())
-                {
-                    el_md5_map.remove(el_md5);
-                }
+            if let Some((_, chain)) = chains.remove(chain_id)
+                && let (Some(el_md5), Some(el_md5_map)) = (chain.get_el_md5(), el_md5_map.upgrade())
+            {
+                el_md5_map.remove(el_md5);
             }
         })
     }

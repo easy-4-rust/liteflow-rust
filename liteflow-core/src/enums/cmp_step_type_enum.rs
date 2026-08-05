@@ -7,13 +7,14 @@
 /// 区分组件开始、结束以及合并后的单条步骤。
 ///
 /// 对应 Java: `com.yomahub.liteflow.enums.CmpStepTypeEnum`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CmpStepTypeEnum {
     /// 开始步骤
     Start,
     /// 结束步骤
     End,
     /// 合并为单条步骤
+    #[default]
     Single,
 }
 
@@ -33,11 +34,5 @@ impl CmpStepTypeEnum {
             Self::End => "END",
             Self::Single => "SINGLE",
         }
-    }
-}
-
-impl Default for CmpStepTypeEnum {
-    fn default() -> Self {
-        Self::Single
     }
 }

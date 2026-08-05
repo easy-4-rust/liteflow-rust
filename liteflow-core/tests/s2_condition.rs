@@ -357,3 +357,30 @@ async fn catch_do_success_clears_slot_exception() {
     assert!(!resp2.is_success());
     assert!(resp2.slot_exception().is_some());
 }
+
+/// 探针：直接构造 CatchCondition 验证 execute 路径覆盖
+#[tokio::test]
+async fn probe_catch_direct_execute() {
+    let log = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+    struct FailStub;
+    #[async_trait::async_trait]
+    impl Executable for FailStub {
+        async fn execute(&self, _ctx: &Ctx, _frame: &Frame) -> LFResult<Value> {
+            Err(LiteflowError::Custom("boom".into()))
+        }
+        fn id(&self) -> &str {
+            "fail"
+        }
+    }
+    let catch = CatchCondition::new(Arc::new(FailStub), Some(Stub::new("dook", true, &log)));
+    let (ctx, frame) = ctx_frame();
+    let r = catch.execute_condition(&ctx, &frame).await;
+    assert!(r.is_ok());
+    assert_eq!(*log.lock().unwrap(), vec!["dook"]);
+    assert_eq!(ctx.inner.exception.lock().unwrap().as_ref(), None);
+    // 无 DO：异常继续抛出
+    let catch2 = CatchCondition::new(Arc::new(FailStub), None);
+    let (ctx2, frame2) = ctx_frame();
+    let r2 = catch2.execute_condition(&ctx2, &frame2).await;
+    assert!(r2.is_err());
+}

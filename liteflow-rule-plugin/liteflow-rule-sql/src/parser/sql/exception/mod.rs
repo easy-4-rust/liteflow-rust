@@ -1,3 +1,3 @@
-mod el_sql_exception;
+mod elsql_exception;
 
-pub use el_sql_exception::ELSQLException;
+pub use elsql_exception::ELSQLException;

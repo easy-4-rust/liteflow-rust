@@ -80,7 +80,8 @@ impl ZkParserHelper {
             if content.trim().is_empty() {
                 continue;
             }
-            chain_xml.push_str(&RuleParsePluginUtil::parse_chain_key(&chain_name).to_el_xml(&content));
+            chain_xml
+                .push_str(&RuleParsePluginUtil::parse_chain_key(&chain_name).to_el_xml(&content));
         }
 
         let script_xml = if self.has_script().await {
@@ -90,9 +91,7 @@ impl ZkParserHelper {
             let mut items = String::new();
             for script_name in script_names {
                 let mut node = NodeConvertHelper::convert(&script_name).ok_or_else(|| {
-                    ZkException::new(format!(
-                        "The name of the zk node is invalid:{script_name}"
-                    ))
+                    ZkException::new(format!("The name of the zk node is invalid:{script_name}"))
                 })?;
                 let path = child_path(script_path, &script_name);
                 let content = get_node_content(&client, &path).await?;
@@ -208,9 +207,7 @@ impl ZkParserHelper {
             }
             let script_name = event.path.rsplit('/').next().unwrap_or_default();
             match NodeConvertHelper::convert(script_name) {
-                Some(node)
-                    if event.event_type == EventType::NodeDeleted || !node.enable() =>
-                {
+                Some(node) if event.event_type == EventType::NodeDeleted || !node.enable() => {
                     watcher.unload_script_node(node.node_id());
                 }
                 Some(_) => {

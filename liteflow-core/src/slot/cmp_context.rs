@@ -76,7 +76,7 @@ impl CmpContext {
     pub fn cmp_data(&self) -> Option<&str> {
         self.frame
             .chain_cmp_data()
-            .or_else(|| self.node.data.as_deref())
+            .or(self.node.data.as_deref())
             .filter(|data| !data.trim().is_empty())
     }
     /// getCmpData 反序列化

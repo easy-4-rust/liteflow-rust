@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// 日志内容会折叠空白并限制长度，避免模型思考、工具参数或执行结果无限放大日志。
 /// 格式化过程不改变原事件，也不会阻断后续 Hook。
 ///
-/// 对应 Java: `com.yomahub.liteflow.agent.core.hook.ReActLoggingHook`。
+/// 对应 Java: `com.yomahub.liteflow.agent.hook.ReActLoggingHook`。
 pub struct ReActLoggingHook {
     session_id: String,
     reasoning_events_observed: AtomicBool,

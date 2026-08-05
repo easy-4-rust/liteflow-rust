@@ -1625,6 +1625,11 @@ async fn parse_one_on_first_exec_supports_file_rule_source() {
             ..LiteflowConfig::default()
         },
     );
+    // 对应 Java `LiteflowExecutorInit#afterSingletonsInstantiated` 的
+    // `flowExecutor.init(true)` + `FlowBus.needInit()`：领取首次初始化门闩，
+    // 使后续执行只走 vernal 的按链延迟计划，而不是被 FlowExecutor 内部的
+    // needInit 兜底分支全量解析（该兜底只服务于无容器直接使用 core 的场景）。
+    runtime.initialize_executor().unwrap();
 
     let response = runtime
         .try_execute("child_chain", Value::Null)

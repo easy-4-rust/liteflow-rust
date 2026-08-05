@@ -3,7 +3,7 @@
 use liteflow_core::rule_plugin::RuleSourceWatcher;
 
 use super::exception::NacosException;
-use super::util::NacosParseHelper;
+use super::util::NacosParserHelper;
 use super::vo::NacosParserVO;
 
 /// 仅支持 EL 形式 XML 的 Nacos 解析器。
@@ -12,7 +12,7 @@ use super::vo::NacosParserVO;
 #[derive(Debug, Clone)]
 pub struct NacosXmlELParser {
     config: NacosParserVO,
-    helper: NacosParseHelper,
+    helper: NacosParserHelper,
 }
 
 impl NacosXmlELParser {
@@ -21,7 +21,7 @@ impl NacosXmlELParser {
     /// 对应 Java `NacosXmlELParser#NacosXmlELParser`。
     pub fn new(config: NacosParserVO) -> Result<Self, NacosException> {
         config.validate()?;
-        let helper = NacosParseHelper::new(config.clone())?;
+        let helper = NacosParserHelper::new(config.clone())?;
         Ok(Self { config, helper })
     }
 
@@ -49,7 +49,7 @@ impl NacosXmlELParser {
 
     /// 返回 Nacos 解析辅助对象。
     #[must_use]
-    pub fn helper(&self) -> &NacosParseHelper {
+    pub fn helper(&self) -> &NacosParserHelper {
         &self.helper
     }
 }

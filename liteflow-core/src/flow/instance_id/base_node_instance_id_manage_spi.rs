@@ -156,10 +156,9 @@ impl BaseNodeInstanceIdManageSpi {
                 info.chain_id() == Some(chain_id)
                     && info.node_id() == Some(node_id.as_str())
                     && info.index() == Some(*occurrence)
-            }) {
-                if let Some(instance_id) = info.instance_id() {
-                    node.set_node_instance_id(instance_id);
-                }
+            }) && let Some(instance_id) = info.instance_id()
+            {
+                node.set_node_instance_id(instance_id);
             }
             *occurrence += 1;
         }

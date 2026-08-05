@@ -7,5 +7,5 @@ mod nacos_xml_el_parser;
 
 pub use nacos_rule_source::NacosRuleSource;
 pub use nacos_xml_el_parser::NacosXmlELParser;
-pub use util::NacosParseHelper;
+pub use util::NacosParserHelper;
 pub use vo::NacosParserVO;

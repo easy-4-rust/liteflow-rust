@@ -22,7 +22,7 @@ impl LocalContextAware {
     /// 返回值不持有容器状态。对应 Java: `LocalContextAware#LocalContextAware`。
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
     /// 按名称查询 Bean。

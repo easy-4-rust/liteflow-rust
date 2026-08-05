@@ -16,12 +16,12 @@ use crate::parser::nacos::vo::NacosParserVO;
 ///
 /// 对应 Java: `com.yomahub.liteflow.parser.nacos.util.NacosParserHelper`。
 #[derive(Debug, Clone)]
-pub struct NacosParseHelper {
+pub struct NacosParserHelper {
     config: NacosParserVO,
     service: Arc<OnceCell<ConfigService>>,
 }
 
-impl NacosParseHelper {
+impl NacosParserHelper {
     /// 校验配置并创建惰性连接辅助对象。
     ///
     /// 实际网络连接在首次读取或监听时建立。

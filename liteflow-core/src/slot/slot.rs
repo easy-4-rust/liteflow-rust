@@ -477,10 +477,8 @@ impl Slot {
         let context_name = context_name.into();
         let is_new = !self.beans.contains_key(&context_name);
         self.beans.insert(context_name.clone(), context_bean);
-        if is_new {
-            if let Ok(mut order) = self.context_bean_order.lock() {
-                order.push(context_name);
-            }
+        if is_new && let Ok(mut order) = self.context_bean_order.lock() {
+            order.push(context_name);
         }
     }
 
