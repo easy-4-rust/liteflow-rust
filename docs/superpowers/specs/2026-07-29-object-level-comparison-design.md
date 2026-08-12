@@ -1,3 +1,11 @@
+# liteflow-rust 对象级对照表规范
+
+日期：2026-07-29
+状态：活跃
+落点：liteflow-rust 全 workspace（500 个 Java 生产对象 → Rust 对应文件）
+
+---
+
 # LiteFlow → liteflow-rust 对象级对照表（验收清单）
 
 > 更新日期：2026-07-29

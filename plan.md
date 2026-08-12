@@ -1,5 +1,9 @@
 # liteflow-rust 全量迁移工程 plan
 
+> **完整规格文档已迁移至 `docs/superpowers/` 体系。**
+> 本文件保留为精简入口，详细计划见 `docs/superpowers/plans/`，设计规范见 `docs/superpowers/specs/`。
+> 索引见 `docs/superpowers/README.md`。
+
 ## 目标
 以 dromara/liteflow 为蓝本，实现能力完全对齐的 liteflow-rust workspace：
 liteflow-core / liteflow-derive / liteflow-rule-plugin / liteflow-script-plugin /

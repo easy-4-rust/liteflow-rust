@@ -1,3 +1,11 @@
+# liteflow-rust 语义迁移对照规范
+
+日期：2026-07-29
+状态：活跃
+落点：liteflow-rust 全 workspace 功能语义迁移对照
+
+---
+
 # LiteFlow → liteflow-rust 功能语义迁移对照表
 
 > 更新日期：2026-07-29
